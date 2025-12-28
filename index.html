@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chatbot with Memory</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Language selector -->
+    <div class="language-selector">
+        <button class="language-btn" onclick="toggleLanguageDropdown()">
+            <span class="flag" id="currentFlag">🇬🇧</span>
+            <span id="currentLangName">English</span>
+            <span>▼</span>
+        </button>
+        <div class="language-dropdown" id="languageDropdown"></div>
+    </div>
+
+    <!-- Translating overlay -->
+    <div class="translating-overlay" id="translatingOverlay">
+        <div class="spinner"></div>
+        <div class="text" id="translatingText">Translating interface...</div>
+    </div>
+
+    <!-- API key section -->
+    <div class="api-section" id="apiSection">
+        <div class="api-header" onclick="toggleApiSection()">
+            <h3 data-i18n="apiKeyTitle">🔑 OpenRouter API Key</h3>
+            <button class="api-toggle">▲</button>
+        </div>
+        <div class="api-content">
+            <input 
+                type="password" 
+                class="api-input" 
+                id="apiKeyInput" 
+                data-i18n-placeholder="apiKeyPlaceholder"
+                placeholder="Enter your API key..."
+                oninput="saveApiKey()"
+            >
+            <div class="api-status" id="apiStatus"></div>
+        </div>
+    </div>
+
+    <!-- Main container -->
+    <div class="main-container">
+        <!-- Control panel -->
+        <div class="controls">
+            <button class="btn btn-primary" onclick="openKnowledgeModal()" data-i18n="btnKnowledge">
+                📚 User Knowledge
+            </button>
+            <button class="btn btn-secondary" onclick="clearChat()" data-i18n="btnClearChat">
+                🗑️ Clear Chat
+            </button>
+            <button class="btn btn-danger" onclick="clearKnowledge()" data-i18n="btnClearKnowledge">
+                ⚠️ Clear Knowledge
+            </button>
+            <div class="counters-wrapper">
+                <div class="counter-badge">
+                    <span data-i18n="counterStyle">🎭 Style:</span> <span class="style-count" id="styleCounter">10</span>
+                </div>
+                <div class="counter-badge">
+                    <span data-i18n="counterHypotheses">💡 Hypotheses:</span> <span class="hypo-count" id="hypoCounter">16</span>
+                </div>
+                <div class="counter-badge">
+                    <span data-i18n="counterGaps">🔍 Gaps:</span> <span class="gaps-count" id="gapsCounter">6</span>
+                </div>
+            </div>
+            <!-- После counters-wrapper, внутри .controls -->
+<div class="ask-me-toggle-wrapper">
+    <span class="ask-me-label" data-i18n="askMeMode">Ask Me Mode</span>
+    <div class="ask-me-toggle disabled" id="askMeToggle" onclick="toggleAskMeMode()" title="">
+        <div class="ask-me-slider" id="askMeSlider"></div>
+    </div>
+</div>
+        </div>
+
+        <!-- Chat area -->
+        <div class="chat-area" id="chatArea">
+            <div class="message system" data-i18n="welcomeMessage">
+                Hello! I'm your personal assistant. Tell me about yourself, and I'll remember important information.
+            </div>
+        </div>
+
+        <!-- Input form -->
+        <div class="input-area">
+            <form class="input-form" onsubmit="sendMessage(event)">
+                <textarea 
+                    class="message-input" 
+                    id="messageInput" 
+                    data-i18n-placeholder="inputPlaceholder"
+                    placeholder="Enter message..."
+                    rows="1"
+                    onkeydown="handleKeyDown(event)"
+                ></textarea>
+                <button type="submit" class="send-btn" id="sendBtn" data-i18n="btnSend">
+                    Send
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Fullscreen knowledge modal -->
+    <div class="modal-overlay" id="knowledgeModal">
+        <div class="modal-header">
+            <h2 data-i18n="modalTitle">📚 Knowledge Base</h2>
+            <button class="modal-close" onclick="closeKnowledgeModal()" data-i18n="btnClose">✕ Close</button>
+        </div>
+        
+        <div class="modal-tabs">
+            <button class="modal-tab active" data-tab="facts" onclick="switchTab('facts')" data-i18n="tabFacts">
+                📋 Facts
+            </button>
+            <button class="modal-tab" data-tab="traits" onclick="switchTab('traits')" data-i18n="tabTraits">
+                🧠 Personality Traits
+            </button>
+            <button class="modal-tab" data-tab="timeline" onclick="switchTab('timeline')" data-i18n="tabTimeline">
+                📅 Timeline
+            </button>
+            <button class="modal-tab" data-tab="social" onclick="switchTab('social')" data-i18n="tabSocial">
+                👥 Social
+            </button>
+            <button class="modal-tab" data-tab="style" onclick="switchTab('style')" data-i18n="tabStyle">
+                🎭 Communication Style
+            </button>
+            <button class="modal-tab" data-tab="hypotheses" onclick="switchTab('hypotheses')" data-i18n="tabHypotheses">
+                💡 Hypotheses
+            </button>
+            <button class="modal-tab" data-tab="gaps" onclick="switchTab('gaps')" data-i18n="tabGaps">
+                🔍 White Spots
+            </button>
+        </div>
+        
+        <div class="modal-content">
+            <!-- Info blocks -->
+            <div id="styleInfo" class="tab-info" style="display: none;" data-i18n="styleInfo">
+                <strong>ℹ️ Communication Style</strong> — automatically generated every 10 messages based on personality trait analysis. You can edit settings manually.
+            </div>
+            <div id="hypothesesInfo" class="tab-info" style="display: none;" data-i18n="hypothesesInfo">
+                <strong>💡 Hypotheses</strong> — non-obvious insights about you, generated every 16 messages. Based on facts, traits, and timeline analysis. Read-only — the AI refines these automatically.
+            </div>
+            <div id="socialInfo" class="tab-info" style="display: none;" data-i18n="socialInfo">
+                <strong>👥 Social Connections</strong> — people mentioned in your conversations. Click on a contact to see their profile. Facts are backed by quotes from your messages.
+            </div>
+            <div id="gapsInfo" class="tab-info" style="display: none;" data-i18n="gapsInfo">
+                <strong>🔍 White Spots</strong> — important topics about you that remain unknown. The AI uses these to ask better questions. Updated every 6 messages. Read-only.
+            </div>
+            
+            <!-- Readonly indicator -->
+            <div id="readonlyIndicator" class="readonly-indicator" style="display: none;">
+                <span data-i18n="readOnly">🔒 Read-only</span>
+            </div>
+            
+            <!-- Edit indicator -->
+            <div id="editIndicator" class="edit-indicator">
+                <span data-i18n="unsavedChanges">⚠️ Unsaved changes</span>
+            </div>
+            
+            <!-- Social container (for accordion) -->
+            <div id="socialContainer" class="social-container" style="display: none;">
+            </div>
+            
+            <!-- Main textarea -->
+            <textarea 
+                id="knowledgeTextarea" 
+                class="knowledge-textarea"
+                oninput="onTextareaChange()"
+            ></textarea>
+            
+            <!-- Edit buttons -->
+            <div class="modal-buttons">
+                <button id="cancelBtn" class="btn btn-secondary" onclick="cancelChanges()" style="display: none;" data-i18n="btnCancel">
+                    Cancel
+                </button>
+                <button id="saveBtn" class="btn btn-primary" onclick="saveChanges()" style="display: none;" data-i18n="btnSave">
+                    💾 Save
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+    <script src="ui.js"></script>
+</body>
+</html>
