@@ -1,7 +1,6 @@
 // ==================== INITIALIZATION ====================
 document.addEventListener('DOMContentLoaded', () => {
     loadLanguage();
-    loadApiKey();
     loadChatHistory();
     autoResizeTextarea();
     updateStyleCounter();
@@ -22,31 +21,6 @@ function loadLanguage() {
     }
     applyTranslations();
     updateLanguageButton();
-}
-
-// ==================== API KEY ====================
-function loadApiKey() {
-    const apiKey = localStorage.getItem(STORAGE_KEYS.apiKey);
-    if (apiKey) {
-        document.getElementById('apiKeyInput').value = apiKey;
-        document.getElementById('apiStatus').textContent = t('apiKeySaved');
-        document.getElementById('apiSection').classList.add('collapsed');
-    }
-}
-
-function saveApiKey() {
-    const apiKey = document.getElementById('apiKeyInput').value.trim();
-    if (apiKey) {
-        localStorage.setItem(STORAGE_KEYS.apiKey, apiKey);
-        document.getElementById('apiStatus').textContent = t('apiKeySaved');
-    } else {
-        localStorage.removeItem(STORAGE_KEYS.apiKey);
-        document.getElementById('apiStatus').textContent = '';
-    }
-}
-
-function toggleApiSection() {
-    document.getElementById('apiSection').classList.toggle('collapsed');
 }
 
 // ==================== ASK ME MODE ====================
@@ -534,7 +508,7 @@ When formulating questions:
 5. Your question should serve BOTH the current context AND gap discovery
 
 You are not a generic assistant. You are THIS user's personal AI who deeply knows them.`;
-    
+
     // ==================== ASK ME MODE INJECTION ====================
     if (askMeMode && isAskMeModeAvailable()) {
         const gaps = getGapsForPrompt();
@@ -595,32 +569,19 @@ function getLanguageInstruction() {
 
 // ==================== API REQUESTS ====================
 async function callAPI(messages, tools = null, retries = CONFIG.maxRetries) {
-    const apiKey = getApiKey();
-    if (!apiKey) {
-        throw new Error('API key not specified');
-    }
-
     for (let attempt = 1; attempt <= retries; attempt++) {
         try {
             console.log(`[API] Attempt ${attempt}/${retries}...`);
-            
-            const requestBody = {
-                model: CONFIG.model,
-                messages: messages
-            };
 
+            const requestBody = { messages };
             if (tools && tools.length > 0) {
                 requestBody.tools = tools;
-                requestBody.tool_choice = "auto";
             }
 
-            const response = await fetch(CONFIG.apiUrl, {
-                method: "POST",
+            const response = await fetch('/api/chat', {
+                method: 'POST',
                 headers: {
-                    "Authorization": `Bearer ${apiKey}`,
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": window.location.href,
-                    "X-Title": "Memory Chatbot"
+                    'Content-Type': 'application/json'
                 },
                 body: JSON.stringify(requestBody)
             });
@@ -631,7 +592,7 @@ async function callAPI(messages, tools = null, retries = CONFIG.maxRetries) {
             }
 
             const data = await response.json();
-            
+
             if (data.choices && data.choices[0] && data.choices[0].message) {
                 return data.choices[0].message;
             } else {
@@ -639,36 +600,25 @@ async function callAPI(messages, tools = null, retries = CONFIG.maxRetries) {
             }
         } catch (error) {
             console.error(`[API] Attempt ${attempt} error:`, error.message);
-            
+
             if (attempt === retries) {
                 throw error;
             }
-            
+
             await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
         }
     }
 }
 
 async function callAPIWithoutLanguage(messages, retries = CONFIG.maxRetries) {
-    const apiKey = getApiKey();
-    if (!apiKey) {
-        throw new Error('API key not specified');
-    }
-
     for (let attempt = 1; attempt <= retries; attempt++) {
         try {
-            const response = await fetch(CONFIG.apiUrl, {
-                method: "POST",
+            const response = await fetch('/api/chat', {
+                method: 'POST',
                 headers: {
-                    "Authorization": `Bearer ${apiKey}`,
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": window.location.href,
-                    "X-Title": "Memory Chatbot"
+                    'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({
-                    model: CONFIG.model,
-                    messages: messages
-                })
+                body: JSON.stringify({ messages })
             });
 
             if (!response.ok) {
@@ -677,7 +627,7 @@ async function callAPIWithoutLanguage(messages, retries = CONFIG.maxRetries) {
             }
 
             const data = await response.json();
-            
+
             if (data.choices && data.choices[0] && data.choices[0].message) {
                 return data.choices[0].message;
             } else {
@@ -734,12 +684,6 @@ async function sendMessage(event) {
     const message = input.value.trim();
     
     if (!message) return;
-
-    if (!getApiKey()) {
-        alert(t('alertNoApiKey'));
-        document.getElementById('apiSection').classList.remove('collapsed');
-        return;
-    }
 
     isProcessing = true;
     document.getElementById('sendBtn').disabled = true;
@@ -1064,7 +1008,6 @@ function integrateSocialData(newContacts) {
     console.log('[INTEGRATE] =====================================');
     console.log('[INTEGRATE] Processing', newContacts.length, 'contacts');
     
-    // КРИТИЧНО: Работаем с ОДНОЙ копией данных!
     const data = getSocialData();
     const messageCount = getMessageCounter();
     
@@ -1076,7 +1019,6 @@ function integrateSocialData(newContacts) {
         
         let existingContact = null;
         
-        // Поиск по possibleMergeWith
         if (newContact.possibleMergeWith) {
             existingContact = data.contacts.find(c => 
                 c.name.toLowerCase() === newContact.possibleMergeWith.toLowerCase() ||
@@ -1085,7 +1027,6 @@ function integrateSocialData(newContacts) {
             console.log(`[INTEGRATE] Search by mergeWith "${newContact.possibleMergeWith}":`, existingContact ? 'FOUND' : 'NOT FOUND');
         }
         
-        // Поиск по имени
         if (!existingContact) {
             existingContact = data.contacts.find(c => 
                 c.name.toLowerCase() === newContact.name.toLowerCase() ||
@@ -1094,7 +1035,6 @@ function integrateSocialData(newContacts) {
             console.log(`[INTEGRATE] Search by name "${newContact.name}":`, existingContact ? 'FOUND' : 'NOT FOUND');
         }
         
-        // Поиск по алиасам
         if (!existingContact && newContact.possibleAliases) {
             for (const alias of newContact.possibleAliases) {
                 existingContact = data.contacts.find(c => 
@@ -1108,7 +1048,6 @@ function integrateSocialData(newContacts) {
             }
         }
         
-        // Fuzzy поиск
         if (!existingContact) {
             existingContact = findContactFuzzy(newContact.name, newContact.relation, data.contacts);
             if (existingContact) {
@@ -1126,29 +1065,22 @@ function integrateSocialData(newContacts) {
         }
     }
     
-    // Лимит контактов
     if (data.contacts.length > SOCIAL_CONFIG.maxContacts) {
         trimContacts(data);
     }
     
-    // Проверка дублей
     checkForMerges(data);
     
     console.log('[INTEGRATE] AFTER:', data.contacts.map(c => `${c.name}(${c.facts?.length || 0}f)`).join(', '));
     
-    // ОДНО сохранение в конце!
     console.log('[INTEGRATE] Saving...');
     setSocialData(data);
     
-    // Верификация
     const verify = getSocialData();
     console.log('[INTEGRATE] VERIFY:', verify.contacts.map(c => `${c.name}(${c.facts?.length || 0}f)`).join(', '));
     console.log('[INTEGRATE] =====================================');
 }
 
-/**
- * Обновляет контакт НА МЕСТЕ в переданном объекте data
- */
 function updateExistingContactInPlace(data, contactId, newData, messageCount) {
     const contact = data.contacts.find(c => c.id === contactId);
     
@@ -1162,7 +1094,6 @@ function updateExistingContactInPlace(data, contactId, newData, messageCount) {
     
     contact.lastMentioned = messageCount;
     
-    // Добавляем имя как алиас
     if (newData.name && 
         newData.name.toLowerCase() !== contact.name.toLowerCase() &&
         !(contact.aliases || []).map(a => a.toLowerCase()).includes(newData.name.toLowerCase())) {
@@ -1171,7 +1102,6 @@ function updateExistingContactInPlace(data, contactId, newData, messageCount) {
         console.log(`[UPDATE] Added alias: "${newData.name}"`);
     }
     
-    // Добавляем новые алиасы
     if (newData.possibleAliases) {
         contact.aliases = contact.aliases || [];
         for (const alias of newData.possibleAliases) {
@@ -1182,18 +1112,15 @@ function updateExistingContactInPlace(data, contactId, newData, messageCount) {
         }
     }
     
-    // Обновляем sentiment
     if (newData.sentiment && newData.sentiment !== 'neutral') {
         contact.sentiment = newData.sentiment;
     }
     
-    // Обновляем relation
     if (newData.relation && newData.relation !== 'unknown' && 
         (!contact.relation || contact.relation === 'unknown')) {
         contact.relation = newData.relation;
     }
     
-    // МЕРЖИМ FACTS
     contact.facts = contact.facts || [];
     for (const newFact of (newData.facts || [])) {
         const exists = contact.facts.some(f => 
@@ -1210,7 +1137,6 @@ function updateExistingContactInPlace(data, contactId, newData, messageCount) {
         }
     }
     
-    // МЕРЖИМ TRAITS
     contact.traits = contact.traits || [];
     for (const newTrait of (newData.traits || [])) {
         const exists = contact.traits.some(t => 
@@ -1227,7 +1153,6 @@ function updateExistingContactInPlace(data, contactId, newData, messageCount) {
         }
     }
     
-    // МЕРЖИМ INTERACTIONS
     contact.interactions = contact.interactions || [];
     for (const newInt of (newData.interactions || [])) {
         const exists = contact.interactions.some(i => 
@@ -1400,7 +1325,6 @@ async function runGapsUpdate() {
     const hypotheses = getHypothesesForPrompt();
     const social = getSocialForPrompt();
     
-    // Проверяем достаточно ли данных
     const hasData = [facts, traits, timeline].filter(k => k && k.trim().length > 20).length;
     
     if (hasData < 1) {
@@ -1412,9 +1336,9 @@ async function runGapsUpdate() {
     
     console.log(`[Gaps] Generating fresh knowledge gaps...`);
     
-    const langInstruction = currentLanguage !== 'en' ?
-        `Write your response in ${getLanguageName()}.` :
-        '';
+    const langInstruction = currentLanguage !== 'en' 
+        ? `Write your response in ${getLanguageName()}.` 
+        : '';
     
     const prompt = `You are analyzing what IMPORTANT information is MISSING about a user to help them effectively.
 
@@ -1476,7 +1400,7 @@ Priority guide:
 
 Exactly 5 gaps. No more, no less.
 ${langInstruction}`;
-    
+
     try {
         const result = await callAPIWithRetry(prompt, 2);
         console.log('[Gaps] Raw response:', result.substring(0, 300));
@@ -1484,7 +1408,6 @@ ${langInstruction}`;
         const parsed = parseJSON(result);
         
         if (parsed && parsed.gaps && Array.isArray(parsed.gaps)) {
-            // Добавляем метаданные
             const gapsWithMeta = parsed.gaps.slice(0, 5).map(g => ({
                 ...g,
                 createdAt: messageCount
@@ -1759,10 +1682,10 @@ ${langInstruction}`;
 
 async function runAdditionStep(data, facts, traits, timeline, messageCount) {
     console.log('[Hypotheses/Add] Generating 2 NEW hypotheses...');
-    
+
     const langInstruction = currentLanguage !== 'en' ? `Write your response in ${getLanguageName()}.` : '';
     const existingHypotheses = data.hypotheses.length > 0 ? getHypothesesForPrompt() : '(no existing hypotheses)';
-    
+
     const prompt = `You are an attentive analyst generating hypotheses about a user based on observed patterns.
 
 === EXISTING HYPOTHESES (Do NOT repeat these) ===
@@ -1826,7 +1749,7 @@ Confidence guide:
 • medium = pattern from 2-3 observations
 • high = strong pattern, multiple confirmations
 ${langInstruction}`;
-    
+
     try {
         const result = await callAPIWithRetry(prompt, 2);
         const parsed = parseJSON(result);
@@ -1853,6 +1776,6 @@ ${langInstruction}`;
     } catch (error) {
         console.error('[Hypotheses/Add] Step failed:', error.message);
     }
-    
+
     return data;
 }

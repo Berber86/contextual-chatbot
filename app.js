@@ -330,7 +330,7 @@ function getLanguageName() {
 }
 
 function getApiKey() {
-    return localStorage.getItem(STORAGE_KEYS.apiKey) || '';
+    return 'server-side'; // Заглушка, ключ теперь на сервере
 }
 
 // ==================== TOOL DEFINITIONS ====================
