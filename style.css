@@ -945,3 +945,148 @@ body.modal-open .api-section {
         flex-wrap: wrap;
     }
 }
+
+/* ==================== HELP BUTTON ==================== */
+.help-btn {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: #4a4a4a;
+    color: #fff;
+    border: none;
+    font-size: 24px;
+    font-weight: bold;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    transition: all 0.3s ease;
+    z-index: 100;
+}
+
+.help-btn:hover {
+    background: #5a5a5a;
+    transform: scale(1.1);
+}
+
+/* ==================== HELP MODAL ==================== */
+.help-modal-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    z-index: 1000;
+    overflow-y: auto;
+    padding: 20px;
+}
+
+.help-modal-overlay.active {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+}
+
+.help-modal {
+    background: #1e1e1e;
+    border-radius: 16px;
+    max-width: 600px;
+    width: 100%;
+    padding: 32px;
+    position: relative;
+    margin: 40px 0;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.help-modal-close {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: #3a3a3a;
+    color: #fff;
+    border: none;
+    font-size: 18px;
+    cursor: pointer;
+    transition: background 0.3s ease;
+}
+
+.help-modal-close:hover {
+    background: #4a4a4a;
+}
+
+.help-modal h1 {
+    margin: 0 0 24px 0;
+    font-size: 28px;
+    text-align: center;
+}
+
+.help-section {
+    margin-bottom: 24px;
+    padding-bottom: 24px;
+    border-bottom: 1px solid #333;
+}
+
+.help-section:last-of-type {
+    border-bottom: none;
+}
+
+.help-section h2 {
+    margin: 0 0 12px 0;
+    font-size: 18px;
+    color: #4CAF50;
+}
+
+.help-section p {
+    margin: 0 0 8px 0;
+    line-height: 1.6;
+    color: #ccc;
+}
+
+.help-section ul {
+    margin: 0;
+    padding-left: 20px;
+}
+
+.help-section li {
+    margin-bottom: 8px;
+    line-height: 1.5;
+    color: #ccc;
+}
+
+.help-section a {
+    color: #4CAF50;
+    text-decoration: none;
+}
+
+.help-section a:hover {
+    text-decoration: underline;
+}
+
+.help-footer {
+    text-align: center;
+    color: #666;
+    font-size: 14px;
+    margin-top: 24px;
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+    .help-modal {
+        padding: 24px 16px;
+        margin: 20px 0;
+    }
+    
+    .help-modal h1 {
+        font-size: 24px;
+    }
+    
+    .help-btn {
+        bottom: 80px; /* Выше чтобы не мешать вводу */
+    }
+}

@@ -119,6 +119,33 @@ const DEFAULT_TRANSLATIONS = {
     confirmUnsavedClose: "There are unsaved changes. Close without saving?",
     confirmUnsavedSwitch: "There are unsaved changes. Switch tab without saving?",
     
+    // В DEFAULT_TRANSLATIONS добавь:
+
+// Help Modal
+helpTitle: "🧠 Memory Chatbot",
+    helpWhatIs: "What is this?",
+    helpWhatIsText: "A personal AI assistant that <strong>remembers</strong> information about you. The more you chat — the better it understands you.",
+    helpWhatRemembers: "What does it remember?",
+    helpFacts: "Facts — name, work, interests, preferences",
+    helpTraits: "Personality — how you think, what you value",
+    helpTimeline: "Timeline — events, plans, important dates",
+    helpPeople: "People — family, friends, colleagues from your stories",
+    helpInsights: "Insights — patterns and observations about you",
+    helpAskMe: "Ask Me Mode",
+    helpAskMeText: "Turn on the toggle — the bot will ask questions to learn more about you. Questions are woven naturally into conversation.",
+    helpPrivacy: "Privacy",
+    helpPrivacyText1: "All data is stored only on your device.",
+    helpPrivacyText2: "We technically cannot read your conversations — they are not sent to our servers.",
+    helpPrivacyText3: "Messages are processed via OpenRouter for AI to work.",
+    helpPrivacyText4: "Click \"Clear Knowledge\" to delete everything instantly.",
+    helpRoadmap: "What's next?",
+    helpRoadmapSync: "Cross-device sync (optional)",
+    helpRoadmapExport: "Export/import knowledge base",
+    helpRoadmapSettings: "More personalization settings",
+    helpRoadmapMobile: "Mobile app",
+    helpAuthor: "Author",
+    helpVersion: "Version 1.0 · 2024",
+    
     // Alerts
     alertNoApiKey: "Please enter your OpenRouter API key",
     alertKnowledgeCleared: "Knowledge cleared",

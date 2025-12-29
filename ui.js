@@ -1779,3 +1779,28 @@ ${langInstruction}`;
 
     return data;
 }
+
+// ==================== HELP MODAL ====================
+function openHelpModal() {
+    document.getElementById('helpModal').classList.add('active');
+    document.body.style.overflow = 'hidden';
+}
+
+function closeHelpModal() {
+    document.getElementById('helpModal').classList.remove('active');
+    document.body.style.overflow = '';
+}
+
+// Закрытие по клику на оверлей
+document.addEventListener('click', (e) => {
+    if (e.target.id === 'helpModal') {
+        closeHelpModal();
+    }
+});
+
+// Закрытие по Escape
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        closeHelpModal();
+    }
+});
