@@ -822,3 +822,45 @@ body.modal-open .chat-container {
     border-top: 1px solid #0f3460;
     margin-top: 8px; /* Добавил margin сверху */
 }
+
+/* ==================== INPUT CONTAINER (привязан к низу) ==================== */
+.input-container {
+    padding: 8px 12px; /* Ещё меньше padding */
+    background: #16213e;
+    border-top: 1px solid #0f3460;
+    flex-shrink: 0;
+}
+
+/* Для сервера (когда нет счётчиков) */
+#countersContainer[style*="display: none"] ~ .input-form {
+    margin-bottom: 0; /* Убираем margin если счётчиков нет */
+}
+
+#countersContainer[style*="display: none"] + .input-container {
+    padding-bottom: 12px; /* Меньше padding снизу если счётчиков нет */
+}
+
+/* Адаптивность для мобильных */
+@media (max-width: 768px) {
+    .input-container {
+        padding: 6px 10px;
+    }
+    
+    .ask-me-container {
+        margin-bottom: 6px;
+    }
+    
+    .input-form {
+        margin-bottom: 6px;
+    }
+    
+    .message-input {
+        min-height: 40px;
+        padding: 8px 12px;
+    }
+    
+    .send-btn {
+        padding: 8px 16px;
+        min-height: 40px;
+    }
+}
