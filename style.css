@@ -1090,3 +1090,21 @@ body.modal-open .api-section {
         bottom: 80px; /* Выше чтобы не мешать вводу */
     }
 }
+
+/* ==================== СКРЫТИЕ СЧЕТЧИКОВ НА ПРОДАКШЕНЕ ==================== */
+/* Этот стиль применяется только когда не локально */
+/* Можно добавить через JavaScript класс к body, но проще через JavaScript скрыть */
+
+/* Вместо этого, в JavaScript мы просто скрываем .counters-wrapper */
+
+/* Если хочешь скрыть и Ask Me Mode на продакшене, добавь: */
+/*
+.counters-wrapper:not(:only-child) + .ask-me-toggle-wrapper {
+    margin-left: auto; /* чтобы Ask Me Mode прижимался к правому краю */
+
+/* Для мобильных устройств, если скрыли счетчики */
+@media (max-width: 768px) {
+    .counters-wrapper[style*="display: none"]+.ask-me-toggle-wrapper {
+        margin-top: 0;
+    }
+}

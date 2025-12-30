@@ -1,26 +1,58 @@
-// ==================== INITIALIZATION ====================
+// ==================== INITIALIZATION & CONFIG ====================
+// 1. Сначала определяем, где мы находимся (это должно быть в самом верху!)
+// ==================== INITIALIZATION & CONFIG ====================
+const isLocal = window.location.hostname.includes('localhost') ||
+    window.location.hostname.includes('127.0.0.1');
+
+const CONFIG = {
+    // Модели разделены по назначению
+    model_chat: "mistralai/devstral-2512:free",
+    model_analysis: "xiaomi/mimo-v2-flash:free",
+    
+    // Адрес переключается сам (дома - OpenRouter, на сайте - Версаль)
+    apiUrl: isLocal ?
+        "https://openrouter.ai/api/v1/chat/completions" :
+        "/api/chat",
+    
+    maxRetries: 3,
+    baseSystemPrompt: "You are a friendly assistant. Be an attentive and caring conversationalist.",
+    styleUpdateInterval: 10,
+    hypothesesUpdateInterval: 16,
+    gapsUpdateInterval: 6,
+    maxHypotheses: 10,
+    maxGaps: 5,
+    maxToolIterations: 5,
+    showToolCalls: true
+};
+
 document.addEventListener('DOMContentLoaded', () => {
     loadLanguage();
     loadChatHistory();
     autoResizeTextarea();
-    updateStyleCounter();
-    updateHypoCounter();
-    updateGapsCounter();
+    
+    // Инициализация счетчиков только в локальном режиме
+    if (isLocal) {
+        updateStyleCounter();
+        updateHypoCounter();
+        updateGapsCounter();
+    } else {
+        // На продакшене скрываем только блок счетчиков
+        hideCounters();
+    }
+    
     initLanguageDropdown();
     updateAskMeModeUI();
+    
+    // Инициализация розового окошка с ключом
+    if (isLocal) initLocalDevSettings();
 });
 
-function loadLanguage() {
-    const savedLang = localStorage.getItem(STORAGE_KEYS.language);
-    if (savedLang) {
-        currentLanguage = savedLang;
-        const cachedTranslations = localStorage.getItem(`${STORAGE_KEYS.translations}_${savedLang}`);
-        if (cachedTranslations) {
-            translations = JSON.parse(cachedTranslations);
-        }
+// ==================== ФУНКЦИИ ДЛЯ СКРЫТИЯ СЧЕТЧИКОВ ====================
+function hideCounters() {
+    const countersWrapper = document.querySelector('.counters-wrapper');
+    if (countersWrapper) {
+        countersWrapper.style.display = 'none';
     }
-    applyTranslations();
-    updateLanguageButton();
 }
 
 // ==================== ASK ME MODE ====================
@@ -64,25 +96,33 @@ function getMessageCounter() {
 function incrementMessageCounter() {
     const counter = getMessageCounter() + 1;
     localStorage.setItem(STORAGE_KEYS.messageCounter, counter.toString());
-    updateStyleCounter();
-    updateHypoCounter();
-    updateGapsCounter();
+    
+    // Обновляем счетчики только в локальном режиме
+    if (isLocal) {
+        updateStyleCounter();
+        updateHypoCounter();
+        updateGapsCounter();
+    }
+    
     return counter;
 }
 
 function updateStyleCounter() {
+    if (!isLocal) return;
     const counter = getMessageCounter();
     const remaining = CONFIG.styleUpdateInterval - (counter % CONFIG.styleUpdateInterval);
     document.getElementById('styleCounter').textContent = remaining;
 }
 
 function updateHypoCounter() {
+    if (!isLocal) return;
     const counter = getMessageCounter();
     const remaining = CONFIG.hypothesesUpdateInterval - (counter % CONFIG.hypothesesUpdateInterval);
     document.getElementById('hypoCounter').textContent = remaining;
 }
 
 function updateGapsCounter() {
+    if (!isLocal) return;
     const counter = getMessageCounter();
     const remaining = CONFIG.gapsUpdateInterval - (counter % CONFIG.gapsUpdateInterval);
     const el = document.getElementById('gapsCounter');
@@ -152,9 +192,14 @@ function clearKnowledge() {
         localStorage.removeItem(STORAGE_KEYS.social);
         localStorage.removeItem(STORAGE_KEYS.gaps);
         localStorage.removeItem(STORAGE_KEYS.messageCounter);
-        updateStyleCounter();
-        updateHypoCounter();
-        updateGapsCounter();
+        
+        // Обновляем счетчики только в локальном режиме
+        if (isLocal) {
+            updateStyleCounter();
+            updateHypoCounter();
+            updateGapsCounter();
+        }
+        
         updateAskMeModeUI();
         console.log('[System] All knowledge cleared');
         alert(t('alertKnowledgeCleared'));
@@ -568,31 +613,64 @@ function getLanguageInstruction() {
 }
 
 // ==================== API REQUESTS ====================
-async function callAPI(messages, tools = null, retries = CONFIG.maxRetries) {
+// ==================== API REQUESTS ====================
+
+// Вспомогательная функция для заголовков и тела запроса
+function prepareRequestOptions(messages, tools = null, useAnalysisModel = false) {
+    const headers = {
+        'Content-Type': 'application/json',
+        'HTTP-Referer': window.location.href, // Нужно для OpenRouter
+        'X-Title': 'Memory Chatbot'
+    };
+    
+    // Если мы ДОМА — добавляем ключ вручную
+    if (isLocal) {
+        const apiKey = getApiKey();
+        if (!apiKey) {
+            throw new Error("API Key is missing! Enter it in the Dev Settings box.");
+        }
+        headers['Authorization'] = `Bearer ${apiKey}`;
+    }
+    
+    // Выбираем модель в зависимости от типа запроса
+    const model = useAnalysisModel ? CONFIG.model_analysis : CONFIG.model_chat;
+    
+    const body = {
+        model: model,
+        messages: messages
+    };
+    
+    if (tools && tools.length > 0) {
+        body.tools = tools;
+        body.tool_choice = "auto"; // <--- ВАЖНО: Это заставляет модель использовать инструменты
+    }
+    
+    return {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify(body)
+    };
+}
+
+async function callAPI(messages, tools = null, useAnalysisModel = false, retries = CONFIG.maxRetries) {
     for (let attempt = 1; attempt <= retries; attempt++) {
         try {
-            console.log(`[API] Attempt ${attempt}/${retries}...`);
-
-            const requestBody = { messages };
-            if (tools && tools.length > 0) {
-                requestBody.tools = tools;
-            }
-
-            const response = await fetch('/api/chat', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(requestBody)
-            });
-
+            console.log(`[API] Attempt ${attempt}/${retries} to ${CONFIG.apiUrl} (Local: ${isLocal}, Model: ${useAnalysisModel ? 'analysis' : 'chat'})`);
+            
+            const options = prepareRequestOptions(messages, tools, useAnalysisModel);
+            const response = await fetch(CONFIG.apiUrl, options);
+            
             if (!response.ok) {
                 const errorText = await response.text();
+                // Специальная обработка для 401 (нет доступа)
+                if (response.status === 401 && isLocal) {
+                    throw new Error("Invalid API Key in local settings. Check your key.");
+                }
                 throw new Error(`HTTP ${response.status}: ${errorText}`);
             }
-
+            
             const data = await response.json();
-
+            
             if (data.choices && data.choices[0] && data.choices[0].message) {
                 return data.choices[0].message;
             } else {
@@ -600,50 +678,23 @@ async function callAPI(messages, tools = null, retries = CONFIG.maxRetries) {
             }
         } catch (error) {
             console.error(`[API] Attempt ${attempt} error:`, error.message);
-
-            if (attempt === retries) {
-                throw error;
-            }
-
-            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-        }
-    }
-}
-
-async function callAPIWithoutLanguage(messages, retries = CONFIG.maxRetries) {
-    for (let attempt = 1; attempt <= retries; attempt++) {
-        try {
-            const response = await fetch('/api/chat', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ messages })
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`HTTP ${response.status}: ${errorText}`);
-            }
-
-            const data = await response.json();
-
-            if (data.choices && data.choices[0] && data.choices[0].message) {
-                return data.choices[0].message;
-            } else {
-                throw new Error('Unexpected response format');
-            }
-        } catch (error) {
             if (attempt === retries) throw error;
             await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
         }
     }
 }
 
-async function callAPIWithRetry(prompt, maxRetries = 2) {
+// Используем ту же логику для перевода, чтобы он работал и локально
+// Перевод интерфейса используем основную модель (chat)
+async function callAPIWithoutLanguage(messages, retries = CONFIG.maxRetries) {
+    return callAPI(messages, null, false, retries);
+}
+
+// Аналитические задачи используют аналитическую модель
+async function callAPIWithRetry(prompt, maxRetries = 2, useAnalysisModel = false) {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
-            const response = await callAPI([{ role: "user", content: prompt }], null);
+            const response = await callAPI([{ role: "user", content: prompt }], null, useAnalysisModel);
             return response.content || response;
         } catch (error) {
             console.error(`[API Retry] Attempt ${attempt}/${maxRetries} failed:`, error.message);
@@ -755,7 +806,7 @@ async function processMessageWithTools(userMessage) {
         iterations++;
         console.log(`[Tools] Iteration ${iterations}/${CONFIG.maxToolIterations}`);
 
-        const response = await callAPI(apiMessages, tools);
+        const response = await callAPI(apiMessages, tools, false); // Основная модель для диалога
         
         if (response.tool_calls && response.tool_calls.length > 0) {
             console.log('[Tools] Model requested tools:', response.tool_calls);
@@ -863,7 +914,7 @@ ${langInstruction}`;
 
     console.log(`[Analysis] Extracting information: ${categoryName}...`);
     
-    const response = await callAPI([{ role: "user", content: prompt }], null);
+    const response = await callAPI([{ role: "user", content: prompt }], null, false); // Основная модель для извлечения
     return response.content || response;
 }
 
@@ -897,7 +948,7 @@ Output only the final merged result.`;
 
     console.log(`[Analysis] Merging knowledge: ${categoryName}...`);
     
-    const response = await callAPI([{ role: "user", content: prompt }], null);
+    const response = await callAPI([{ role: "user", content: prompt }], null, false); // Основная модель
     return response.content || response;
 }
 
@@ -979,7 +1030,7 @@ ${langInstruction}`;
     console.log('[SOCIAL] Sending prompt to API...');
 
     try {
-        const result = await callAPIWithRetry(prompt, 2);
+        const result = await callAPIWithRetry(prompt, 2, false); // Основная модель для социальных данных
         console.log('[SOCIAL] Raw API response:', result.substring(0, 500));
         
         const parsed = parseJSON(result);
@@ -1402,7 +1453,8 @@ Exactly 5 gaps. No more, no less.
 ${langInstruction}`;
 
     try {
-        const result = await callAPIWithRetry(prompt, 2);
+        // Используем аналитическую модель для обновления пробелов
+        const result = await callAPIWithRetry(prompt, 2, true);
         console.log('[Gaps] Raw response:', result.substring(0, 300));
         
         const parsed = parseJSON(result);
@@ -1475,7 +1527,8 @@ Use this or a similar format. The main thing is that the recommendations are spe
 ${langInstruction}`;
 
     try {
-        const response = await callAPI([{ role: "user", content: prompt }], null);
+        // Используем аналитическую модель для обновления стиля
+        const response = await callAPI([{ role: "user", content: prompt }], null, true);
         const styleRecommendations = response.content || response;
         
         setKnowledge('style', styleRecommendations);
@@ -1573,7 +1626,8 @@ You MUST select exactly ${deleteCount} hypothesis(es) for deletion.
 ${langInstruction}`;
 
     try {
-        const result = await callAPIWithRetry(prompt, 2);
+        // Используем аналитическую модель для удаления гипотез
+        const result = await callAPIWithRetry(prompt, 2, true);
         const parsed = parseJSON(result);
         
         if (parsed && parsed.deletions && parsed.deletions.length > 0) {
@@ -1645,7 +1699,8 @@ Index is 1-based.
 ${langInstruction}`;
 
     try {
-        const result = await callAPIWithRetry(prompt, 2);
+        // Используем аналитическую модель для обновления гипотез
+        const result = await callAPIWithRetry(prompt, 2, true);
         const parsed = parseJSON(result);
         
         if (parsed && parsed.updates && parsed.updates.length > 0) {
@@ -1751,7 +1806,8 @@ Confidence guide:
 ${langInstruction}`;
 
     try {
-        const result = await callAPIWithRetry(prompt, 2);
+        // Используем аналитическую модель для добавления гипотез
+        const result = await callAPIWithRetry(prompt, 2, true);
         const parsed = parseJSON(result);
         
         if (parsed && parsed.new_hypotheses && parsed.new_hypotheses.length > 0) {
@@ -1804,3 +1860,35 @@ document.addEventListener('keydown', (e) => {
         closeHelpModal();
     }
 });
+
+// ==================== LOCAL DEV SETTINGS ====================
+function initLocalDevSettings() {
+    const devBox = document.getElementById('dev-settings');
+    if (devBox) {
+        devBox.style.display = 'block';
+        
+        const savedKey = localStorage.getItem('my_openrouter_key');
+        const statusSpan = document.getElementById('key-status');
+        const input = document.getElementById('local-api-key');
+        
+        if (savedKey && input) {
+            input.value = savedKey;
+            if (statusSpan) statusSpan.innerText = "✅ Loaded";
+        }
+    }
+}
+
+// Эта функция должна быть глобальной, чтобы работать из onclick в HTML
+window.saveLocalKey = function() {
+    const input = document.getElementById('local-api-key');
+    if (input) {
+        const key = input.value.trim();
+        if (key.startsWith('sk-or-')) {
+            localStorage.setItem('my_openrouter_key', key);
+            document.getElementById('key-status').innerText = "💾 Saved!";
+            alert("API Key saved locally!");
+        } else {
+            alert("Key typically starts with 'sk-or-'. Please check.");
+        }
+    }
+}

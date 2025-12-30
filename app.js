@@ -1,17 +1,4 @@
 // ==================== CONFIGURATION ====================
-const CONFIG = {
-    model: "mistralai/devstral-2512:free",
-    apiUrl: "https://openrouter.ai/api/v1/chat/completions",
-    maxRetries: 3,
-    baseSystemPrompt: "You are a friendly assistant. Be an attentive and caring conversationalist.",
-    styleUpdateInterval: 10,
-    hypothesesUpdateInterval: 16,
-    gapsUpdateInterval: 6,
-    maxHypotheses: 10,
-    maxGaps: 5,
-    maxToolIterations: 5,
-    showToolCalls: true
-};
 
 // ==================== LANGUAGES ====================
 const LANGUAGES = [
@@ -119,10 +106,8 @@ const DEFAULT_TRANSLATIONS = {
     confirmUnsavedClose: "There are unsaved changes. Close without saving?",
     confirmUnsavedSwitch: "There are unsaved changes. Switch tab without saving?",
     
-    // В DEFAULT_TRANSLATIONS добавь:
-
-// Help Modal
-helpTitle: "🧠 Memory Chatbot",
+    // Help Modal
+    helpTitle: "🧠 Memory Chatbot",
     helpWhatIs: "What is this?",
     helpWhatIsText: "A personal AI assistant that <strong>remembers</strong> information about you. The more you chat — the better it understands you.",
     helpWhatRemembers: "What does it remember?",
@@ -356,8 +341,32 @@ function getLanguageName() {
     return lang ? lang.name : 'English';
 }
 
+// ==================== LANGUAGE LOADING ====================
+function loadLanguage() {
+    const savedLang = localStorage.getItem(STORAGE_KEYS.language);
+    if (savedLang) {
+        currentLanguage = savedLang;
+        const cachedTranslations = localStorage.getItem(`${STORAGE_KEYS.translations}_${savedLang}`);
+        if (cachedTranslations) {
+            translations = JSON.parse(cachedTranslations);
+        }
+    }
+    applyTranslations();
+    updateLanguageButton();
+}
+
 function getApiKey() {
-    return 'server-side'; // Заглушка, ключ теперь на сервере
+    // Определяем, локально ли мы (должно быть согласовано с ui.js)
+    const isLocal = window.location.hostname.includes('localhost') ||
+        window.location.hostname.includes('127.0.0.1');
+    
+    if (isLocal) {
+        // Локально: ищем ключ в LocalStorage
+        const key = localStorage.getItem('my_openrouter_key');
+        return key ? key.trim() : null;
+    }
+    // На сервере: ключ подставит бэкенд, нам он тут не нужен
+    return 'server-side';
 }
 
 // ==================== TOOL DEFINITIONS ====================
