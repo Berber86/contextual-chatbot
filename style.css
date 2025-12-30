@@ -765,3 +765,60 @@ body.modal-open .chat-container {
         font-size: 11px;
     }
 }
+
+/* ==================== INPUT CONTAINER (привязан к низу) ==================== */
+.input-container {
+    padding: 10px 15px; /* Уменьшил padding сверху/снизу */
+    background: #16213e;
+    border-top: 1px solid #0f3460;
+    flex-shrink: 0;
+    min-height: auto; /* Убрал минимальную высоту */
+}
+
+.ask-me-container {
+    display: flex;
+    align-items: center;
+    gap: 8px; /* Уменьшил gap */
+    margin-bottom: 8px; /* Уменьшил margin */
+    justify-content: center;
+}
+
+.input-form {
+    display: flex;
+    gap: 8px; /* Уменьшил gap */
+    margin-bottom: 8px; /* Уменьшил margin */
+}
+
+.message-input {
+    flex: 1;
+    padding: 10px 14px; /* Уменьшил padding */
+    background: #0f0f23;
+    border: 1px solid #0f3460;
+    border-radius: 8px;
+    color: #eee;
+    font-size: 15px;
+    resize: none;
+    min-height: 44px; /* Уменьшил минимальную высоту */
+    max-height: 100px; /* Уменьшил максимальную высоту */
+}
+
+.send-btn {
+    padding: 10px 20px; /* Уменьшил padding */
+    background: #e94560;
+    border: none;
+    border-radius: 8px;
+    color: white;
+    font-size: 15px;
+    cursor: pointer;
+    transition: background 0.2s;
+    min-height: 44px; /* Добавил минимальную высоту */
+}
+
+.counters-container {
+    display: flex;
+    justify-content: center;
+    gap: 10px; /* Уменьшил gap */
+    padding-top: 8px; /* Уменьшил padding */
+    border-top: 1px solid #0f3460;
+    margin-top: 8px; /* Добавил margin сверху */
+}
