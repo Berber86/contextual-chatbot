@@ -864,3 +864,1093 @@ body.modal-open .chat-container {
         min-height: 40px;
     }
 }
+/* ==================== MODAL CONTENT ==================== */
+.modal-content {
+    flex: 1;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: #1a1a2e;
+    height: calc(100vh - 140px); /* Занимает всё доступное пространство */
+}
+
+/* ==================== KNOWLEDGE TEXTAREA ==================== */
+.knowledge-textarea {
+    flex: 1;
+    min-height: 0;
+    background: #0f0f23; /* Тёмный фон вместо белого */
+    padding: 20px; /* Больше padding */
+    border-radius: 8px;
+    border: 1px solid #0f3460;
+    color: #ccc;
+    font-size: 14px;
+    line-height: 1.6;
+    resize: none;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace; /* Моноширинный шрифт для удобства чтения */
+    overflow-y: auto;
+    margin: 0; /* Убрать margin */
+    width: 100%; /* Заполнить всю ширину */
+    box-sizing: border-box; /* Учитывать padding в ширине */
+}
+
+.knowledge-textarea:focus {
+    outline: none;
+    border-color: #e94560;
+    background: #0a0a1a; /* Ещё темнее при фокусе */
+}
+
+.knowledge-textarea::placeholder {
+    color: #666;
+    font-style: italic;
+}
+
+.knowledge-textarea.readonly {
+    background: #0a0a1a;
+    color: #999;
+    cursor: default;
+    font-style: italic;
+}
+
+.knowledge-textarea.readonly:focus {
+    border-color: #0f3460;
+    background: #0a0a1a;
+}
+
+/* ==================== INFO BLOCKS ==================== */
+.tab-info {
+    background: #0f0f23;
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 15px;
+    font-size: 13px;
+    color: #a0a0a0;
+    border-left: 3px solid #e94560;
+    flex-shrink: 0; /* Не сжимается */
+}
+
+.tab-info strong {
+    color: #e94560;
+}
+
+#hypothesesInfo {
+    border-left-color: #a78bfa;
+}
+
+#hypothesesInfo strong {
+    color: #a78bfa;
+}
+
+#socialInfo {
+    border-left-color: #4ade80;
+    background: #0f1f0f;
+}
+
+#socialInfo strong {
+    color: #4ade80;
+}
+
+#gapsInfo {
+    border-left-color: #f59e0b;
+}
+
+#gapsInfo strong {
+    color: #f59e0b;
+}
+
+/* ==================== SOCIAL CONTAINER (Accordion) ==================== */
+.social-container {
+    display: none;
+    flex-direction: column;
+    flex: 1;
+    overflow-y: auto;
+    background: #0f0f23;
+    border-radius: 8px;
+    border: 1px solid #0f3460;
+    min-height: 0;
+    padding: 15px;
+}
+
+/* Контакт в списке */
+.social-contact-item {
+    border-bottom: 1px solid #0f3460;
+    background: #0a0a1a;
+    border-radius: 6px;
+    margin-bottom: 10px;
+    overflow: hidden;
+}
+
+.social-contact-item:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+}
+
+.social-contact-header {
+    padding: 15px;
+    cursor: pointer;
+    transition: background 0.2s;
+    color: #ccc;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #16213e;
+}
+
+.social-contact-header:hover {
+    background: #1a4a7a;
+}
+
+.social-contact-item.active .social-contact-header {
+    background: #0f3460;
+    border-left: 4px solid #4ade80;
+}
+
+/* ==================== MODAL BUTTONS ==================== */
+.modal-buttons {
+    display: flex;
+    gap: 10px;
+    margin-top: 15px;
+    justify-content: flex-end;
+    flex-shrink: 0;
+    padding-top: 15px;
+    border-top: 1px solid #0f3460;
+}
+
+.btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.2s;
+}
+
+.btn-primary {
+    background: #e94560;
+    color: white;
+}
+
+.btn-primary:hover {
+    background: #ff6b6b;
+}
+
+.btn-secondary {
+    background: #0f3460;
+    color: #a0a0a0;
+}
+
+.btn-secondary:hover {
+    background: #1a4a7a;
+    color: #fff;
+}
+
+/* ==================== EDIT INDICATORS ==================== */
+.edit-indicator {
+    font-size: 12px;
+    color: #f59e0b;
+    margin-right: auto;
+    display: none;
+    align-items: center;
+    gap: 5px;
+    padding: 8px 12px;
+    background: #1a2a2a;
+    border-radius: 4px;
+    border-left: 3px solid #f59e0b;
+    flex-shrink: 0;
+}
+
+.edit-indicator.visible {
+    display: flex;
+}
+
+.readonly-indicator {
+    font-size: 12px;
+    color: #a78bfa;
+    margin-right: auto;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 8px 12px;
+    background: #1a1a3a;
+    border-radius: 4px;
+    border-left: 3px solid #a78bfa;
+    flex-shrink: 0;
+}
+
+/* Убедимся, что текст занимает всё доступное пространство */
+.modal-content > * {
+    margin-bottom: 15px;
+}
+
+.modal-content > *:last-child {
+    margin-bottom: 0;
+}
+
+/* ==================== RESPONSIVE FOR MODAL ==================== */
+@media (max-width: 768px) {
+    .modal-content {
+        padding: 15px;
+        height: calc(100vh - 120px); /* Меньше на мобильных */
+    }
+    
+    .knowledge-textarea {
+        padding: 15px;
+        font-size: 13px;
+    }
+    
+    .tab-info {
+        padding: 12px;
+        font-size: 12px;
+    }
+    
+    .modal-buttons {
+        flex-direction: column;
+    }
+    
+    .btn {
+        width: 100%;
+        text-align: center;
+    }
+}
+
+/* Убрать белую подложку при скролле в textarea */
+.knowledge-textarea::-webkit-scrollbar {
+    width: 8px;
+}
+
+.knowledge-textarea::-webkit-scrollbar-track {
+    background: #0a0a1a;
+    border-radius: 4px;
+}
+
+.knowledge-textarea::-webkit-scrollbar-thumb {
+    background: #0f3460;
+    border-radius: 4px;
+}
+
+.knowledge-textarea::-webkit-scrollbar-thumb:hover {
+    background: #1a4a7a;
+}
+
+/* ==================== SOCIAL CONTAINER (Accordion) ==================== */
+.social-container {
+    display: none;
+    flex-direction: column;
+    flex: 1;
+    overflow-y: auto;
+    background: #0f0f23;
+    border-radius: 8px;
+    border: 1px solid #0f3460;
+    min-height: 0;
+    padding: 15px;
+    gap: 10px; /* Добавляем gap между элементами */
+}
+
+/* Контакт в списке */
+.social-contact-item {
+    background: #0a0a1a;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid #0f3460;
+    transition: all 0.2s ease;
+}
+
+.social-contact-item:hover {
+    border-color: #1a4a7a;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.social-contact-header {
+    padding: 16px 20px;
+    cursor: pointer;
+    transition: background 0.2s;
+    color: #ccc;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #16213e;
+}
+
+.social-contact-header:hover {
+    background: #1a4a7a;
+}
+
+.social-contact-item.active .social-contact-header {
+    background: #0f3460;
+    border-left: 4px solid #4ade80;
+}
+
+.contact-info {
+    flex: 1;
+    min-width: 0; /* Важно для правильного сжатия */
+}
+
+.contact-name {
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #eee;
+    font-size: 15px;
+    margin-bottom: 5px;
+}
+
+.contact-brief {
+    display: flex;
+    gap: 15px;
+    font-size: 12px;
+}
+
+.contact-relation {
+    color: #888;
+    background: rgba(15, 52, 96, 0.3);
+    padding: 2px 8px;
+    border-radius: 10px;
+}
+
+.contact-stats {
+    color: #666;
+}
+
+.expand-icon {
+    color: #666;
+    transition: transform 0.3s ease;
+    font-size: 12px;
+    margin-left: 10px;
+    flex-shrink: 0;
+}
+
+.social-contact-item.active .expand-icon {
+    transform: rotate(180deg);
+    color: #4ade80;
+}
+
+/* Досье (раскрывающееся) */
+.social-contact-details {
+    display: none;
+    padding: 20px;
+    background: #0a0a1a;
+    border-top: 1px solid #0f3460;
+    animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.social-contact-item.active .social-contact-details {
+    display: block;
+}
+
+.contact-meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    font-size: 12px;
+    color: #888;
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+    border-bottom: 1px solid #0f3460;
+}
+
+.contact-meta span {
+    display: flex;
+    flex-direction: column;
+}
+
+.contact-meta strong {
+    color: #ccc;
+    font-size: 13px;
+    margin-top: 2px;
+}
+
+.aliases {
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 15px;
+    font-style: italic;
+    padding: 8px 12px;
+    background: rgba(74, 222, 128, 0.1);
+    border-radius: 6px;
+    border-left: 3px solid #4ade80;
+}
+
+.contact-section {
+    margin-bottom: 20px;
+}
+
+.contact-section:last-child {
+    margin-bottom: 0;
+}
+
+.contact-section h4 {
+    margin: 0 0 12px 0;
+    font-size: 13px;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.fact-item,
+.trait-item,
+.interaction-item {
+    background: #0f0f23;
+    border-radius: 6px;
+    padding: 12px 15px;
+    margin-bottom: 8px;
+    color: #ccc;
+    border: 1px solid #0f3460;
+    transition: all 0.2s;
+}
+
+.fact-item:hover,
+.trait-item:hover,
+.interaction-item:hover {
+    border-color: #1a4a7a;
+    background: #16213e;
+}
+
+.fact-item:last-child,
+.trait-item:last-child,
+.interaction-item:last-child {
+    margin-bottom: 0;
+}
+
+.fact-text {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.strength-badge {
+    font-size: 11px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    padding: 2px 6px;
+    background: rgba(15, 52, 96, 0.3);
+    border-radius: 4px;
+    min-width: 40px;
+    text-align: center;
+}
+
+.fact-evidence {
+    font-size: 11px;
+    color: #666;
+    padding-left: 12px;
+    margin-top: 8px;
+    border-left: 2px solid #0f3460;
+}
+
+.fact-evidence strong {
+    color: #888;
+}
+
+.evidence-item {
+    margin-top: 4px;
+    font-style: italic;
+    color: #777;
+}
+
+/* Пустое состояние */
+.no-contacts {
+    padding: 40px 20px;
+    text-align: center;
+    color: #666;
+    font-style: italic;
+    font-size: 14px;
+    background: #0a0a1a;
+    border-radius: 8px;
+    border: 1px dashed #0f3460;
+}
+
+/* ==================== RESPONSIVE FOR SOCIAL ==================== */
+@media (max-width: 768px) {
+    .social-container {
+        padding: 10px;
+        gap: 8px;
+    }
+    
+    .social-contact-header {
+        padding: 12px 15px;
+    }
+    
+    .contact-name {
+        font-size: 14px;
+        flex-wrap: wrap;
+    }
+    
+    .contact-brief {
+        flex-direction: column;
+        gap: 4px;
+    }
+    
+    .contact-meta {
+        grid-template-columns: 1fr;
+        gap: 8px;
+    }
+    
+    .social-contact-details {
+        padding: 15px;
+    }
+    
+    .fact-item,
+    .trait-item,
+    .interaction-item {
+        padding: 10px 12px;
+    }
+}
+/* ==================== SOCIAL CONTAINER (Accordion) ==================== */
+.social-container {
+    display: none;
+    flex-direction: column;
+    flex: 1;
+    overflow-y: auto;
+    background: #0f0f23;
+    border-radius: 8px;
+    border: 1px solid #0f3460;
+    min-height: 0;
+    padding: 15px;
+    gap: 10px;
+    max-height: calc(100vh - 200px); /* Ограничиваем высоту для скроллинга */
+}
+
+/* Контакт в списке */
+.social-contact-item {
+    background: #0a0a1a;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid #0f3460;
+    transition: all 0.2s ease;
+    display: flex;
+    flex-direction: column;
+    max-height: 60px; /* Высота свернутого состояния */
+    transition: max-height 0.3s ease, border-color 0.2s ease;
+}
+
+.social-contact-item.active {
+    max-height: 400px; /* Максимальная высота раскрытого состояния */
+    overflow: visible; /* Позволяем контенту выходить за пределы */
+}
+
+.social-contact-item:hover {
+    border-color: #1a4a7a;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.social-contact-header {
+    padding: 16px 20px;
+    cursor: pointer;
+    transition: background 0.2s;
+    color: #ccc;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #16213e;
+    flex-shrink: 0; /* Не сжимается */
+}
+
+.social-contact-header:hover {
+    background: #1a4a7a;
+}
+
+.social-contact-item.active .social-contact-header {
+    background: #0f3460;
+    border-left: 4px solid #4ade80;
+}
+
+/* Досье (раскрывающееся) */
+.social-contact-details {
+    display: none;
+    padding: 0; /* Убираем padding, добавим внутри */
+    background: #0a0a1a;
+    border-top: 1px solid #0f3460;
+    flex: 1;
+    overflow-y: auto;
+    max-height: 340px; /* Максимальная высота для скроллинга */
+    min-height: 100px; /* Минимальная высота */
+}
+
+.social-contact-item.active .social-contact-details {
+    display: flex;
+    flex-direction: column;
+}
+
+/* Внутренний контейнер для контента досье */
+.social-contact-details-content {
+    padding: 20px;
+    flex: 1;
+    overflow-y: auto;
+    min-height: 100px;
+}
+
+.contact-meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    font-size: 12px;
+    color: #888;
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+    border-bottom: 1px solid #0f3460;
+}
+
+.contact-meta span {
+    display: flex;
+    flex-direction: column;
+}
+
+.contact-meta strong {
+    color: #ccc;
+    font-size: 13px;
+    margin-top: 2px;
+}
+
+.aliases {
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 15px;
+    font-style: italic;
+    padding: 8px 12px;
+    background: rgba(74, 222, 128, 0.1);
+    border-radius: 6px;
+    border-left: 3px solid #4ade80;
+}
+
+.contact-section {
+    margin-bottom: 20px;
+}
+
+.contact-section:last-child {
+    margin-bottom: 0;
+}
+
+.contact-section h4 {
+    margin: 0 0 12px 0;
+    font-size: 13px;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    position: sticky;
+    top: 0;
+    background: #0a0a1a;
+    padding: 5px 0;
+    z-index: 1;
+}
+
+/* Контейнер для списка фактов/черт/интеракций с фиксированной высотой */
+.fact-list-container,
+.trait-list-container,
+.interaction-list-container {
+    max-height: 200px;
+    overflow-y: auto;
+    padding-right: 5px;
+    margin-bottom: 15px;
+}
+
+/* Кастомный скроллбар для списков */
+.fact-list-container::-webkit-scrollbar,
+.trait-list-container::-webkit-scrollbar,
+.interaction-list-container::-webkit-scrollbar,
+.social-contact-details-content::-webkit-scrollbar {
+    width: 6px;
+}
+
+.fact-list-container::-webkit-scrollbar-track,
+.trait-list-container::-webkit-scrollbar-track,
+.interaction-list-container::-webkit-scrollbar-track,
+.social-contact-details-content::-webkit-scrollbar-track {
+    background: rgba(15, 52, 96, 0.1);
+    border-radius: 3px;
+}
+
+.fact-list-container::-webkit-scrollbar-thumb,
+.trait-list-container::-webkit-scrollbar-thumb,
+.interaction-list-container::-webkit-scrollbar-thumb,
+.social-contact-details-content::-webkit-scrollbar-thumb {
+    background: #0f3460;
+    border-radius: 3px;
+}
+
+.fact-list-container::-webkit-scrollbar-thumb:hover,
+.trait-list-container::-webkit-scrollbar-thumb:hover,
+.interaction-list-container::-webkit-scrollbar-thumb:hover,
+.social-contact-details-content::-webkit-scrollbar-thumb:hover {
+    background: #1a4a7a;
+}
+
+.fact-item,
+.trait-item,
+.interaction-item {
+    background: #0f0f23;
+    border-radius: 6px;
+    padding: 12px 15px;
+    margin-bottom: 8px;
+    color: #ccc;
+    border: 1px solid #0f3460;
+    transition: all 0.2s;
+    min-height: 50px; /* Минимальная высота элемента */
+    display: flex;
+    flex-direction: column;
+}
+
+.fact-item:hover,
+.trait-item:hover,
+.interaction-item:hover {
+    border-color: #1a4a7a;
+    background: #16213e;
+}
+
+.fact-item:last-child,
+.trait-item:last-child,
+.interaction-item:last-child {
+    margin-bottom: 0;
+}
+
+.fact-text {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 13px;
+    line-height: 1.5;
+    flex: 1;
+    min-height: 20px;
+}
+
+.strength-badge {
+    font-size: 11px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    padding: 2px 6px;
+    background: rgba(15, 52, 96, 0.3);
+    border-radius: 4px;
+    min-width: 40px;
+    text-align: center;
+    margin-top: 2px;
+}
+
+.fact-evidence {
+    font-size: 11px;
+    color: #666;
+    padding-left: 12px;
+    margin-top: 8px;
+    border-left: 2px solid #0f3460;
+    padding-top: 6px;
+    border-top: 1px dashed rgba(15, 52, 96, 0.3);
+}
+
+.fact-evidence strong {
+    color: #888;
+    margin-bottom: 4px;
+    display: block;
+}
+
+.evidence-item {
+    margin-top: 4px;
+    font-style: italic;
+    color: #777;
+    line-height: 1.4;
+}
+
+/* Пустое состояние */
+.no-contacts {
+    padding: 40px 20px;
+    text-align: center;
+    color: #666;
+    font-style: italic;
+    font-size: 14px;
+    background: #0a0a1a;
+    border-radius: 8px;
+    border: 1px dashed #0f3460;
+}
+
+/* ==================== RESPONSIVE FOR SOCIAL ==================== */
+@media (max-width: 768px) {
+    .social-container {
+        padding: 10px;
+        gap: 8px;
+        max-height: calc(100vh - 150px);
+    }
+    
+    .social-contact-item.active {
+        max-height: 500px; /* Больше высота на мобильных */
+    }
+    
+    .social-contact-header {
+        padding: 12px 15px;
+    }
+    
+    .social-contact-details {
+        max-height: 400px;
+    }
+    
+    .social-contact-details-content {
+        padding: 15px;
+    }
+    
+    .contact-meta {
+        grid-template-columns: 1fr;
+        gap: 8px;
+    }
+    
+    .fact-list-container,
+    .trait-list-container,
+    .interaction-list-container {
+        max-height: 150px;
+    }
+    
+    .fact-item,
+    .trait-item,
+    .interaction-item {
+        padding: 10px 12px;
+        min-height: 45px;
+    }
+}
+/* ==================== INPUT CONTAINER (привязан к низу) ==================== */
+.input-container {
+    padding: 10px 15px;
+    background: #16213e;
+    border-top: 1px solid #0f3460;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    margin-top: auto; /* Прижимаем к низу */
+}
+
+.ask-me-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    justify-content: center;
+    order: 1; /* Ставим первым */
+}
+
+.input-form {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 10px;
+    order: 2; /* Ставим вторым */
+    align-items: flex-end; /* Выравниваем по нижнему краю */
+    position: relative;
+}
+
+.message-input {
+    flex: 1;
+    padding: 12px 16px;
+    background: #0f0f23;
+    border: 1px solid #0f3460;
+    border-radius: 8px;
+    color: #eee;
+    font-size: 15px;
+    resize: none;
+    min-height: 48px;
+    max-height: 200px; /* Увеличил максимальную высоту */
+    line-height: 1.5;
+    overflow-y: auto;
+    transition: all 0.2s ease;
+    box-sizing: border-box;
+}
+
+/* Когда поле ввода активно или заполнено, форма растёт вверх */
+.message-input:focus,
+.message-input:not(:placeholder-shown) {
+    box-shadow: 0 -2px 10px rgba(233, 69, 96, 0.1); /* Тень вверх */
+}
+
+/* Стили для скроллбара в поле ввода */
+.message-input::-webkit-scrollbar {
+    width: 6px;
+}
+
+.message-input::-webkit-scrollbar-track {
+    background: rgba(15, 52, 96, 0.1);
+    border-radius: 3px;
+}
+
+.message-input::-webkit-scrollbar-thumb {
+    background: #0f3460;
+    border-radius: 3px;
+}
+
+.message-input::-webkit-scrollbar-thumb:hover {
+    background: #1a4a7a;
+}
+
+.send-btn {
+    padding: 12px 24px;
+    background: #e94560;
+    border: none;
+    border-radius: 8px;
+    color: white;
+    font-size: 15px;
+    cursor: pointer;
+    transition: background 0.2s;
+    height: 48px; /* Фиксированная высота кнопки */
+    align-self: flex-end; /* Прижимаем к низу */
+    margin-bottom: 0;
+}
+
+.send-btn:hover:not(:disabled) {
+    background: #ff6b6b;
+}
+
+.send-btn:disabled {
+    background: #4a4a6a;
+    cursor: not-allowed;
+}
+
+/* Когда текст в поле ввода, форма адаптируется */
+.input-form:has(.message-input:not(:placeholder-shown)) {
+    align-items: flex-start;
+}
+
+.input-form:has(.message-input:focus) {
+    align-items: flex-start;
+}
+
+.counters-container {
+    display: flex;
+    justify-content: center;
+    gap: 15px;
+    padding-top: 10px;
+    border-top: 1px solid #0f3460;
+    margin-top: 10px;
+    order: 3; /* Ставим третьим (внизу) */
+}
+
+/* Стили для серверного режима (когда нет счётчиков) */
+body.server-mode .input-container {
+    padding-bottom: 15px;
+}
+
+body.server-mode .counters-container {
+    display: none;
+}
+
+body.server-mode .input-form {
+    margin-bottom: 0;
+}
+
+/* ==================== CHAT CONTAINER (главный контейнер) ==================== */
+.chat-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+}
+
+.chat-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    padding-bottom: 10px; /* Меньше отступ снизу */
+}
+
+/* Анимация появления нового сообщения */
+@keyframes messageAppear {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.message {
+    max-width: 80%;
+    padding: 12px 16px;
+    border-radius: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    animation: messageAppear 0.3s ease-out;
+}
+
+/* ==================== АДАПТИВНОСТЬ ==================== */
+@media (max-width: 768px) {
+    .input-container {
+        padding: 8px 12px;
+    }
+    
+    .input-form {
+        flex-direction: column;
+        gap: 8px;
+    }
+    
+    .message-input {
+        min-height: 44px;
+        max-height: 150px;
+        padding: 10px 14px;
+        width: 100%;
+    }
+    
+    .send-btn {
+        width: 100%;
+        height: 44px;
+        padding: 10px;
+    }
+    
+    .ask-me-container {
+        margin-bottom: 8px;
+    }
+    
+    .counters-container {
+        gap: 10px;
+        padding-top: 8px;
+        margin-top: 8px;
+    }
+    
+    .chat-area {
+        padding: 15px;
+        padding-bottom: 5px;
+    }
+}
+
+@media (max-height: 600px) {
+    /* Для маленьких экранов по высоте */
+    .input-container {
+        padding: 6px 10px;
+    }
+    
+    .message-input {
+        min-height: 40px;
+        max-height: 120px;
+        padding: 8px 12px;
+    }
+    
+    .send-btn {
+        height: 40px;
+        padding: 8px 16px;
+    }
+    
+    .ask-me-container {
+        margin-bottom: 6px;
+    }
+    
+    .chat-area {
+        padding: 10px;
+        padding-bottom: 5px;
+    }
+}

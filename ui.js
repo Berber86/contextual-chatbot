@@ -459,35 +459,65 @@ function toggleContact(id) {
 }
 
 function renderContactDetailsInner(contact) {
-    const aliasesHtml = contact.aliases && contact.aliases.length > 0
-        ? `<div class="aliases">Also known as: ${contact.aliases.join(', ')}</div>`
-        : '';
+    const aliasesHtml = contact.aliases && contact.aliases.length > 0 ?
+        `<div class="aliases">Also known as: ${contact.aliases.join(', ')}</div>` :
+        '';
+    
+    // Функция для рендеринга списка с контейнером
+    const renderItemsListWithContainer = (items, type) => {
+        if (!items || items.length === 0) {
+            return `<div class="${type}-item" style="color: #888; font-style: italic;">No data yet</div>`;
+        }
+        
+        const itemsHtml = items.map(item => {
+            const strengthIndicator = getStrengthIndicator(item.strength || 1);
+            const evidenceHtml = item.evidence && item.evidence.length > 0 ?
+                `<div class="fact-evidence">
+                    <strong>${t('evidenceLabel')}:</strong>
+                    ${item.evidence.map(e => `<div class="evidence-item">${e}</div>`).join('')}
+                   </div>` :
+                '';
+            
+            return `
+                <div class="${type}-item">
+                    <div class="fact-text">
+                        <span class="strength-badge">${strengthIndicator}</span>
+                        <span>${item.text}</span>
+                    </div>
+                    ${evidenceHtml}
+                </div>
+            `;
+        }).join('');
+        
+        return `<div class="${type}-list-container">${itemsHtml}</div>`;
+    };
     
     return `
-        <div class="contact-meta">
-            <span>📋 ${t('contactRelation')}: <strong>${contact.relation || 'unknown'}</strong></span>
-            <span>📅 ${t('contactCreated')}: #${contact.createdAt || 0}</span>
-            <span>🕐 ${t('contactLastMentioned')}: #${contact.lastMentioned || contact.createdAt || 0}</span>
-        </div>
-        ${aliasesHtml}
-        
-        <div class="contact-section">
-            <h4>📋 ${t('contactFacts')}</h4>
-            ${renderItemsList(contact.facts, 'fact')}
-        </div>
-        
-        <div class="contact-section">
-            <h4>🧠 ${t('contactTraits')}</h4>
-            ${renderItemsList(contact.traits, 'trait')}
-        </div>
-        
-        <div class="contact-section">
-            <h4>🤝 ${t('contactInteractions')}</h4>
-            ${renderItemsList(contact.interactions, 'interaction')}
+        <div class="social-contact-details-content">
+            <div class="contact-meta">
+                <span>📋 ${t('contactRelation')}: <strong>${contact.relation || 'unknown'}</strong></span>
+                <span>📅 ${t('contactCreated')}: #${contact.createdAt || 0}</span>
+                <span>🕐 ${t('contactLastMentioned')}: #${contact.lastMentioned || contact.createdAt || 0}</span>
+            </div>
+            ${aliasesHtml}
+            
+            <div class="contact-section">
+                <h4>📋 ${t('contactFacts')}</h4>
+                ${renderItemsListWithContainer(contact.facts, 'fact')}
+            </div>
+            
+            <div class="contact-section">
+                <h4>🧠 ${t('contactTraits')}</h4>
+                ${renderItemsListWithContainer(contact.traits, 'trait')}
+            </div>
+            
+            <div class="contact-section">
+                <h4>🤝 ${t('contactInteractions')}</h4>
+                ${renderItemsListWithContainer(contact.interactions, 'interaction')}
+            </div>
         </div>
     `;
 }
-
 function renderItemsList(items, type) {
     if (!items || items.length === 0) {
         return `<div class="${type}-item" style="color: #888; font-style: italic;">No data yet</div>`;
@@ -575,11 +605,51 @@ function hideTypingIndicator() {
 
 function autoResizeTextarea() {
     const textarea = document.getElementById('messageInput');
+    const inputForm = textarea.closest('.input-form');
+    const inputContainer = textarea.closest('.input-container');
+    
     textarea.addEventListener('input', () => {
+        // Сбрасываем высоту для перерасчёта
         textarea.style.height = 'auto';
-        textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
+        
+        // Рассчитываем новую высоту (ограничиваем максимумом)
+        const newHeight = Math.min(textarea.scrollHeight, 200); // Максимум 200px
+        
+        // Устанавливаем новую высоту
+        textarea.style.height = newHeight + 'px';
+        
+        // Плавно поднимаем контейнер ввода при заполнении
+        if (textarea.value.trim().length > 0) {
+            inputForm.style.alignItems = 'flex-start';
+        } else {
+            inputForm.style.alignItems = 'flex-end';
+        }
+        
+        // Прокручиваем чат к последнему сообщению при вводе
+        const chatArea = document.getElementById('chatArea');
+        if (chatArea) {
+            chatArea.scrollTop = chatArea.scrollHeight;
+        }
     });
+    
+    // Обработка фокуса
+    textarea.addEventListener('focus', () => {
+        inputForm.style.alignItems = 'flex-start';
+        textarea.style.boxShadow = '0 -2px 10px rgba(233, 69, 96, 0.1)';
+    });
+    
+    textarea.addEventListener('blur', () => {
+        if (!textarea.value.trim()) {
+            inputForm.style.alignItems = 'flex-end';
+            textarea.style.boxShadow = 'none';
+        }
+    });
+    
+    // При загрузке страницы сбрасываем высоту
+    textarea.style.height = 'auto';
+    textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
 }
+
 
 function handleKeyDown(event) {
     if (event.key === 'Enter' && !event.shiftKey) {
