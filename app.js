@@ -27,119 +27,119 @@ const LANGUAGES = [
 // ==================== TRANSLATIONS ====================
 const DEFAULT_TRANSLATIONS = {
     // API Section
-    apiKeyTitle: "🔑 OpenRouter API Key",
-    apiKeyPlaceholder: "Enter your API key...",
-    apiKeySaved: "✓ Key saved",
+    apiKeyTitle: "🔑 Ключ OpenRouter API",
+    apiKeyPlaceholder: "Введите ваш ключ...",
+    apiKeySaved: "✓ Ключ сохранён",
     
     // Buttons
-    btnKnowledge: "📚 User Knowledge",
-    btnClearChat: "🗑️ Clear Chat",
-    btnClearKnowledge: "⚠️ Clear Knowledge",
-    btnSend: "Send",
-    btnClose: "✕ Close",
-    btnCancel: "Cancel",
-    btnSave: "💾 Save",
+    btnKnowledge: "📚 Знания о пользователе",
+    btnClearChat: "🗑️ Очистить чат",
+    btnClearKnowledge: "⚠️ Очистить знания",
+    btnSend: "Отправить",
+    btnClose: "✕ Закрыть",
+    btnCancel: "Отмена",
+    btnSave: "💾 Сохранить",
     
     // Counters
-    counterStyle: "🎭 Style:",
-    counterHypotheses: "💡 Hypotheses:",
-    counterGaps: "🔍 Gaps:",
+    counterStyle: "🎭 Стиль:",
+    counterHypotheses: "💡 Гипотезы:",
+    counterGaps: "🔍 Пробелы:",
     
     // Ask Me Mode
-    askMeMode: "Ask Me Mode",
-    askMeModeTooltip: "AI will end responses with questions to learn more about you",
-    askMeModeDisabled: "Need knowledge gaps first (wait for 6 messages)",
+    askMeMode: "Режим 'Спроси меня'",
+    askMeModeTooltip: "ИИ будет заканчивать ответы вопросами, чтобы узнать о вас больше",
+    askMeModeDisabled: "Нужны сначала пробелы в знаниях (подождите 6 сообщений)",
     
     // Chat
-    welcomeMessage: "Hello! I'm your personal assistant. Tell me about yourself, and I'll remember important information.",
-    inputPlaceholder: "Enter message...",
-    thinkingMessage: "💭 Remembering information about you...",
-    chatCleared: "Chat cleared. History deleted.",
+    welcomeMessage: "Привет! Я ваш персональный помощник. Расскажите о себе, и я запомню важную информацию.",
+    inputPlaceholder: "Введите сообщение...",
+    thinkingMessage: "💭 Запоминаю информацию о вас...",
+    chatCleared: "Чат очищен. История удалена.",
     
     // Modal
-    modalTitle: "📚 Knowledge Base",
+    modalTitle: "📚 База знаний",
     
     // Tabs
-    tabFacts: "📋 Facts",
-    tabTraits: "🧠 Personality Traits",
-    tabTimeline: "📅 Timeline",
-    tabSocial: "👥 Social",
-    tabStyle: "🎭 Communication Style",
-    tabHypotheses: "💡 Hypotheses",
-    tabGaps: "🔍 White Spots",
+    tabFacts: "📋 Факты",
+    tabTraits: "🧠 Черты личности",
+    tabTimeline: "📅 Хронология",
+    tabSocial: "👥 Социальные связи",
+    tabStyle: "🎭 Стиль общения",
+    tabHypotheses: "💡 Гипотезы",
+    tabGaps: "🔍 Белые пятна",
     
     // Tab Info
-    styleInfo: "<strong>ℹ️ Communication Style</strong> — automatically generated every 10 messages based on personality trait analysis. You can edit settings manually.",
-    hypothesesInfo: "<strong>💡 Hypotheses</strong> — non-obvious insights about you, generated every 16 messages. Based on facts, traits, and timeline analysis. Read-only — the AI refines these automatically.",
-    socialInfo: "<strong>👥 Social Connections</strong> — people mentioned in your conversations. Click on a contact to see their profile. Facts are backed by quotes from your messages.",
-    gapsInfo: "<strong>🔍 White Spots</strong> — important topics about you that remain unknown. The AI uses these to ask better questions. Updated every 6 messages. Read-only.",
+    styleInfo: "<strong>ℹ️ Стиль общения</strong> — автоматически генерируется каждые 10 сообщений на основе анализа черт личности. Вы можете редактировать настройки вручную.",
+    hypothesesInfo: "<strong>💡 Гипотезы</strong> — неочевидные инсайты о вас, генерируются каждые 16 сообщений. Основаны на анализе фактов, черт и хронологии. Только для чтения — ИИ уточняет их автоматически.",
+    socialInfo: "<strong>👥 Социальные связи</strong> — люди, упомянутые в ваших беседах. Нажмите на контакт, чтобы увидеть его профиль. Факты подтверждены цитатами из ваших сообщений.",
+    gapsInfo: "<strong>🔍 Белые пятна</strong> — важные темы о вас, которые остаются неизвестными. ИИ использует их, чтобы задавать лучшие вопросы. Обновляются каждые 6 сообщений. Только для чтения.",
     
     // Placeholders
-    placeholderEmpty: "Nothing accumulated yet...",
-    placeholderFacts: "User facts will be accumulated here...\n\nFor example:\n- Name, age\n- Location\n- Profession\n- Hobbies and interests",
-    placeholderTraits: "Personality traits will be accumulated here...\n\nFor example:\n- Introvert/extrovert\n- Thinking style\n- Emotional characteristics\n- Values and priorities",
-    placeholderTimeline: "Life timeline will be here...\n\nFor example:\n- Key events\n- Life periods\n- Future plans",
-    placeholderStyle: "Bot communication style settings will be here...\n\nAutomatically generated every 10 messages.\nYou can edit manually.",
-    placeholderHypotheses: "Non-obvious hypotheses about you will appear here...\n\nGenerated every 16 messages based on accumulated knowledge.\n\nThese are AI insights that go beyond obvious facts.",
-    placeholderSocial: "People from your life will appear here...\n\nMentioned friends, family, colleagues, and others will be tracked with their details.",
-    placeholderGaps: "Important unknown topics will appear here...\n\nThese are areas where more information would help the AI assist you better.\n\nGenerated every 6 messages.",
+    placeholderEmpty: "Пока ничего не накоплено...",
+    placeholderFacts: "Факты о пользователе будут накапливаться здесь...\n\nНапример:\n- Имя, возраст\n- Местоположение\n- Профессия\n- Хобби и интересы",
+    placeholderTraits: "Черты личности будут накапливаться здесь...\n\nНапример:\n- Интроверт/экстраверт\n- Стиль мышления\n- Эмоциональные характеристики\n- Ценности и приоритеты",
+    placeholderTimeline: "Хронология жизни будет здесь...\n\nНапример:\n- Ключевые события\n- Периоды жизни\n- Планы на будущее",
+    placeholderStyle: "Настройки стиля общения бота будут здесь...\n\nАвтоматически генерируются каждые 10 сообщений.\nВы можете редактировать вручную.",
+    placeholderHypotheses: "Неочевидные гипотезы о вас появятся здесь...\n\nГенерируются каждые 16 сообщений на основе накопленных знаний.\n\nЭто инсайты ИИ, которые выходят за рамки очевидных фактов.",
+    placeholderSocial: "Люди из вашей жизни появятся здесь...\n\nУпомянутые друзья, семья, коллеги и другие будут отслеживаться с их деталями.",
+    placeholderGaps: "Важные неизвестные темы появятся здесь...\n\nЭто области, где больше информации помогло бы ИИ лучше вам помогать.\n\nГенерируются каждые 6 сообщений.",
     
     // Social Tab
-    noContactSelected: "← Select a contact to view details",
-    noContacts: "No contacts yet. Mention people in your conversations!",
-    contactFacts: "Facts",
-    contactTraits: "Personality",
-    contactInteractions: "Interactions",
-    contactRelation: "Relationship",
-    contactSentiment: "Sentiment",
-    contactLastMentioned: "Last mentioned",
-    contactCreated: "First mentioned",
-    evidenceLabel: "Based on",
+    noContactSelected: "← Выберите контакт для просмотра деталей",
+    noContacts: "Пока нет контактов. Упоминайте людей в беседах!",
+    contactFacts: "Факты",
+    contactTraits: "Личность",
+    contactInteractions: "Взаимодействия",
+    contactRelation: "Отношение",
+    contactSentiment: "Настроение",
+    contactLastMentioned: "Последнее упоминание",
+    contactCreated: "Первое упоминание",
+    evidenceLabel: "На основе",
     
     // Indicators
-    unsavedChanges: "⚠️ Unsaved changes",
-    readOnly: "🔒 Read-only",
+    unsavedChanges: "⚠️ Несохранённые изменения",
+    readOnly: "🔒 Только чтение",
     
     // Confirmations
-    confirmClearChat: "Clear chat history?",
-    confirmClearKnowledge: "Clear ALL accumulated knowledge about the user (including social connections)?",
-    confirmUnsavedClose: "There are unsaved changes. Close without saving?",
-    confirmUnsavedSwitch: "There are unsaved changes. Switch tab without saving?",
+    confirmClearChat: "Очистить историю чата?",
+    confirmClearKnowledge: "Очистить ВСЕ накопленные знания о пользователе (включая социальные связи)?",
+    confirmUnsavedClose: "Есть несохранённые изменения. Закрыть без сохранения?",
+    confirmUnsavedSwitch: "Есть несохранённые изменения. Переключить вкладку без сохранения?",
     
-    // Help Modal
-    helpTitle: "🧠 Memory Chatbot",
-    helpWhatIs: "What is this?",
-    helpWhatIsText: "A personal AI assistant that <strong>remembers</strong> information about you. The more you chat — the better it understands you.",
-    helpWhatRemembers: "What does it remember?",
-    helpFacts: "Facts — name, work, interests, preferences",
-    helpTraits: "Personality — how you think, what you value",
-    helpTimeline: "Timeline — events, plans, important dates",
-    helpPeople: "People — family, friends, colleagues from your stories",
-    helpInsights: "Insights — patterns and observations about you",
-    helpAskMe: "Ask Me Mode",
-    helpAskMeText: "Turn on the toggle — the bot will ask questions to learn more about you. Questions are woven naturally into conversation.",
-    helpPrivacy: "Privacy",
-    helpPrivacyText1: "All data is stored only on your device.",
-    helpPrivacyText2: "We technically cannot read your conversations — they are not sent to our servers.",
-    helpPrivacyText3: "Messages are processed via OpenRouter for AI to work.",
-    helpPrivacyText4: "Click \"Clear Knowledge\" to delete everything instantly.",
-    helpRoadmap: "What's next?",
-    helpRoadmapSync: "Cross-device sync (optional)",
-    helpRoadmapExport: "Export/import knowledge base",
-    helpRoadmapSettings: "More personalization settings",
-    helpRoadmapMobile: "Mobile app",
-    helpAuthor: "Author",
-    helpVersion: "Version 1.0 · 2024",
+    // Help Modal (русская версия)
+    helpTitle: "🧠 Чат-бот с памятью",
+    helpWhatIs: "Что это?",
+    helpWhatIsText: "Персональный AI-ассистент, который <strong>запоминает</strong> информацию о вас. Чем больше общаетесь — тем лучше он вас понимает.",
+    helpWhatRemembers: "Что он запоминает?",
+    helpFacts: "Факты — имя, работа, интересы, предпочтения",
+    helpTraits: "Черты личности — как вы думаете, что цените",
+    helpTimeline: "Хронология — события, планы, важные даты",
+    helpPeople: "Люди — семья, друзья, коллеги из ваших рассказов",
+    helpInsights: "Инсайты — паттерны и наблюдения о вас",
+    helpAskMe: "Режим 'Спроси меня'",
+    helpAskMeText: "Включите переключатель — бот будет задавать вопросы, чтобы узнать вас лучше. Вопросы вплетаются естественно в разговор.",
+    helpPrivacy: "Приватность",
+    helpPrivacyText1: "Все данные хранятся только на вашем устройстве.",
+    helpPrivacyText2: "Автор бота технически не может прочитать вашу переписку — она не отправляется лишь на серверы разработчиков ИИ и провайдеров .",
+    helpPrivacyText3: "Сообщения обрабатываются через OpenRouter для работы ИИ.",
+    helpPrivacyText4: "Нажмите 'Очистить знания' чтобы удалить всеинакопленнвеищнанич бота из Вашего браузера мгновенно.",
+    helpRoadmap: "Что ждать дальше?",
+    helpRoadmapSync: "Синхронизация между устройствами (опционально)",
+    helpRoadmapExport: "Экспорт/импорт базы знаний",
+    helpRoadmapSettings: "Больше настроек персонализации",
+    helpRoadmapMobile: "Мобильное приложение",
+    helpAuthor: "Автор",
+    helpVersion: "Версия 1.2 · 2026",
     
     // Alerts
-    alertNoApiKey: "Please enter your OpenRouter API key",
-    alertKnowledgeCleared: "Knowledge cleared",
+    alertNoApiKey: "Пожалуйста, введите ваш ключ OpenRouter API",
+    alertKnowledgeCleared: "Знания очищены",
     
     // Other
-    translatingInterface: "Translating interface..."
+    translatingInterface: "Перевод интерфейса..."
 };
 
-let currentLanguage = 'en';
+let currentLanguage = 'ru';
 let translations = { ...DEFAULT_TRANSLATIONS };
 
 // ==================== STORAGE KEYS ====================
@@ -327,6 +327,7 @@ function getLanguageName() {
 }
 
 // ==================== LANGUAGE LOADING ====================
+// В функции loadLanguage() в app.js добавь:
 function loadLanguage() {
     const savedLang = localStorage.getItem(STORAGE_KEYS.language);
     if (savedLang) {
@@ -335,10 +336,20 @@ function loadLanguage() {
         if (cachedTranslations) {
             translations = JSON.parse(cachedTranslations);
         }
+    } else {
+        // Если язык не сохранён, используем русский по умолчанию
+        currentLanguage = 'ru';
+        const cachedTranslations = localStorage.getItem(`${STORAGE_KEYS.translations}_ru`);
+        if (cachedTranslations) {
+            translations = JSON.parse(cachedTranslations);
+        } else {
+            // Если нет кэшированных переводов на русский, используем дефолтные
+            translations = { ...DEFAULT_TRANSLATIONS };
+        }
     }
     applyTranslations();
-    // updateLanguageButton(); // УДАЛЕНО
 }
+
 
 function getApiKey() {
     // Определяем, локально ли мы (должно быть согласовано с ui.js)
