@@ -1,15 +1,11 @@
 // ==================== INITIALIZATION & CONFIG ====================
-// 1. Сначала определяем, где мы находимся (это должно быть в самом верху!)
-// ==================== INITIALIZATION & CONFIG ====================
 const isLocal = window.location.hostname.includes('localhost') ||
     window.location.hostname.includes('127.0.0.1');
 
 const CONFIG = {
-    // Модели разделены по назначению
     model_chat: "mistralai/devstral-2512:free",
     model_analysis: "xiaomi/mimo-v2-flash:free",
     
-    // Адрес переключается сам (дома - OpenRouter, на сайте - Версаль)
     apiUrl: isLocal ?
         "https://openrouter.ai/api/v1/chat/completions" :
         "/api/chat",
@@ -29,6 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadLanguage();
     loadChatHistory();
     autoResizeTextarea();
+    initSettingsMenu();
     
     // Инициализация счетчиков только в локальном режиме
     if (isLocal) {
@@ -36,23 +33,99 @@ document.addEventListener('DOMContentLoaded', () => {
         updateHypoCounter();
         updateGapsCounter();
     } else {
-        // На продакшене скрываем только блок счетчиков
-        hideCounters();
+        // На продакшене скрываем счетчики
+        document.getElementById('countersContainer').style.display = 'none';
     }
     
-    initLanguageDropdown();
     updateAskMeModeUI();
     
     // Инициализация розового окошка с ключом
     if (isLocal) initLocalDevSettings();
 });
 
-// ==================== ФУНКЦИИ ДЛЯ СКРЫТИЯ СЧЕТЧИКОВ ====================
-function hideCounters() {
-    const countersWrapper = document.querySelector('.counters-wrapper');
-    if (countersWrapper) {
-        countersWrapper.style.display = 'none';
+// ==================== SETTINGS MENU ====================
+function initSettingsMenu() {
+    const settingsBtn = document.getElementById('settingsBtn');
+    const settingsDropdown = document.getElementById('settingsDropdown');
+    const languageSelectorMenu = document.getElementById('languageSelectorMenu');
+    
+    // Инициализируем языковой селектор в меню
+    renderLanguageMenu();
+    
+    // Закрытие меню при клике вне его
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.settings-wrapper')) {
+            settingsDropdown.classList.remove('open');
+            closeAllLanguageDropdowns();
+        }
+    });
+    
+    // Закрытие по Escape
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            settingsDropdown.classList.remove('open');
+            closeAllLanguageDropdowns();
+        }
+    });
+}
+
+function toggleSettingsMenu() {
+    const settingsDropdown = document.getElementById('settingsDropdown');
+    settingsDropdown.classList.toggle('open');
+    closeAllLanguageDropdowns();
+}
+
+function closeAllLanguageDropdowns() {
+    document.querySelectorAll('.language-menu-dropdown').forEach(dropdown => {
+        dropdown.classList.remove('open');
+    });
+}
+
+// ==================== LANGUAGE MENU ====================
+function renderLanguageMenu() {
+    const languageSelectorMenu = document.getElementById('languageSelectorMenu');
+    if (!languageSelectorMenu) return;
+    
+    const currentLang = LANGUAGES.find(l => l.code === currentLanguage);
+    
+    languageSelectorMenu.innerHTML = `
+        <div class="language-menu-current" onclick="toggleLanguageMenuDropdown()">
+            <span class="flag">${currentLang?.flag || '🇬🇧'}</span>
+            <span class="name">${currentLang?.name || 'English'}</span>
+            <span>▼</span>
+        </div>
+        <div class="language-menu-dropdown" id="languageMenuDropdown">
+            ${LANGUAGES.map(lang => `
+                <div class="language-menu-option ${lang.code === currentLanguage ? 'active' : ''}" 
+                     onclick="selectLanguageFromMenu('${lang.code}')">
+                    <span class="flag">${lang.flag}</span>
+                    <span class="name">${lang.name}</span>
+                </div>
+            `).join('')}
+        </div>
+    `;
+}
+
+function toggleLanguageMenuDropdown() {
+    const dropdown = document.getElementById('languageMenuDropdown');
+    if (dropdown) {
+        dropdown.classList.toggle('open');
     }
+}
+
+async function selectLanguageFromMenu(langCode) {
+    await selectLanguage(langCode);
+    renderLanguageMenu(); // Обновляем меню после выбора
+    closeAllLanguageDropdowns();
+}
+
+// ==================== ОСТАЛЬНЫЕ ФУНКЦИИ (остаются как были, но обновлены) ====================
+
+// Функция hideCounters теперь не нужна, так как скрываем через display: none
+
+function hideCounters() {
+    // Эта функция больше не используется, счетчики скрываются через CSS
+    // Оставляем для обратной совместимости
 }
 
 // ==================== ASK ME MODE ====================

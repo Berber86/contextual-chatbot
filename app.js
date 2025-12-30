@@ -182,40 +182,27 @@ let originalTabContent = '';
 let hasUnsavedChanges = false;
 let askMeMode = false;
 
-// ==================== LANGUAGE FUNCTIONS ====================
+// ==================== LANGUAGE FUNCTIONS (UPDATED FOR NEW UI) ====================
 function initLanguageDropdown() {
-    const dropdown = document.getElementById('languageDropdown');
-    dropdown.innerHTML = LANGUAGES.map(lang => `
-        <div class="language-option ${lang.code === currentLanguage ? 'active' : ''}" 
-             onclick="selectLanguage('${lang.code}')">
-            <span class="flag">${lang.flag}</span>
-            <span class="name">${lang.name}</span>
-        </div>
-    `).join('');
+    // Эта функция больше не нужна в новом интерфейсе
+    // Вместо неё используется renderLanguageMenu() в ui.js
+    console.log('[Language] initLanguageDropdown() is deprecated in new UI');
 }
 
 function toggleLanguageDropdown() {
-    const dropdown = document.getElementById('languageDropdown');
-    dropdown.classList.toggle('open');
+    // Эта функция больше не нужна в новом интерфейсе
+    console.log('[Language] toggleLanguageDropdown() is deprecated in new UI');
 }
 
-// Close dropdown when clicking outside
-document.addEventListener('click', (e) => {
-    if (!e.target.closest('.language-selector')) {
-        document.getElementById('languageDropdown').classList.remove('open');
-    }
-});
+// Close dropdown when clicking outside - УДАЛЕНО, так как нет dropdown в старом стиле
 
 async function selectLanguage(langCode) {
     if (langCode === currentLanguage) {
-        document.getElementById('languageDropdown').classList.remove('open');
         return;
     }
 
     const lang = LANGUAGES.find(l => l.code === langCode);
     if (!lang) return;
-
-    document.getElementById('languageDropdown').classList.remove('open');
 
     // Check if we have cached translations
     const cachedTranslations = localStorage.getItem(`${STORAGE_KEYS.translations}_${langCode}`);
@@ -314,15 +301,13 @@ function applyTranslations() {
         updateTabPlaceholder();
     }
 
-    initLanguageDropdown();
+    // initLanguageDropdown(); // УДАЛЕНО - больше не инициализируем старый dropdown
 }
 
 function updateLanguageButton() {
-    const lang = LANGUAGES.find(l => l.code === currentLanguage);
-    if (lang) {
-        document.getElementById('currentFlag').textContent = lang.flag;
-        document.getElementById('currentLangName').textContent = lang.name;
-    }
+    // Эта функция больше не нужна, так как нет отдельной кнопки языка
+    // Язык теперь в меню настроек
+    console.log('[Language] updateLanguageButton() is deprecated in new UI');
 }
 
 function updateTabPlaceholder() {
@@ -352,7 +337,7 @@ function loadLanguage() {
         }
     }
     applyTranslations();
-    updateLanguageButton();
+    // updateLanguageButton(); // УДАЛЕНО
 }
 
 function getApiKey() {

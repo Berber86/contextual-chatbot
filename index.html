@@ -3,87 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chatbot with Memory</title>
+    <title>Memory Chatbot</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <!-- Блок настроек для локальной работы -->
-<div id="dev-settings" style="display: none; padding: 10px; background: #ffe4e4; border: 1px solid red; margin-bottom: 10px;">
-    <p style="margin: 0 0 5px 0;">🔧 <b>Режим разработчика</b></p>
-    <input type="password" id="local-api-key" placeholder="Вставьте ключ sk-or-..." style="width: 70%;">
-    <button onclick="saveLocalKey()">Сохранить</button>
-    <span id="key-status"></span>
-</div>
-    <!-- Language selector -->
-    <div class="language-selector">
-        <button class="language-btn" onclick="toggleLanguageDropdown()">
-            <span class="flag" id="currentFlag">🇬🇧</span>
-            <span id="currentLangName">English</span>
-            <span>▼</span>
-        </button>
-        <div class="language-dropdown" id="languageDropdown"></div>
+    <div id="dev-settings" style="display: none; padding: 10px; background: #ffe4e4; border: 1px solid red; margin-bottom: 10px;">
+        <p style="margin: 0 0 5px 0;">🔧 <b>Режим разработчика</b></p>
+        <input type="password" id="local-api-key" placeholder="Вставьте ключ sk-or-..." style="width: 70%;">
+        <button onclick="saveLocalKey()">Сохранить</button>
+        <span id="key-status"></span>
     </div>
-
-<!-- Help Modal -->
-<div class="help-modal-overlay" id="helpModal">
-    <div class="help-modal">
-        <button class="help-modal-close" onclick="closeHelpModal()">✕</button>
-        
-        <h1>🧠 Memory Chatbot</h1>
-        
-        <section class="help-section">
-            <h2>Что это?</h2>
-            <p>Персональный AI-ассистент, который <strong>запоминает</strong> информацию о вас. Чем больше общаетесь — тем лучше он вас понимает.</p>
-        </section>
-        
-        <section class="help-section">
-            <h2>Что он запоминает?</h2>
-            <ul>
-                <li>📋 <strong>Факты</strong> — имя, работа, интересы, предпочтения</li>
-                <li>🧠 <strong>Черты личности</strong> — как вы думаете, что цените</li>
-                <li>📅 <strong>Хронология</strong> — события, планы, важные даты</li>
-                <li>👥 <strong>Люди</strong> — семья, друзья, коллеги из ваших рассказов</li>
-                <li>💡 <strong>Инсайты</strong> — паттерны и наблюдения о вас</li>
-            </ul>
-        </section>
-        
-        <section class="help-section">
-            <h2>🎤 Режим "Ask Me"</h2>
-            <p>Включите переключатель — бот будет задавать вопросы, чтобы узнать вас лучше. Вопросы вплетаются естественно в разговор.</p>
-        </section>
-        
-        <section class="help-section">
-            <h2>🔒 Приватность</h2>
-            <p><strong>Все данные хранятся только на вашем устройстве.</strong></p>
-            <p>Мы технически не можем прочитать вашу переписку — она не отправляется на наши серверы.</p>
-            <p>Сообщения обрабатываются через <a href="https://openrouter.ai/privacy" target="_blank">OpenRouter</a> для работы ИИ.</p>
-            <p>Нажмите "Clear Knowledge" чтобы удалить всё мгновенно.</p>
-        </section>
-        
-        <section class="help-section">
-            <h2>🚀 Что дальше?</h2>
-            <ul>
-                <li>Синхронизация между устройствами (опционально)</li>
-                <li>Экспорт/импорт базы знаний</li>
-                <li>Больше настроек персонализации</li>
-                <li>Мобильное приложение</li>
-            </ul>
-        </section>
-        
-        <section class="help-section">
-            <h2>👨‍💻 Автор</h2>
-            <p>Сергей Маслаков</p>
-            <p>
-               
-                <a href="https://t.me/Nascor" target="_blank">Telegram</a>
-            </p>
-        </section>
-        
-        <div class="help-footer">
-            <p>Версия 1.0 · 2024</p>
-        </div>
-    </div>
-</div>
 
     <!-- Translating overlay -->
     <div class="translating-overlay" id="translatingOverlay">
@@ -91,54 +21,63 @@
         <div class="text" id="translatingText">Translating interface...</div>
     </div>
 
-    <!-- API key section -->
-<!-- Help button -->
-<button class="help-btn" onclick="openHelpModal()" title="About">
-    ?
-</button>
+    <!-- Header Bar -->
+    <header class="header-bar">
+        <!-- Кнопка знаний в левом верхнем углу -->
+        <button class="header-btn knowledge-btn" onclick="openKnowledgeModal()" title="User Knowledge">
+            🧠
+        </button>
 
-    <!-- Main container -->
-    <div class="main-container">
-        <!-- Control panel -->
-        <div class="controls">
-            <button class="btn btn-primary" onclick="openKnowledgeModal()" data-i18n="btnKnowledge">
-                📚 User Knowledge
+        <!-- Кнопка помощи в правом верхнем углу -->
+        <button class="header-btn help-btn" onclick="openHelpModal()" title="Help">
+            ?
+        </button>
+
+        <!-- Кнопка настроек (шестерёнка) -->
+        <div class="settings-wrapper">
+            <button class="header-btn settings-btn" onclick="toggleSettingsMenu()" title="Settings">
+                ⚙️
             </button>
-            <button class="btn btn-secondary" onclick="clearChat()" data-i18n="btnClearChat">
-                🗑️ Clear Chat
-            </button>
-            <button class="btn btn-danger" onclick="clearKnowledge()" data-i18n="btnClearKnowledge">
-                ⚠️ Clear Knowledge
-            </button>
-            <div class="counters-wrapper">
-                <div class="counter-badge">
-                    <span data-i18n="counterStyle">🎭 Style:</span> <span class="style-count" id="styleCounter">10</span>
-                </div>
-                <div class="counter-badge">
-                    <span data-i18n="counterHypotheses">💡 Hypotheses:</span> <span class="hypo-count" id="hypoCounter">16</span>
-                </div>
-                <div class="counter-badge">
-                    <span data-i18n="counterGaps">🔍 Gaps:</span> <span class="gaps-count" id="gapsCounter">6</span>
+            <div class="settings-dropdown" id="settingsDropdown">
+                <button class="settings-item" onclick="clearChat()">
+                    <span class="settings-icon">🗑️</span>
+                    <span data-i18n="btnClearChat">Clear Chat</span>
+                </button>
+                <button class="settings-item" onclick="clearKnowledge()">
+                    <span class="settings-icon">⚠️</span>
+                    <span data-i18n="btnClearKnowledge">Clear Knowledge</span>
+                </button>
+                <div class="settings-divider"></div>
+                <!-- Языковой селектор в меню -->
+                <div class="language-menu-section">
+                    <div class="language-selector-menu" id="languageSelectorMenu">
+                        <!-- Здесь будет вставлен язык через JS -->
+                    </div>
                 </div>
             </div>
-            <!-- После counters-wrapper, внутри .controls -->
-<div class="ask-me-toggle-wrapper">
-    <span class="ask-me-label" data-i18n="askMeMode">Ask Me Mode</span>
-    <div class="ask-me-toggle disabled" id="askMeToggle" onclick="toggleAskMeMode()" title="">
-        <div class="ask-me-slider" id="askMeSlider"></div>
-    </div>
-</div>
         </div>
+    </header>
 
-        <!-- Chat area -->
+    <!-- Main Chat Container -->
+    <main class="chat-container">
+        <!-- Chat Area -->
         <div class="chat-area" id="chatArea">
             <div class="message system" data-i18n="welcomeMessage">
                 Hello! I'm your personal assistant. Tell me about yourself, and I'll remember important information.
             </div>
         </div>
 
-        <!-- Input form -->
-        <div class="input-area">
+        <!-- Input Area (привязано к низу) -->
+        <div class="input-container">
+            <!-- Ask Me Mode Toggle -->
+            <div class="ask-me-container">
+                <span class="ask-me-label" data-i18n="askMeMode">Ask Me Mode</span>
+                <div class="ask-me-toggle disabled" id="askMeToggle" onclick="toggleAskMeMode()" title="">
+                    <div class="ask-me-slider" id="askMeSlider"></div>
+                </div>
+            </div>
+
+            <!-- Форма ввода -->
             <form class="input-form" onsubmit="sendMessage(event)">
                 <textarea 
                     class="message-input" 
@@ -152,6 +91,82 @@
                     Send
                 </button>
             </form>
+
+            <!-- Counters (только для локальной разработки) -->
+            <div class="counters-container" id="countersContainer">
+                <div class="counter-badge">
+                    <span data-i18n="counterStyle">🎭 Style:</span> 
+                    <span class="style-count" id="styleCounter">10</span>
+                </div>
+                <div class="counter-badge">
+                    <span data-i18n="counterHypotheses">💡 Hypotheses:</span> 
+                    <span class="hypo-count" id="hypoCounter">16</span>
+                </div>
+                <div class="counter-badge">
+                    <span data-i18n="counterGaps">🔍 Gaps:</span> 
+                    <span class="gaps-count" id="gapsCounter">6</span>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Help Modal -->
+    <div class="help-modal-overlay" id="helpModal">
+        <div class="help-modal">
+            <button class="help-modal-close" onclick="closeHelpModal()">✕</button>
+            
+            <h1>🧠 Memory Chatbot</h1>
+            
+            <section class="help-section">
+                <h2>What is this?</h2>
+                <p>A personal AI assistant that <strong>remembers</strong> information about you. The more you chat — the better it understands you.</p>
+            </section>
+            
+            <section class="help-section">
+                <h2>What does it remember?</h2>
+                <ul>
+                    <li>📋 <strong>Facts</strong> — name, work, interests, preferences</li>
+                    <li>🧠 <strong>Personality</strong> — how you think, what you value</li>
+                    <li>📅 <strong>Timeline</strong> — events, plans, important dates</li>
+                    <li>👥 <strong>People</strong> — family, friends, colleagues from your stories</li>
+                    <li>💡 <strong>Insights</strong> — patterns and observations about you</li>
+                </ul>
+            </section>
+            
+            <section class="help-section">
+                <h2>🎤 Ask Me Mode</h2>
+                <p>Turn on the toggle — the bot will ask questions to learn more about you. Questions are woven naturally into conversation.</p>
+            </section>
+            
+            <section class="help-section">
+                <h2>🔒 Privacy</h2>
+                <p><strong>All data is stored only on your device.</strong></p>
+                <p>We technically cannot read your conversations — they are not sent to our servers.</p>
+                <p>Messages are processed via <a href="https://openrouter.ai/privacy" target="_blank">OpenRouter</a> for AI to work.</p>
+                <p>Click "Clear Knowledge" to delete everything instantly.</p>
+            </section>
+            
+            <section class="help-section">
+                <h2>🚀 What's next?</h2>
+                <ul>
+                    <li>Cross-device sync (optional)</li>
+                    <li>Export/import knowledge base</li>
+                    <li>More personalization settings</li>
+                    <li>Mobile app</li>
+                </ul>
+            </section>
+            
+            <section class="help-section">
+                <h2>👨‍💻 Author</h2>
+                <p>Сергей Маслаков</p>
+                <p>
+                    <a href="https://t.me/Nascor" target="_blank">Telegram</a>
+                </p>
+            </section>
+            
+            <div class="help-footer">
+                <p>Version 1.0 · 2024</p>
+            </div>
         </div>
     </div>
 
@@ -233,8 +248,6 @@
             </div>
         </div>
     </div>
-    
-    
 
     <script src="app.js"></script>
     <script src="ui.js"></script>
