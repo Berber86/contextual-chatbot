@@ -250,7 +250,9 @@
         </div>
     </div>
 
-    <script src="app.js"></script>
-    <script src="ui.js"></script>
+    <!-- ВАЖНО: правильный порядок загрузки скриптов -->
+    <script src="app.js"></script>        <!-- 1. Базовые функции и конфигурация -->
+    <script src="analytics.js"></script>  <!-- 2. Аналитические функции (использует app.js) -->
+    <script src="ui.js"></script>         <!-- 3. UI и взаимодействие (использует app.js и analytics.js) -->
 </body>
 </html>
