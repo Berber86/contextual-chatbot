@@ -53,10 +53,23 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 // ==================== PROACTIVE GREETING ====================
+const GREETING_COOLDOWN_MS = 4 * 60 * 60 * 1000; // 4 часа в миллисекундах
+const GREETING_TIMESTAMP_KEY = 'chatbot_last_greeting';
+
 async function showProactiveGreeting() {
     // Проверяем, что приветствие ещё не показывалось в этой сессии
     if (greetingShown) return;
     greetingShown = true;
+    
+    // Проверяем cooldown (4 часа с последнего приветствия)
+    const lastGreeting = localStorage.getItem(GREETING_TIMESTAMP_KEY);
+    if (lastGreeting) {
+        const elapsed = Date.now() - parseInt(lastGreeting);
+        if (elapsed < GREETING_COOLDOWN_MS) {
+            console.log(`[Greeting] Cooldown active. ${Math.round((GREETING_COOLDOWN_MS - elapsed) / 60000)} min remaining`);
+            return;
+        }
+    }
     
     // Проверяем наличие API ключа
     const apiKey = getApiKey();
@@ -93,10 +106,8 @@ async function showProactiveGreeting() {
     const langName = getLanguageName();
     
     if (!hasData) {
-        // === ВАРИАНТ 1: Новый пользователь — представляемся ===
         prompt = buildIntroductionPrompt(langName, timeContext);
     } else {
-        // === ВАРИАНТ 2: Знакомый пользователь — персонализированное приветствие ===
         prompt = buildPersonalizedGreetingPrompt(langName, timeContext, {
             facts, traits, timeline, style, gaps, hypotheses, social
         });
@@ -116,6 +127,9 @@ async function showProactiveGreeting() {
         
         const greeting = response.content || response;
         appendMessage('assistant', greeting, true);
+        
+        // Сохраняем timestamp успешного приветствия
+        localStorage.setItem(GREETING_TIMESTAMP_KEY, Date.now().toString());
         
         console.log('[Greeting] Proactive greeting sent successfully');
         
