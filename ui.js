@@ -1,11 +1,12 @@
 // ui.js - интерфейсная логика для Memory Chatbot
-// Все функции глобальные, использует функции из app.js и analytics.js
+// Two-Stage Response Architecture: Context Analysis → Personalized Response
 
 // ==================== INITIALIZATION & CONFIG ====================
 const isLocal = window.location.hostname.includes('localhost') ||
     window.location.hostname.includes('127.0.0.1');
 
 const CONFIG = {
+    // model_chat: "xiaomi/mimo-v2-flash:free",
     model_chat: "mistralai/devstral-2512:free",
     model_analysis: "xiaomi/mimo-v2-flash:free",
     
@@ -21,11 +22,16 @@ const CONFIG = {
     maxHypotheses: 10,
     maxGaps: 5,
     maxToolIterations: 5,
-    showToolCalls: true
+    showToolCalls: false,  // Отключаем, т.к. используем two-stage
+    showContextAnalysis: true  // Показывать этап анализа
 };
 
 // Флаг, что приветствие уже было показано в этой сессии
 let greetingShown = false;
+
+// Cooldown для приветствий
+const GREETING_COOLDOWN_MS = 4 * 60 * 60 * 1000; // 4 часа
+const GREETING_TIMESTAMP_KEY = 'chatbot_last_greeting';
 
 document.addEventListener('DOMContentLoaded', async () => {
     loadLanguage();
@@ -39,8 +45,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateHypoCounter();
         updateGapsCounter();
     } else {
-        // На продакшене скрываем счетчики
-        document.getElementById('countersContainer').style.display = 'none';
+        const countersContainer = document.getElementById('countersContainer');
+        if (countersContainer) countersContainer.style.display = 'none';
     }
     
     updateAskMeModeUI();
@@ -53,15 +59,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 // ==================== PROACTIVE GREETING ====================
-const GREETING_COOLDOWN_MS = 4 * 60 * 60 * 1000; // 4 часа в миллисекундах
-const GREETING_TIMESTAMP_KEY = 'chatbot_last_greeting';
-
 async function showProactiveGreeting() {
-    // Проверяем, что приветствие ещё не показывалось в этой сессии
     if (greetingShown) return;
     greetingShown = true;
     
-    // Проверяем cooldown (4 часа с последнего приветствия)
     const lastGreeting = localStorage.getItem(GREETING_TIMESTAMP_KEY);
     if (lastGreeting) {
         const elapsed = Date.now() - parseInt(lastGreeting);
@@ -71,36 +72,30 @@ async function showProactiveGreeting() {
         }
     }
     
-    // Проверяем наличие API ключа
     const apiKey = getApiKey();
     if (!apiKey) {
         console.log('[Greeting] No API key, skipping proactive greeting');
         return;
     }
     
-    // На локалке проверяем что ключ валидный
     if (isLocal && (!apiKey || apiKey.length < 10)) {
         console.log('[Greeting] Invalid API key for local, skipping proactive greeting');
         return;
     }
     
-    // Небольшая задержка для UX (чтобы страница успела загрузиться)
     await new Promise(resolve => setTimeout(resolve, 800));
     
-    // Собираем контекст
-    const facts = getKnowledge('facts');
-    const traits = getKnowledge('traits');
-    const timeline = getKnowledge('timeline');
-    const style = getKnowledge('style');
+    const facts = getFactsForPrompt();
+    const traits = getTraitsForPrompt();
+    const timeline = getTimelineForPrompt();
+    const style = localStorage.getItem(STORAGE_KEYS.style) || '';
     const gaps = getGapsForPrompt();
     const hypotheses = getHypothesesForPrompt();
     const social = getSocialForPrompt();
     
-    // Собираем временной контекст
     const timeContext = getTimeContext();
     
-    // Проверяем, есть ли хоть какие-то данные о пользователе
-    const hasData = [facts, traits, timeline].some(k => k && k.trim().length > 20);
+    const hasData = [facts, traits, timeline].some(k => k && k.length > 30 && !k.includes('(no '));
     
     let prompt;
     const langName = getLanguageName();
@@ -114,7 +109,6 @@ async function showProactiveGreeting() {
     }
     
     console.log('[Greeting] Generating proactive greeting...');
-    console.log('[Greeting] Time context:', timeContext);
     showTypingIndicator();
     
     try {
@@ -128,7 +122,6 @@ async function showProactiveGreeting() {
         const greeting = response.content || response;
         appendMessage('assistant', greeting, true);
         
-        // Сохраняем timestamp успешного приветствия
         localStorage.setItem(GREETING_TIMESTAMP_KEY, Date.now().toString());
         
         console.log('[Greeting] Proactive greeting sent successfully');
@@ -145,12 +138,11 @@ function getTimeContext() {
     
     const hour = now.getHours();
     const minute = now.getMinutes();
-    const dayOfWeek = now.getDay(); // 0 = Sunday
+    const dayOfWeek = now.getDay();
     const dayOfMonth = now.getDate();
-    const month = now.getMonth(); // 0 = January
+    const month = now.getMonth();
     const year = now.getFullYear();
     
-    // Время суток
     let timeOfDay;
     if (hour >= 5 && hour < 12) {
         timeOfDay = 'morning';
@@ -162,7 +154,6 @@ function getTimeContext() {
         timeOfDay = 'night';
     }
     
-    // Время года (для северного полушария как ориентир)
     let season;
     if (month >= 2 && month <= 4) {
         season = 'spring';
@@ -174,21 +165,12 @@ function getTimeContext() {
         season = 'winter';
     }
     
-    // Дни недели
     const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const dayName = daysOfWeek[dayOfWeek];
     
-    // Месяцы
     const months = ['January', 'February', 'March', 'April', 'May', 'June', 
                     'July', 'August', 'September', 'October', 'November', 'December'];
     const monthName = months[month];
-    
-    // Особые временные контексты
-    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-    const isFriday = dayOfWeek === 5;
-    const isMonday = dayOfWeek === 1;
-    const isLateNight = hour >= 0 && hour < 5;
-    const isEarlyMorning = hour >= 5 && hour < 7;
     
     return {
         hour,
@@ -201,11 +183,11 @@ function getTimeContext() {
         monthName,
         year,
         season,
-        isWeekend,
-        isFriday,
-        isMonday,
-        isLateNight,
-        isEarlyMorning,
+        isWeekend: dayOfWeek === 0 || dayOfWeek === 6,
+        isFriday: dayOfWeek === 5,
+        isMonday: dayOfWeek === 1,
+        isLateNight: hour >= 0 && hour < 5,
+        isEarlyMorning: hour >= 5 && hour < 7,
         formatted: `${dayName}, ${monthName} ${dayOfMonth}, ${year} at ${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`,
         languageCode: currentLanguage
     };
@@ -217,7 +199,6 @@ function formatTimeContextForPrompt(tc) {
 🗓️ Season: ${tc.season}
 🌍 User's language/locale: ${tc.languageCode}`;
 
-    // Добавляем особые контексты
     const specials = [];
     if (tc.isWeekend) specials.push("weekend");
     if (tc.isFriday) specials.push("Friday (end of work week)");
@@ -249,8 +230,6 @@ Consider the date, time, day of week, and user's language/culture:
 • Is it a special time (weekend, Friday evening, Monday morning, late night)?
 • What season is it and does that matter?
 
-Use this context to make your greeting feel ALIVE and PRESENT, not generic.
-
 === YOUR CAPABILITIES TO MENTION ===
 1. 📋 You remember FACTS (name, job, interests, preferences)
 2. 🧠 You learn PERSONALITY TRAITS (how they think, what they value)
@@ -260,24 +239,14 @@ Use this context to make your greeting feel ALIVE and PRESENT, not generic.
 6. 🎭 You adapt your COMMUNICATION STYLE to match them
 
 === GREETING REQUIREMENTS ===
-1. Start with a time-appropriate greeting (good morning/evening/etc.)
+1. Start with a time-appropriate greeting
 2. If there's a relevant holiday — acknowledge it warmly
-3. Briefly introduce your memory capabilities (what makes you special)
-4. End with an inviting question or open invitation to chat
+3. Briefly introduce your memory capabilities
+4. End with an inviting question or open invitation
 
-=== TONE ===
-- Warm and welcoming, not robotic
-- Naturally weave in time context — don't just list facts
-- Be concise but memorable
-- Match the cultural context of the language
-
-=== EXAMPLES OF GOOD TIME-AWARE GREETINGS ===
-✓ "Good evening! Burning the midnight oil? Perfect time for a chat. I'm an AI who actually remembers you..."
-✓ "Happy Friday! Almost weekend — and I'm here whenever you need. Unlike other AIs, I remember everything..."
-✓ "Доброй ночи! Не спится? Я тоже не сплю — и в отличие от других ботов, я запомню всё, что ты расскажешь..."
-✓ "¡Feliz Navidad! 🎄 Un momento perfecto para conocernos. Soy un asistente que recuerda todo sobre ti..."`,
+Be warm and concise. Match the cultural context of the language.`,
         
-        user: `Generate a welcoming first message for a new user. Make it time-aware and culturally appropriate for ${langName} speakers. Be warm and inviting.`
+        user: `Generate a welcoming first message for a new user. Make it time-aware and culturally appropriate.`
     };
 }
 
@@ -287,7 +256,7 @@ function buildPersonalizedGreetingPrompt(langName, timeContext, context) {
     
     let styleInstruction = '';
     if (style && style.trim()) {
-        styleInstruction = `\n\n=== YOUR COMMUNICATION STYLE WITH THIS USER ===\n${style}`;
+        styleInstruction = `\n\n=== YOUR COMMUNICATION STYLE ===\n${style}`;
     }
     
     return {
@@ -301,98 +270,49 @@ ${timeContextText}
 
 === WHAT YOU KNOW ABOUT THIS USER ===
 
-**Facts:**
-${facts || '(limited facts)'}
+**Facts:** ${facts || '(limited)'}
+**Traits:** ${traits || '(still learning)'}
+**Timeline:** ${timeline || '(no timeline)'}
+**People:** ${social || '(no connections)'}
+**Hypotheses:** ${hypotheses || '(none yet)'}
 
-**Personality Traits:**
-${traits || '(still learning their personality)'}
+=== KNOWLEDGE GAPS ===
+${gaps || '(none identified)'}
 
-**Life Timeline:**
-${timeline || '(no timeline yet)'}
-
-**People in Their Life:**
-${social || '(no social connections recorded)'}
-
-**Your Hypotheses About Them:**
-${hypotheses || '(no hypotheses yet)'}
-
-=== KNOWLEDGE GAPS (things you'd like to learn) ===
-${gaps || '(no specific gaps identified)'}
-
-=== YOUR TASK: CONTEXTUAL PERSONALIZED GREETING ===
-
-Create a greeting that BRILLIANTLY CONNECTS:
-
+=== YOUR TASK ===
+Create a greeting that CONNECTS:
 1. **TIME CONTEXT** → What you know about them
-   - Friday evening + they mentioned hating their job → "TGIF, right?"
-   - Monday morning + they're not a morning person → "I'll keep it short..."
-   - Late night + they have kids → "Rare quiet moment?"
-   - Holiday + family mentioned → Connect them naturally
-   - Their birthday if known → Celebrate!
-
-2. **SEASONAL/HOLIDAY AWARENESS**
-   - Consider if today (${timeContext.monthName} ${timeContext.dayOfMonth}) has a holiday relevant to ${langName} speakers
-   - If there's an upcoming major holiday (2-3 days away) — you can mention anticipation
-   - Connect holidays to what you know (they mentioned family → "готовишься к праздникам?")
-
+2. **SEASONAL/HOLIDAY AWARENESS** — Consider if today has a holiday relevant to ${langName} speakers
 3. **ONE KNOWLEDGE GAP** (optional, only if natural)
-   - If a gap connects to time context, explore it subtly
-   - Example: Gap is "weekend activities" + it's Saturday → perfect moment to ask
-
-=== WHAT MAKES A GREAT GREETING ===
-✓ Shows you REMEMBER specific things about them
-✓ Feels contextually AWARE (time, day, season, culture)
-✓ Makes them feel UNDERSTOOD, not surveilled
-✓ Ends with something that invites response
-✓ One cohesive message, not a list
 
 === WHAT TO AVOID ===
-✗ Listing everything you know
-✗ Being creepy ("I've been waiting for you...")
-✗ Multiple questions
-✗ Generic greetings ("How are you?")
-✗ Mentioning "knowledge gaps" explicitly
-✗ Forcing connections that don't fit
+- Listing everything you know
+- Being creepy
+- Multiple questions
+- Generic greetings ("How are you?")
 
-=== EXCELLENT EXAMPLES ===
-
-For someone who mentioned they work in IT, on a Friday evening:
-"Hey! Friday at 7pm — logging off the servers and into weekend mode? 😄 How'd the week treat you?"
-
-For someone with a daughter, late at night:
-"Тихий вечер! Дочка уже спит? Редкий момент для себя..."
-
-For someone studying, on a Monday:
-"Monday morning... I remember you mentioned exam season. Still in the thick of it?"
-
-For someone during their cultural holiday:
-"Happy Diwali! 🪔 With your family visiting, I imagine it's pretty festive at home?"`,
+Be natural. Be warm. Show you KNOW them AND are aware of the moment.`,
         
-        user: `Generate a personalized, time-aware greeting for this returning user. Connect the current moment to what you know about them. Make them feel remembered and understood.`
+        user: `Generate a personalized, time-aware greeting for this returning user.`
     };
 }
 
 // ==================== SETTINGS MENU ====================
 function initSettingsMenu() {
-    const settingsBtn = document.getElementById('settingsBtn');
-    const settingsDropdown = document.getElementById('settingsDropdown');
-    const languageSelectorMenu = document.getElementById('languageSelectorMenu');
-    
-    // Инициализируем языковой селектор в меню
     renderLanguageMenu();
     
-    // Закрытие меню при клике вне его
     document.addEventListener('click', (e) => {
         if (!e.target.closest('.settings-wrapper')) {
-            settingsDropdown.classList.remove('open');
+            const dropdown = document.getElementById('settingsDropdown');
+            if (dropdown) dropdown.classList.remove('open');
             closeAllLanguageDropdowns();
         }
     });
     
-    // Закрытие по Escape
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
-            settingsDropdown.classList.remove('open');
+            const dropdown = document.getElementById('settingsDropdown');
+            if (dropdown) dropdown.classList.remove('open');
             closeAllLanguageDropdowns();
         }
     });
@@ -400,7 +320,7 @@ function initSettingsMenu() {
 
 function toggleSettingsMenu() {
     const settingsDropdown = document.getElementById('settingsDropdown');
-    settingsDropdown.classList.toggle('open');
+    if (settingsDropdown) settingsDropdown.classList.toggle('open');
     closeAllLanguageDropdowns();
 }
 
@@ -437,14 +357,12 @@ function renderLanguageMenu() {
 
 function toggleLanguageMenuDropdown() {
     const dropdown = document.getElementById('languageMenuDropdown');
-    if (dropdown) {
-        dropdown.classList.toggle('open');
-    }
+    if (dropdown) dropdown.classList.toggle('open');
 }
 
 async function selectLanguageFromMenu(langCode) {
     await selectLanguage(langCode);
-    renderLanguageMenu(); // Обновляем меню после выбора
+    renderLanguageMenu();
     closeAllLanguageDropdowns();
 }
 
@@ -455,9 +373,7 @@ function isAskMeModeAvailable() {
 }
 
 function toggleAskMeMode() {
-    if (!isAskMeModeAvailable()) {
-        return;
-    }
+    if (!isAskMeModeAvailable()) return;
     askMeMode = !askMeMode;
     updateAskMeModeUI();
     console.log(`[AskMe] Mode ${askMeMode ? 'ON' : 'OFF'}`);
@@ -465,11 +381,9 @@ function toggleAskMeMode() {
 
 function updateAskMeModeUI() {
     const toggle = document.getElementById('askMeToggle');
-    
     if (!toggle) return;
     
     const available = isAskMeModeAvailable();
-    
     toggle.classList.toggle('disabled', !available);
     toggle.classList.toggle('active', askMeMode && available);
     
@@ -490,7 +404,6 @@ function incrementMessageCounter() {
     const counter = getMessageCounter() + 1;
     localStorage.setItem(STORAGE_KEYS.messageCounter, counter.toString());
     
-    // Обновляем счетчики только в локальном режиме
     if (isLocal) {
         updateStyleCounter();
         updateHypoCounter();
@@ -504,14 +417,16 @@ function updateStyleCounter() {
     if (!isLocal) return;
     const counter = getMessageCounter();
     const remaining = CONFIG.styleUpdateInterval - (counter % CONFIG.styleUpdateInterval);
-    document.getElementById('styleCounter').textContent = remaining;
+    const el = document.getElementById('styleCounter');
+    if (el) el.textContent = remaining;
 }
 
 function updateHypoCounter() {
     if (!isLocal) return;
     const counter = getMessageCounter();
     const remaining = CONFIG.hypothesesUpdateInterval - (counter % CONFIG.hypothesesUpdateInterval);
-    document.getElementById('hypoCounter').textContent = remaining;
+    const el = document.getElementById('hypoCounter');
+    if (el) el.textContent = remaining;
 }
 
 function updateGapsCounter() {
@@ -565,11 +480,9 @@ function clearChat() {
     if (confirm(t('confirmClearChat'))) {
         localStorage.removeItem(STORAGE_KEYS.chatHistory);
         const chatArea = document.getElementById('chatArea');
-        chatArea.innerHTML = `
-            <div class="message system">
-                ${t('chatCleared')}
-            </div>
-        `;
+        if (chatArea) {
+            chatArea.innerHTML = `<div class="message system">${t('chatCleared')}</div>`;
+        }
         console.log('[System] Chat history cleared');
     }
 }
@@ -586,7 +499,6 @@ function clearKnowledge() {
         localStorage.removeItem(STORAGE_KEYS.gaps);
         localStorage.removeItem(STORAGE_KEYS.messageCounter);
         
-        // Обновляем счетчики только в локальном режиме
         if (isLocal) {
             updateStyleCounter();
             updateHypoCounter();
@@ -600,7 +512,7 @@ function clearKnowledge() {
 }
 
 // ==================== MODAL WINDOW ====================
-let selectedContactId = null;
+let selectedItemId = null;
 
 function openKnowledgeModal() {
     document.getElementById('knowledgeModal').classList.add('active');
@@ -610,125 +522,379 @@ function openKnowledgeModal() {
 
 function closeKnowledgeModal() {
     if (hasUnsavedChanges) {
-        if (!confirm(t('confirmUnsavedClose'))) {
-            return;
-        }
+        if (!confirm(t('confirmUnsavedClose'))) return;
     }
     hasUnsavedChanges = false;
-    selectedContactId = null;
+    selectedItemId = null;
     document.getElementById('knowledgeModal').classList.remove('active');
     document.body.classList.remove('modal-open');
 }
 
 function switchTab(tab) {
     if (hasUnsavedChanges && tab !== currentTab) {
-        if (!confirm(t('confirmUnsavedSwitch'))) {
-            return;
-        }
+        if (!confirm(t('confirmUnsavedSwitch'))) return;
     }
 
     currentTab = tab;
     hasUnsavedChanges = false;
-    selectedContactId = null;
+    selectedItemId = null;
 
     document.querySelectorAll('.modal-tab').forEach(t => {
         t.classList.toggle('active', t.dataset.tab === tab);
     });
 
-    // Hide all info blocks
-    document.getElementById('styleInfo').style.display = 'none';
-    document.getElementById('hypothesesInfo').style.display = 'none';
-    const socialInfo = document.getElementById('socialInfo');
-    if (socialInfo) socialInfo.style.display = 'none';
-    const gapsInfo = document.getElementById('gapsInfo');
-    if (gapsInfo) gapsInfo.style.display = 'none';
+    ['styleInfo', 'hypothesesInfo', 'socialInfo', 'gapsInfo', 'factsInfo', 'traitsInfo', 'timelineInfo'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+    });
 
     const textarea = document.getElementById('knowledgeTextarea');
+    const structuredContainer = document.getElementById('structuredContainer');
     const socialContainer = document.getElementById('socialContainer');
+    const readonlyIndicator = document.getElementById('readonlyIndicator');
 
-    if (tab === 'social') {
-        textarea.style.display = 'none';
-        if (socialContainer) {
-            socialContainer.style.display = 'flex';
-        }
-        if (socialInfo) {
-            socialInfo.style.display = 'block';
-        }
-        renderSocialList();
-        document.getElementById('readonlyIndicator').style.display = 'none';
+    const structuredTabs = ['facts', 'traits', 'timeline', 'hypotheses', 'gaps'];
+    const isStructured = structuredTabs.includes(tab);
+    const isSocial = tab === 'social';
+    const isTextarea = tab === 'style';
+
+    if (textarea) textarea.style.display = isTextarea ? 'block' : 'none';
+    if (structuredContainer) structuredContainer.style.display = isStructured ? 'block' : 'none';
+    if (socialContainer) socialContainer.style.display = isSocial ? 'flex' : 'none';
+
+    const infoId = `${tab}Info`;
+    const infoEl = document.getElementById(infoId);
+    if (infoEl) infoEl.style.display = 'block';
+
+    if (isStructured) {
+        renderStructuredContent(tab);
+        if (readonlyIndicator) readonlyIndicator.style.display = 'flex';
         updateEditButtons(false);
-        return;
-    } else {
-        textarea.style.display = 'block';
-        if (socialContainer) {
-            socialContainer.style.display = 'none';
-        }
+    } else if (isSocial) {
+        renderSocialList();
+        if (readonlyIndicator) readonlyIndicator.style.display = 'flex';
+        updateEditButtons(false);
+    } else if (isTextarea) {
+        const content = localStorage.getItem(STORAGE_KEYS.style) || '';
+        textarea.value = content;
+        textarea.readOnly = false;
+        textarea.classList.remove('readonly');
+        originalTabContent = content;
+        if (readonlyIndicator) readonlyIndicator.style.display = 'none';
+        updateEditButtons(false);
     }
 
-    // Show relevant info block
-    if (tab === 'style') {
-        document.getElementById('styleInfo').style.display = 'block';
-    } else if (tab === 'hypotheses') {
-        document.getElementById('hypothesesInfo').style.display = 'block';
-    } else if (tab === 'gaps') {
-        if (gapsInfo) gapsInfo.style.display = 'block';
-    }
-
-    const content = getKnowledge(tab);
-    const isReadonly = READONLY_TABS.includes(tab);
-    
-    textarea.value = content;
     updateTabPlaceholder();
-    textarea.readOnly = isReadonly;
-    textarea.classList.toggle('readonly', isReadonly);
-    
-    originalTabContent = content;
-
-    document.getElementById('readonlyIndicator').style.display = isReadonly ? 'flex' : 'none';
-    updateEditButtons(false);
 }
 
-function onTextareaChange() {
-    if (READONLY_TABS.includes(currentTab)) return;
-    
-    const textarea = document.getElementById('knowledgeTextarea');
-    const changed = textarea.value !== originalTabContent;
-    hasUnsavedChanges = changed;
-    updateEditButtons(changed);
+// ==================== STRUCTURED CONTENT RENDERING ====================
+function renderStructuredContent(tab) {
+    const container = document.getElementById('structuredContainer');
+    if (!container) return;
+
+    let html = '';
+
+    switch (tab) {
+        case 'facts':
+            html = renderFactsList();
+            break;
+        case 'traits':
+            html = renderTraitsList();
+            break;
+        case 'timeline':
+            html = renderTimelineList();
+            break;
+        case 'hypotheses':
+            html = renderHypothesesList();
+            break;
+        case 'gaps':
+            html = renderGapsList();
+            break;
+    }
+
+    container.innerHTML = html || `<div class="no-data">${t('placeholderEmpty')}</div>`;
 }
 
-function updateEditButtons(show) {
-    if (READONLY_TABS.includes(currentTab) || currentTab === 'social') {
-        document.getElementById('saveBtn').style.display = 'none';
-        document.getElementById('cancelBtn').style.display = 'none';
-        document.getElementById('editIndicator').classList.remove('visible');
-        return;
+function renderFactsList() {
+    const data = getFactsData();
+    
+    if (data.facts.length === 0 && data.legacy_text) {
+        return `
+            <div class="legacy-data">
+                <div class="legacy-header">📜 Legacy data (will be restructured automatically)</div>
+                <div class="legacy-content">${escapeHtml(data.legacy_text)}</div>
+            </div>
+        `;
     }
     
-    document.getElementById('saveBtn').style.display = show ? 'block' : 'none';
-    document.getElementById('cancelBtn').style.display = show ? 'block' : 'none';
-    document.getElementById('editIndicator').classList.toggle('visible', show);
-}
-
-function saveChanges() {
-    if (READONLY_TABS.includes(currentTab) || currentTab === 'social') return;
+    if (data.facts.length === 0) return '';
     
-    const textarea = document.getElementById('knowledgeTextarea');
-    setKnowledge(currentTab, textarea.value);
-    originalTabContent = textarea.value;
-    hasUnsavedChanges = false;
-    updateEditButtons(false);
-    console.log(`[Knowledge] Saved to category "${CATEGORY_NAMES[currentTab]}"`);
+    const active = data.facts.filter(f => !f.superseded);
+    const superseded = data.facts.filter(f => f.superseded);
+    
+    let html = '<div class="structured-list">';
+    
+    active.forEach((fact, i) => {
+        html += renderStructuredItem(fact, i + 1, 'fact');
+    });
+    
+    if (superseded.length > 0) {
+        html += `
+            <div class="superseded-section">
+                <div class="superseded-header" onclick="toggleSupersededSection('facts')">
+                    ⊘ ${t('labelSuperseded')} (${superseded.length}) ▼
+                </div>
+                <div class="superseded-list" id="supersededFacts" style="display: none;">
+                    ${superseded.map(f => `<div class="superseded-item">⊘ ${escapeHtml(f.text)}</div>`).join('')}
+                </div>
+            </div>
+        `;
+    }
+    
+    html += '</div>';
+    return html;
 }
 
-function cancelChanges() {
-    const textarea = document.getElementById('knowledgeTextarea');
-    textarea.value = originalTabContent;
-    hasUnsavedChanges = false;
-    updateEditButtons(false);
+function renderTraitsList() {
+    const data = getTraitsData();
+    
+    if (data.traits.length === 0 && data.legacy_text) {
+        return `
+            <div class="legacy-data">
+                <div class="legacy-header">📜 Legacy data</div>
+                <div class="legacy-content">${escapeHtml(data.legacy_text)}</div>
+            </div>
+        `;
+    }
+    
+    if (data.traits.length === 0) return '';
+    
+    const active = data.traits.filter(t => !t.superseded);
+    const superseded = data.traits.filter(t => t.superseded);
+    
+    let html = '<div class="structured-list">';
+    
+    active.forEach((trait, i) => {
+        html += renderStructuredItem(trait, i + 1, 'trait');
+    });
+    
+    if (superseded.length > 0) {
+        html += `
+            <div class="superseded-section">
+                <div class="superseded-header" onclick="toggleSupersededSection('traits')">
+                    ⊘ ${t('labelSuperseded')} (${superseded.length}) ▼
+                </div>
+                <div class="superseded-list" id="supersededTraits" style="display: none;">
+                    ${superseded.map(tr => `<div class="superseded-item">⊘ ${escapeHtml(tr.text)}</div>`).join('')}
+                </div>
+            </div>
+        `;
+    }
+    
+    html += '</div>';
+    return html;
 }
 
-// ==================== SOCIAL UI (Accordion) ====================
+function renderTimelineList() {
+    const data = getTimelineData();
+    
+    if (data.events.length === 0 && data.legacy_text) {
+        return `
+            <div class="legacy-data">
+                <div class="legacy-header">📜 Legacy data</div>
+                <div class="legacy-content">${escapeHtml(data.legacy_text)}</div>
+            </div>
+        `;
+    }
+    
+    if (data.events.length === 0) return '';
+    
+    const active = data.events.filter(e => !e.superseded);
+    const superseded = data.events.filter(e => e.superseded);
+    
+    const events = active.filter(e => e.type === 'event');
+    const periods = active.filter(e => e.type === 'period');
+    const plans = active.filter(e => e.type === 'plan');
+    
+    let html = '<div class="structured-list timeline-list">';
+    
+    if (periods.length > 0) {
+        html += `<div class="timeline-group">
+            <div class="timeline-group-header">🔄 ${t('labelPeriod')}s (${periods.length})</div>`;
+        periods.forEach((item, i) => {
+            html += renderTimelineItem(item, i + 1);
+        });
+        html += '</div>';
+    }
+    
+    if (events.length > 0) {
+        html += `<div class="timeline-group">
+            <div class="timeline-group-header">📅 ${t('labelEvent')}s (${events.length})</div>`;
+        events.forEach((item, i) => {
+            html += renderTimelineItem(item, i + 1);
+        });
+        html += '</div>';
+    }
+    
+    if (plans.length > 0) {
+        html += `<div class="timeline-group">
+            <div class="timeline-group-header">🎯 ${t('labelPlan')}s (${plans.length})</div>`;
+        plans.forEach((item, i) => {
+            html += renderTimelineItem(item, i + 1);
+        });
+        html += '</div>';
+    }
+    
+    if (superseded.length > 0) {
+        html += `
+            <div class="superseded-section">
+                <div class="superseded-header" onclick="toggleSupersededSection('timeline')">
+                    ⊘ ${t('labelSuperseded')} (${superseded.length}) ▼
+                </div>
+                <div class="superseded-list" id="supersededTimeline" style="display: none;">
+                    ${superseded.map(e => `<div class="superseded-item">⊘ ${escapeHtml(e.text)}</div>`).join('')}
+                </div>
+            </div>
+        `;
+    }
+    
+    html += '</div>';
+    return html;
+}
+
+function renderHypothesesList() {
+    const data = getHypothesesData();
+    
+    if (data.hypotheses.length === 0) return '';
+    
+    let html = '<div class="structured-list">';
+    
+    data.hypotheses.forEach((h, i) => {
+        const conf = getConfidenceEmoji(h.confidence);
+        const evidence = h.evidence?.length > 0 ? h.evidence.join(', ') : 'No direct evidence';
+        const revision = h.revision || 1;
+        
+        html += `
+            <div class="structured-item hypothesis-item">
+                <div class="item-header">
+                    <span class="item-index">[${i + 1}]</span>
+                    <span class="item-icon">💡</span>
+                    <span class="confidence-badge">${conf}</span>
+                </div>
+                <div class="item-text">${escapeHtml(h.text)}</div>
+                <div class="item-meta">
+                    <span class="meta-item">📎 ${escapeHtml(evidence)}</span>
+                    <span class="meta-item">🏷️ ${h.category || 'general'}</span>
+                    <span class="meta-item">📊 Rev ${revision}</span>
+                </div>
+            </div>
+        `;
+    });
+    
+    html += '</div>';
+    return html;
+}
+
+function renderGapsList() {
+    const data = getGapsData();
+    
+    if (data.gaps.length === 0) return '';
+    
+    const priorityEmoji = { high: '🔴', medium: '🟡', low: '🟢' };
+    
+    let html = '<div class="structured-list">';
+    
+    data.gaps.forEach((g, i) => {
+        const prio = priorityEmoji[g.priority] || '⚪';
+        const related = g.relatedTo?.length > 0 ? g.relatedTo.join(', ') : 'general';
+        
+        html += `
+            <div class="structured-item gap-item priority-${g.priority}">
+                <div class="item-header">
+                    <span class="item-index">[${i + 1}]</span>
+                    <span class="priority-badge">${prio}</span>
+                </div>
+                <div class="item-text">${escapeHtml(g.topic)}</div>
+                <div class="item-meta">
+                    <span class="meta-item">💭 ${escapeHtml(g.reason)}</span>
+                    <span class="meta-item">🏷️ ${related}</span>
+                </div>
+            </div>
+        `;
+    });
+    
+    html += '</div>';
+    return html;
+}
+
+function renderStructuredItem(item, index, type) {
+    const conf = getConfidenceEmoji(item.confidence);
+    const evidenceHtml = item.evidence?.length > 0 
+        ? `<div class="item-evidence">📎 "${item.evidence.map(e => escapeHtml(e)).join('", "')}"</div>`
+        : '';
+    
+    return `
+        <div class="structured-item ${type}-item">
+            <div class="item-header">
+                <span class="item-index">[${index}]</span>
+                <span class="confidence-badge">${conf}</span>
+                <span class="confidence-label">${item.confidence}</span>
+            </div>
+            <div class="item-text">${escapeHtml(item.text)}</div>
+            ${evidenceHtml}
+        </div>
+    `;
+}
+
+function renderTimelineItem(item, index) {
+    const conf = getConfidenceEmoji(item.confidence);
+    
+    let dateStr = '';
+    if (item.date?.exact) {
+        dateStr = item.date.exact;
+    } else if (item.date?.description) {
+        dateStr = item.date.description;
+    }
+    
+    if (item.endDate) {
+        const endStr = item.endDate.exact || item.endDate.description || '';
+        dateStr = `${dateStr} → ${endStr}`;
+    } else if (item.ongoing) {
+        dateStr = `${dateStr} → ${t('labelOngoing')}`;
+    }
+    
+    const evidenceHtml = item.evidence?.length > 0 
+        ? `<div class="item-evidence">📎 "${escapeHtml(item.evidence[0])}"</div>`
+        : '';
+    
+    return `
+        <div class="structured-item timeline-item ${item.ongoing ? 'ongoing' : ''}">
+            <div class="item-header">
+                <span class="confidence-badge">${conf}</span>
+                <span class="date-badge">${dateStr || 'no date'}</span>
+            </div>
+            <div class="item-text">${escapeHtml(item.text)}</div>
+            ${evidenceHtml}
+        </div>
+    `;
+}
+
+function toggleSupersededSection(type) {
+    const sectionId = `superseded${type.charAt(0).toUpperCase() + type.slice(1)}`;
+    const section = document.getElementById(sectionId);
+    if (section) {
+        section.style.display = section.style.display === 'none' ? 'block' : 'none';
+    }
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// ==================== SOCIAL UI ====================
 function renderSocialList() {
     const data = getSocialData();
     const container = document.getElementById('socialContainer');
@@ -744,15 +910,15 @@ function renderSocialList() {
         const sentiment = getSentimentEmoji(contact.sentiment);
         const factsCount = contact.facts?.length || 0;
         const traitsCount = contact.traits?.length || 0;
-        const isActive = contact.id === selectedContactId;
+        const isActive = contact.id === selectedItemId;
         
         return `
             <div class="social-contact-item ${isActive ? 'active' : ''}" data-contact-id="${contact.id}">
-                <div class="social-contact-header" onclick="toggleContact('${contact.id}')">
+                <div class="social-contact-header" onclick="toggleContactDetails('${contact.id}')">
                     <div class="contact-info">
                         <div class="contact-name">
                             <span>${sentiment}</span>
-                            <span>${contact.name}</span>
+                            <span>${escapeHtml(contact.name)}</span>
                         </div>
                         <div class="contact-brief">
                             <span class="contact-relation">${contact.relation || 'unknown'}</span>
@@ -769,47 +935,37 @@ function renderSocialList() {
     }).join('');
 }
 
-function toggleContact(id) {
-    if (selectedContactId === id) {
-        selectedContactId = null;
-    } else {
-        selectedContactId = id;
-    }
+function toggleContactDetails(id) {
+    selectedItemId = selectedItemId === id ? null : id;
     renderSocialList();
 }
 
 function renderContactDetailsInner(contact) {
-    const aliasesHtml = contact.aliases && contact.aliases.length > 0 ?
-        `<div class="aliases">Also known as: ${contact.aliases.join(', ')}</div>` :
-        '';
+    const aliasesHtml = contact.aliases?.length > 0
+        ? `<div class="aliases">Also known as: ${contact.aliases.map(a => escapeHtml(a)).join(', ')}</div>`
+        : '';
     
-    // Функция для рендеринга списка с контейнером
-    const renderItemsListWithContainer = (items, type) => {
+    const renderItems = (items, type) => {
         if (!items || items.length === 0) {
-            return `<div class="${type}-item" style="color: #888; font-style: italic;">No data yet</div>`;
+            return `<div class="${type}-item empty">No data yet</div>`;
         }
         
-        const itemsHtml = items.map(item => {
-            const strengthIndicator = getStrengthIndicator(item.strength || 1);
-            const evidenceHtml = item.evidence && item.evidence.length > 0 ?
-                `<div class="fact-evidence">
-                    <strong>${t('evidenceLabel')}:</strong>
-                    ${item.evidence.map(e => `<div class="evidence-item">${e}</div>`).join('')}
-                   </div>` :
-                '';
+        return items.map(item => {
+            const strength = getStrengthIndicator(item.strength || 1);
+            const evidenceHtml = item.evidence?.length > 0
+                ? `<div class="fact-evidence"><strong>${t('evidenceLabel')}:</strong> ${item.evidence.map(e => `<span>"${escapeHtml(e)}"</span>`).join(' ')}</div>`
+                : '';
             
             return `
                 <div class="${type}-item">
                     <div class="fact-text">
-                        <span class="strength-badge">${strengthIndicator}</span>
-                        <span>${item.text}</span>
+                        <span class="strength-badge">${strength}</span>
+                        <span>${escapeHtml(item.text)}</span>
                     </div>
                     ${evidenceHtml}
                 </div>
             `;
         }).join('');
-        
-        return `<div class="${type}-list-container">${itemsHtml}</div>`;
     };
     
     return `
@@ -817,31 +973,78 @@ function renderContactDetailsInner(contact) {
             <div class="contact-meta">
                 <span>📋 ${t('contactRelation')}: <strong>${contact.relation || 'unknown'}</strong></span>
                 <span>📅 ${t('contactCreated')}: #${contact.createdAt || 0}</span>
-                <span>🕐 ${t('contactLastMentioned')}: #${contact.lastMentioned || contact.createdAt || 0}</span>
+                <span>🕐 ${t('contactLastMentioned')}: #${contact.lastMentioned || 0}</span>
             </div>
             ${aliasesHtml}
             
             <div class="contact-section">
                 <h4>📋 ${t('contactFacts')}</h4>
-                ${renderItemsListWithContainer(contact.facts, 'fact')}
+                <div class="items-list">${renderItems(contact.facts, 'fact')}</div>
             </div>
             
             <div class="contact-section">
                 <h4>🧠 ${t('contactTraits')}</h4>
-                ${renderItemsListWithContainer(contact.traits, 'trait')}
+                <div class="items-list">${renderItems(contact.traits, 'trait')}</div>
             </div>
             
             <div class="contact-section">
                 <h4>🤝 ${t('contactInteractions')}</h4>
-                ${renderItemsListWithContainer(contact.interactions, 'interaction')}
+                <div class="items-list">${renderItems(contact.interactions, 'interaction')}</div>
             </div>
         </div>
     `;
 }
 
+// ==================== EDIT BUTTONS ====================
+function onTextareaChange() {
+    if (currentTab !== 'style') return;
+    
+    const textarea = document.getElementById('knowledgeTextarea');
+    const changed = textarea.value !== originalTabContent;
+    hasUnsavedChanges = changed;
+    updateEditButtons(changed);
+}
+
+function updateEditButtons(show) {
+    const saveBtn = document.getElementById('saveBtn');
+    const cancelBtn = document.getElementById('cancelBtn');
+    const editIndicator = document.getElementById('editIndicator');
+    
+    if (currentTab !== 'style') {
+        if (saveBtn) saveBtn.style.display = 'none';
+        if (cancelBtn) cancelBtn.style.display = 'none';
+        if (editIndicator) editIndicator.classList.remove('visible');
+        return;
+    }
+    
+    if (saveBtn) saveBtn.style.display = show ? 'block' : 'none';
+    if (cancelBtn) cancelBtn.style.display = show ? 'block' : 'none';
+    if (editIndicator) editIndicator.classList.toggle('visible', show);
+}
+
+function saveChanges() {
+    if (currentTab !== 'style') return;
+    
+    const textarea = document.getElementById('knowledgeTextarea');
+    localStorage.setItem(STORAGE_KEYS.style, textarea.value);
+    originalTabContent = textarea.value;
+    hasUnsavedChanges = false;
+    updateEditButtons(false);
+    console.log('[Knowledge] Style saved');
+}
+
+function cancelChanges() {
+    const textarea = document.getElementById('knowledgeTextarea');
+    textarea.value = originalTabContent;
+    hasUnsavedChanges = false;
+    updateEditButtons(false);
+}
+
 // ==================== CHAT UI ====================
 function appendMessage(role, content, save = true) {
     const chatArea = document.getElementById('chatArea');
+    if (!chatArea) return;
+    
     const msgDiv = document.createElement('div');
     msgDiv.className = `message ${role}`;
     msgDiv.textContent = content;
@@ -857,6 +1060,8 @@ function appendToolCall(toolName, args) {
     if (!CONFIG.showToolCalls) return;
     
     const chatArea = document.getElementById('chatArea');
+    if (!chatArea) return;
+    
     const msgDiv = document.createElement('div');
     msgDiv.className = 'message tool-call';
     msgDiv.textContent = `🔧 ${toolName}(${args.reason || ''})`;
@@ -865,13 +1070,26 @@ function appendToolCall(toolName, args) {
 }
 
 function appendThinkingMessage(text) {
+    removeThinkingMessage(); // Удаляем предыдущее, если есть
+    
     const chatArea = document.getElementById('chatArea');
+    if (!chatArea) return;
+    
     const msgDiv = document.createElement('div');
     msgDiv.className = 'message thinking';
     msgDiv.id = 'thinkingMessage';
     msgDiv.textContent = text;
     chatArea.appendChild(msgDiv);
     chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+function updateThinkingMessage(text) {
+    const msg = document.getElementById('thinkingMessage');
+    if (msg) {
+        msg.textContent = text;
+    } else {
+        appendThinkingMessage(text);
+    }
 }
 
 function removeThinkingMessage() {
@@ -881,6 +1099,8 @@ function removeThinkingMessage() {
 
 function showTypingIndicator() {
     const chatArea = document.getElementById('chatArea');
+    if (!chatArea) return;
+    
     const indicator = document.createElement('div');
     indicator.className = 'typing-indicator';
     indicator.id = 'typingIndicator';
@@ -900,6 +1120,8 @@ function hideTypingIndicator() {
 
 function autoResizeTextarea() {
     const textarea = document.getElementById('messageInput');
+    if (!textarea) return;
+    
     const inputForm = textarea.closest('.input-form');
     
     textarea.addEventListener('input', () => {
@@ -907,25 +1129,21 @@ function autoResizeTextarea() {
         const newHeight = Math.min(textarea.scrollHeight, 200);
         textarea.style.height = newHeight + 'px';
         
-        if (textarea.value.trim().length > 0) {
-            inputForm.style.alignItems = 'flex-start';
-        } else {
-            inputForm.style.alignItems = 'flex-end';
+        if (inputForm) {
+            inputForm.style.alignItems = textarea.value.trim().length > 0 ? 'flex-start' : 'flex-end';
         }
         
         const chatArea = document.getElementById('chatArea');
-        if (chatArea) {
-            chatArea.scrollTop = chatArea.scrollHeight;
-        }
+        if (chatArea) chatArea.scrollTop = chatArea.scrollHeight;
     });
     
     textarea.addEventListener('focus', () => {
-        inputForm.style.alignItems = 'flex-start';
+        if (inputForm) inputForm.style.alignItems = 'flex-start';
         textarea.style.boxShadow = '0 -2px 10px rgba(233, 69, 96, 0.1)';
     });
     
     textarea.addEventListener('blur', () => {
-        if (!textarea.value.trim()) {
+        if (!textarea.value.trim() && inputForm) {
             inputForm.style.alignItems = 'flex-end';
             textarea.style.boxShadow = 'none';
         }
@@ -942,273 +1160,311 @@ function handleKeyDown(event) {
     }
 }
 
-// ==================== SYSTEM PROMPT BUILDING ====================
-function buildSystemPrompt() {
-    let prompt = CONFIG.baseSystemPrompt;
-    
-    const langName = getLanguageName();
-    prompt += `\n\nIMPORTANT: Always respond in ${langName}.`;
-    
-    prompt += `
-
-=== CRITICAL: PROACTIVE MEMORY USE ===
-You have access to tools that retrieve information about the user. USE THEM AGGRESSIVELY.
-
-YOUR MEMORY PHILOSOPHY:
-• Check context BEFORE responding, not after realizing you needed it
-• Multiple tool calls per message are ENCOURAGED
-• Personalized responses require personalized context
-• When in doubt, retrieve — it's free and makes you smarter
-• Combine facts + traits + hypotheses + social for truly insightful responses
-• Every conversation turn is a chance to demonstrate you KNOW this person
-
-MINIMUM EXPECTED BEHAVIOR:
-• Call at least ONE tool for any non-trivial message
-• Call get_user_hypotheses before asking questions
-• Call get_user_traits before giving advice
-• Call get_user_facts when ANY personal topic arises
-• Call get_user_social when ANY person is mentioned
-• Call get_knowledge_gaps before asking ANY question to the user
-
-=== KNOWLEDGE GAPS ("WHITE SPOTS") ===
-You have access to a list of important topics we DON'T know about the user yet.
-When formulating questions:
-1. First call get_knowledge_gaps to see what's missing
-2. Look for natural opportunities to explore these gaps
-3. Weave gap exploration into the conversation organically
-4. NEVER interrogate — gaps inform your curiosity, not dictate it
-5. Your question should serve BOTH the current context AND gap discovery
-
-You are not a generic assistant. You are THIS user's personal AI who deeply knows them.`;
-
-    // ==================== ASK ME MODE INJECTION ====================
-    if (askMeMode && isAskMeModeAvailable()) {
-        const gaps = getGapsForPrompt();
-        
-        prompt += `
-
-=== 🎤 ASK ME MODE: ACTIVE ===
-The user has enabled "Ask Me Mode". They WANT you to ask questions to learn more about them.
-
-=== CURRENT KNOWLEDGE GAPS TO EXPLORE ===
-${gaps}
-
-=== YOUR BEHAVIOR IN THIS MODE ===
-1. End approximately 80% of your responses with a thoughtful question
-2. The question MUST:
-   - Flow naturally from your response (weave it into the conversation!)
-   - Target one of the knowledge gaps listed above
-   - Feel like genuine curiosity, not an interview
-   - Be contextually relevant to what you just discussed
-3. Skip the question ONLY if truly inappropriate (user is upset, crisis, etc.)
-4. Questions should be open-ended, inviting reflection
-
-=== HOW TO WEAVE QUESTIONS NATURALLY ===
-Your question should feel like a natural extension of your response, not a tacked-on afterthought.
-
-GOOD examples:
-✓ "...that makes a lot of sense. I'm curious — when you face situations like this, do you usually talk it through with someone or process it on your own first?"
-✓ "...sounds like a solid plan! What would make you feel like it was truly successful?"
-✓ "...I can see why that matters to you. Has your perspective on this changed over time, or have you always felt this way?"
-
-BAD examples:
-✗ "Here's my answer. Now, unrelated question: what are your career goals?"
-✗ "...anyway, tell me about your childhood."
-✗ Asking multiple questions in one response
-✗ Questions that ignore what the user just said
-
-=== REMEMBER ===
-• ONE question per response, maximum
-• The question should make the user WANT to answer
-• If a gap doesn't fit the current topic — wait for a better moment
-• You're having a conversation, not conducting a survey`;
-    }
-    
-    const style = getKnowledge('style');
-    
-    if (style && style.trim()) {
-        prompt += `\n\n=== COMMUNICATION STYLE SETTINGS ===\nFollow these communication style recommendations for this user:\n\n${style}`;
-        console.log('[Prompt] Communication style settings added');
-    }
-    
-    return prompt;
+// ==================== RESPONSE ARCHETYPES & QUESTION POLICY ====================
+function pickResponseArchetype() {
+    const archetypes = [
+        "Answer-first: start with the useful answer immediately, then (optionally) add a short memory-based observation.",
+        "Reframe: offer an alternative interpretation using their traits/hypotheses, then give a concrete next step.",
+        "Options: propose 2–3 options with trade-offs; minimal fluff, maximal clarity.",
+        "Micro-plan: give a short plan (2–4 steps) tailored to what you know about them.",
+        "Reality-check: gently challenge or test an assumption, grounded in what you know about them.",
+        "Story/analogy: use a brief analogy that fits their known interests; keep it tight.",
+        "Connector: link their current message to something from their past or a pattern you've noticed.",
+        "Minimalist: a concise response that moves forward; no fluff, pure value."
+    ];
+    return archetypes[Math.floor(Math.random() * archetypes.length)];
 }
 
-// ==================== API REQUESTS ====================
-// Вспомогательная функция для заголовков и тела запроса
-function prepareRequestOptions(messages, tools = null, useAnalysisModel = false) {
-    const headers = {
-        'Content-Type': 'application/json',
-        'HTTP-Referer': window.location.href, // Нужно для OpenRouter
-        'X-Title': 'Memory Chatbot'
-    };
-    
-    // Если мы ДОМА — добавляем ключ вручную
-    if (isLocal) {
-        const apiKey = getApiKey();
-        if (!apiKey) {
-            throw new Error("API Key is missing! Enter it in the Dev Settings box.");
-        }
-        headers['Authorization'] = `Bearer ${apiKey}`;
-    }
-    
-    // Выбираем модель в зависимости от типа запроса
-    const model = useAnalysisModel ? CONFIG.model_analysis : CONFIG.model_chat;
-    
-    const body = {
-        model: model,
-        messages: messages
-    };
-    
-    if (tools && tools.length > 0) {
-        body.tools = tools;
-        body.tool_choice = "auto"; // <--- ВАЖНО: Это заставляет модель использовать инструменты
-    }
+function decideQuestionPolicyForThisTurn() {
+    const askMode = askMeMode && isAskMeModeAvailable();
+    const probability = askMode ? 0.85 : 0.12;
+    const roll = Math.random();
+    const shouldAsk = roll < probability;
     
     return {
-        method: 'POST',
-        headers: headers,
-        body: JSON.stringify(body)
+        shouldAsk,
+        probability,
+        modeLabel: askMode ? "ASK_ME" : "STANDARD"
     };
 }
 
-async function callAPI(messages, tools = null, useAnalysisModel = false, retries = CONFIG.maxRetries) {
-    for (let attempt = 1; attempt <= retries; attempt++) {
-        try {
-            console.log(`[API] Attempt ${attempt}/${retries} to ${CONFIG.apiUrl} (Local: ${isLocal}, Model: ${useAnalysisModel ? 'analysis' : 'chat'})`);
-            
-            const options = prepareRequestOptions(messages, tools, useAnalysisModel);
-            const response = await fetch(CONFIG.apiUrl, options);
-            
-            if (!response.ok) {
-                const errorText = await response.text();
-                // Специальная обработка для 401 (нет доступа)
-                if (response.status === 401 && isLocal) {
-                    throw new Error("Invalid API Key in local settings. Check your key.");
-                }
-                throw new Error(`HTTP ${response.status}: ${errorText}`);
-            }
-            
-            const data = await response.json();
-            
-            if (data.choices && data.choices[0] && data.choices[0].message) {
-                return data.choices[0].message;
-            } else {
-                throw new Error('Unexpected response format');
-            }
-        } catch (error) {
-            console.error(`[API] Attempt ${attempt} error:`, error.message);
-            if (attempt === retries) throw error;
-            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-        }
+// ==================== TWO-STAGE RESPONSE ARCHITECTURE ====================
+
+/**
+ * Выбор пробела в знаниях для режима Ask Me.
+ * Приоритет отдается пробелам с высоким приоритетом.
+ */
+function selectGapForQuestion() {
+    const data = getGapsData(); // Используем глобальную функцию доступа к данным
+    if (!data || !data.gaps || data.gaps.length === 0) return null;
+
+    // Сначала пытаемся найти high priority
+    const highPriority = data.gaps.filter(g => g.priority === 'high');
+    if (highPriority.length > 0) {
+        return highPriority[Math.floor(Math.random() * highPriority.length)];
     }
+
+    // Если нет, берем любой
+    return data.gaps[Math.floor(Math.random() * data.gaps.length)];
 }
 
-// Используем ту же логику для перевода, чтобы он работал и локально
-// Перевод интерфейса используем основную модель (chat)
-async function callAPIWithoutLanguage(messages, retries = CONFIG.maxRetries) {
-    return callAPI(messages, null, false, retries);
-}
+/**
+ * Stage 1: Context Analysis
+ * Анализирует сообщение пользователя и находит релевантные связи в памяти.
+ * Использует быструю модель (model_analysis).
+ */
+async function findRelevantContext(userMessage, history) {
+    const allFacts = getFactsForPrompt();
+    const allTraits = getTraitsForPrompt();
+    const allTimeline = getTimelineForPrompt();
+    const allSocial = getSocialForPrompt();
+    const allHypotheses = getHypothesesForPrompt();
+    const gaps = getGapsForPrompt();
+    
+    const recentHistory = history.slice(-4).map(m =>
+        `${m.role.toUpperCase()}: ${m.content}`
+    ).join('\n');
+    
+    const timeContext = getTimeContext();
+    const timeInfo = `${timeContext.dayName}, ${timeContext.timeOfDay}, ${timeContext.season}`;
+    
+    const analysisPrompt = `You are a context analyst for a personal AI assistant.
+Find connections between the user's message and their memory — but ONLY if genuinely relevant.
 
-// Аналитические задачи используют аналитическую модель
-async function callAPIWithRetry(prompt, maxRetries = 2, useAnalysisModel = false) {
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        try {
-            const response = await callAPI([{ role: "user", content: prompt }], null, useAnalysisModel);
-            return response.content || response;
-        } catch (error) {
-            console.error(`[API Retry] Attempt ${attempt}/${maxRetries} failed:`, error.message);
-            if (attempt === maxRetries) throw error;
-            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-        }
-    }
-}
+=== USER'S MESSAGE ===
+"${userMessage}"
 
-function parseJSON(text) {
-    console.log('[JSON Parse] Input text length:', text?.length);
+=== RECENT CONVERSATION ===
+${recentHistory || '(start of conversation)'}
+
+=== TIME CONTEXT ===
+${timeInfo}
+
+=== USER MEMORY ===
+Facts: ${allFacts || '(none)'}
+Traits: ${allTraits || '(none)'}
+Timeline: ${allTimeline || '(none)'}
+Social: ${allSocial || '(none)'}
+Hypotheses: ${allHypotheses || '(none)'}
+Gaps: ${gaps || '(none)'}
+
+=== ANALYSIS RULES ===
+1. NOT every message needs memory references
+2. Simple questions deserve simple answers
+3. Only flag connections that would GENUINELY improve the response
+4. Empty arrays are FINE — don't force connections
+5. Quality over quantity — max 1-2 items per category
+
+Return ONLY valid JSON:
+{
+    "message_type": "simple_question|emotional|advice_seeking|sharing|complex|casual_chat",
+    "needs_personalization": true/false,
+    "personalization_intensity": "none|light|moderate|heavy",
+    "user_intent": "brief intent",
+    "emotional_undertone": "emotion or neutral",
+    "key_fact": "ONE most relevant fact, or null",
+    "key_trait": "ONE trait that affects HOW to respond, or null",
+    "key_person": "relevant person, or null",
+    "key_insight": "relevant hypothesis/pattern, or null",
+    "suggested_angle": "how to be personal WITHOUT listing facts, or null",
+    "gap_opportunity": "only if VERY natural, or null",
+    "tone": "warm|playful|serious|supportive|matter-of-fact|neutral"
+}`;
     
     try {
-        let jsonStr = text;
+        console.log('[Stage1] Analyzing context...');
         
-        const jsonMatch = text.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-            jsonStr = jsonMatch[0];
+        const response = await callAPI(
+            [{ role: "user", content: analysisPrompt }],
+            null,
+            true
+        );
+        
+        const parsed = parseJSON(response.content || response);
+        
+        if (parsed) {
+            console.log('[Stage1] Analysis:', parsed);
+            return parsed;
         }
+        return null;
         
-        const result = JSON.parse(jsonStr);
-        console.log('[JSON Parse] SUCCESS');
-        return result;
     } catch (error) {
-        console.error('[JSON Parse] FAILED:', error.message);
-        console.error('[JSON Parse] Text was:', text?.substring(0, 300));
+        console.error('[Stage1] Failed:', error.message);
         return null;
     }
 }
-
-// ==================== SEND MESSAGE WITH TOOL USE ====================
-async function sendMessage(event) {
-    event.preventDefault();
+/**
+ * Stage 2: Response Generation
+ * Генерирует ответ с учётом найденного контекста.
+ * Использует основную модель (model_chat).
+ */
+async function generateResponseWithContext(userMessage, history, contextAnalysis, targetGap = null) {
+    const style = localStorage.getItem(STORAGE_KEYS.style) || '';
+    const langName = getLanguageName();
+    const archetype = pickResponseArchetype();
+    const qp = decideQuestionPolicyForThisTurn();
+    const timeContext = getTimeContext();
     
-    if (isProcessing) return;
-
-    const input = document.getElementById('messageInput');
-    const message = input.value.trim();
+    // Определяем интенсивность персонализации
+    let contextBlock = '';
     
-    if (!message) return;
-
-    isProcessing = true;
-    document.getElementById('sendBtn').disabled = true;
-    input.value = '';
-    input.style.height = 'auto';
-
-    appendMessage('user', message);
-    showTypingIndicator();
-
-    try {
-        const response = await processMessageWithTools(message);
+    if (contextAnalysis) {
+        const intensity = contextAnalysis.personalization_intensity || 'light';
+        const needsPersonalization = contextAnalysis.needs_personalization !== false;
         
-        hideTypingIndicator();
-        removeThinkingMessage();
-        appendMessage('assistant', response);
+        if (!needsPersonalization || intensity === 'none') {
+            // Простое сообщение — минимум контекста
+            contextBlock = `
+=== CONTEXT ===
+Message type: ${contextAnalysis.message_type || 'general'}
+Tone: ${contextAnalysis.tone || 'neutral'}
+Note: This is a simple message. Respond naturally WITHOUT forcing memory references.
+`;
+        } else if (intensity === 'light') {
+            // Лёгкая персонализация — максимум 1 элемент
+            contextBlock = `
+=== CONTEXT (use lightly) ===
+Intent: ${contextAnalysis.user_intent || 'respond helpfully'}
+Tone: ${contextAnalysis.tone || 'warm'}
+${contextAnalysis.key_fact ? `Relevant fact: ${contextAnalysis.key_fact}` : ''}
+${contextAnalysis.key_trait ? `Consider trait: ${contextAnalysis.key_trait}` : ''}
+${contextAnalysis.suggested_angle ? `Angle: ${contextAnalysis.suggested_angle}` : ''}
 
-        const counter = incrementMessageCounter();
-        console.log(`[Counter] Messages: ${counter}`);
+Rule: Use AT MOST one memory reference, and only if it flows naturally.
+`;
+        } else {
+            // Moderate/heavy — можно больше, но не обязательно
+            contextBlock = `
+=== CONTEXT ===
+Intent: ${contextAnalysis.user_intent}
+Emotional undertone: ${contextAnalysis.emotional_undertone || 'neutral'}
+Tone: ${contextAnalysis.tone || 'warm'}
 
-        // Запускаем анализ для facts/traits/timeline (по ротации)
-        runBackgroundAnalysis();
-        
-        if (shouldUpdateGaps()) {
-            console.log('[Gaps] Time to update knowledge gaps!');
-            await runGapsUpdate();
+${contextAnalysis.key_fact ? `• Fact: ${contextAnalysis.key_fact}` : ''}
+${contextAnalysis.key_trait ? `• Trait: ${contextAnalysis.key_trait}` : ''}
+${contextAnalysis.key_person ? `• Person: ${contextAnalysis.key_person}` : ''}
+${contextAnalysis.key_insight ? `• Insight: ${contextAnalysis.key_insight}` : ''}
+${contextAnalysis.suggested_angle ? `\n💡 Angle: ${contextAnalysis.suggested_angle}` : ''}
+${contextAnalysis.gap_opportunity ? `\n🎯 Gap opportunity: ${contextAnalysis.gap_opportunity}` : ''}
+
+Rule: Pick 1-2 elements MAX that genuinely add value. Don't force them.
+`;
         }
-        
-        // Update Ask Me Mode availability after gaps update
-        updateAskMeModeUI();
-
-        if (shouldUpdateStyle()) {
-            console.log('[Style] Time to update communication style!');
-            await runStyleUpdate();
-        }
-
-        if (shouldUpdateHypotheses()) {
-            console.log('[Hypotheses] Time to generate/update hypotheses!');
-            await runHypothesesUpdate();
-        }
-
-    } catch (error) {
-        hideTypingIndicator();
-        removeThinkingMessage();
-        console.error('[Chat] Error:', error);
-        appendMessage('system', `Error: ${error.message}`);
-    } finally {
-        isProcessing = false;
-        document.getElementById('sendBtn').disabled = false;
+    } else {
+        contextBlock = `
+=== CONTEXT ===
+No specific context found. Respond naturally and helpfully.
+`;
     }
+    
+    // Блок стиля
+    let styleBlock = style?.trim() ? `\n=== STYLE ===\n${style}\n` : '';
+    
+    // Блок вопросов
+    let questionRule = '';
+    
+    // Если передан конкретный пробел и режим Ask Me активен (и кубик выпал на "спросить")
+        // Если передан конкретный пробел и режим Ask Me активен
+    if (targetGap && qp.modeLabel === 'ASK_ME' && qp.shouldAsk) {
+        questionRule = `
+=== ASK ME MODE: ACTIVE ===
+YOUR GOAL: Fill a specific memory gap about: "${targetGap.topic}"
+REASON: ${targetGap.reason}
+
+INSTRUCTION:
+1. First, answer the user's current message naturally.
+2. Then, create a SEMANTIC BRIDGE to the target topic:
+   - If there is a connection (even a loose one), use it (e.g. "Speaking of...", "That reminds me of...").
+   - If the topics are totally unrelated, use a "Pivot" phrase (e.g. "On a totally different note...", "This popped into my head...").
+   - DO NOT make a jarring transition like "Cool cat. When did your grandma die?". Acknowledge the shift if necessary.
+   - в идеале стремись к тому чтобы семантический мост был сам по себе интересным и обоснованным
+3. Ask the question about "${targetGap.topic}".
+`;
+    } else if (qp.modeLabel === 'ASK_ME' && qp.shouldAsk) {
+        // ... (остальной код без изменений)
+        // Режим включен, но пробелов нет или не переданы — fallback
+        questionRule = `\nQuestion: You MAY end with ONE question about them (Ask Me Mode is on).`;
+    } else if (!qp.shouldAsk) {
+        questionRule = `\nQuestion: Do NOT ask questions in this response.`;
+    }
+    
+    const systemPrompt = `You are a personal AI who knows this user. Respond in ${langName}.
+
+${contextBlock}
+${styleBlock}
+=== APPROACH ===
+Archetype: ${archetype}
+${questionRule}
+
+=== KEY RULES ===
+1. LESS IS MORE — one natural reference beats three forced ones
+2. If context doesn't fit naturally, DON'T USE IT
+3. Simple messages get simple responses
+4. Sound like a friend, not a database query
+5. Vary your style — not every response needs to be "personalized"
+
+Sometimes the best response is just helpful, without proving you have memory.`;
+    
+    const apiMessages = [
+        { role: "system", content: systemPrompt },
+        ...history.slice(-8).map(msg => ({
+            role: msg.role === 'user' ? 'user' : 'assistant',
+            content: msg.content
+        })),
+        { role: "user", content: userMessage }
+    ];
+    
+    console.log('[Stage2] Generating response (intensity: ' +
+        (contextAnalysis?.personalization_intensity || 'unknown') + ')');
+    
+    const response = await callAPI(apiMessages, null, false);
+    return response.content || response;
 }
 
+/**
+ * Main Two-Stage Processing Function
+ * Координирует оба этапа обработки сообщения.
+ */
+async function processMessageWithTwoStages(userMessage) {
+    const history = getChatHistory();
+    
+    // ========== STAGE 1: CONTEXT ANALYSIS ==========
+    updateThinkingMessage(t('analyzingContext') || '🔍 Understanding context...');
+    
+    const contextAnalysis = await findRelevantContext(userMessage, history);
+    
+    // Проверяем, уместно ли задавать вопрос из "Ask Me"
+    let targetGap = null;
+    
+    // Если режим включен, и сообщение пользователя не является "эмоциональным" или "сложным"
+    // (мы не хотим перебивать важный момент вопросом о любимом цвете)
+    const isSensitiveContext = contextAnalysis && (
+        contextAnalysis.message_type === 'emotional' || 
+        contextAnalysis.message_type === 'complex' ||
+        contextAnalysis.emotional_undertone === 'sad' ||
+        contextAnalysis.emotional_undertone === 'angry' ||
+        contextAnalysis.emotional_undertone === 'anxious'
+    );
+
+    if (askMeMode && isAskMeModeAvailable() && !isSensitiveContext) {
+        targetGap = selectGapForQuestion();
+        if (targetGap) {
+            console.log(`[AskMe] Targeted gap: "${targetGap.topic}"`);
+        }
+    }
+
+    // ========== STAGE 2: RESPONSE GENERATION ==========
+    updateThinkingMessage(t('generatingResponse') || '✨ Crafting response...');
+    
+    const response = await generateResponseWithContext(userMessage, history, contextAnalysis, targetGap);
+    
+    return response;
+}
+
+// ==================== LEGACY: TOOLS-BASED PROCESSING (kept as fallback) ====================
 async function processMessageWithTools(userMessage) {
     const history = getChatHistory();
-    const systemPrompt = buildSystemPrompt();
+    const systemPrompt = buildSystemPromptLegacy();
     const tools = getToolDefinitions();
     
     let apiMessages = [
@@ -1226,9 +1482,9 @@ async function processMessageWithTools(userMessage) {
         iterations++;
         console.log(`[Tools] Iteration ${iterations}/${CONFIG.maxToolIterations}`);
 
-        const response = await callAPI(apiMessages, tools, false); // Основная модель для диалога
+        const response = await callAPI(apiMessages, tools, false);
         
-        if (response.tool_calls && response.tool_calls.length > 0) {
+        if (response.tool_calls?.length > 0) {
             console.log('[Tools] Model requested tools:', response.tool_calls);
             
             removeThinkingMessage();
@@ -1247,8 +1503,7 @@ async function processMessageWithTools(userMessage) {
                 appendToolCall(toolName, toolArgs);
                 
                 const result = executeTool(toolName, toolArgs);
-                
-                console.log(`[Tools] ${toolName} result:`, result);
+                console.log(`[Tools] ${toolName} result:`, result?.substring?.(0, 100) || result);
 
                 apiMessages.push({
                     role: "tool",
@@ -1267,29 +1522,202 @@ async function processMessageWithTools(userMessage) {
     throw new Error('Tool iteration limit exceeded');
 }
 
+function buildSystemPromptLegacy() {
+    let prompt = CONFIG.baseSystemPrompt;
+    const langName = getLanguageName();
+    prompt += `\n\nIMPORTANT: Always respond in ${langName}.`;
+    
+    const style = localStorage.getItem(STORAGE_KEYS.style);
+    if (style && style.trim()) {
+        prompt += `\n\n=== COMMUNICATION STYLE ===\n${style}`;
+    }
+    
+    return prompt;
+}
+
+// ==================== API REQUESTS ====================
+function prepareRequestOptions(messages, tools = null, useAnalysisModel = false) {
+    const headers = {
+        'Content-Type': 'application/json',
+        'HTTP-Referer': window.location.href,
+        'X-Title': 'Memory Chatbot'
+    };
+    
+    if (isLocal) {
+        const apiKey = getApiKey();
+        if (!apiKey) {
+            throw new Error("API Key is missing! Enter it in the Dev Settings box.");
+        }
+        headers['Authorization'] = `Bearer ${apiKey}`;
+    }
+    
+    const model = useAnalysisModel ? CONFIG.model_analysis : CONFIG.model_chat;
+    
+    const body = { model, messages };
+    
+    if (tools && tools.length > 0) {
+        body.tools = tools;
+        body.tool_choice = "auto";
+    }
+    
+    return {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body)
+    };
+}
+
+async function callAPI(messages, tools = null, useAnalysisModel = false, retries = CONFIG.maxRetries) {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+        try {
+            const modelType = useAnalysisModel ? 'analysis' : 'chat';
+            console.log(`[API] Attempt ${attempt}/${retries} (Model: ${modelType})`);
+            
+            const options = prepareRequestOptions(messages, tools, useAnalysisModel);
+            const response = await fetch(CONFIG.apiUrl, options);
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                if (response.status === 401 && isLocal) {
+                    throw new Error("Invalid API Key. Check your key.");
+                }
+                throw new Error(`HTTP ${response.status}: ${errorText}`);
+            }
+            
+            const data = await response.json();
+            
+            if (data.choices?.[0]?.message) {
+                return data.choices[0].message;
+            } else {
+                throw new Error('Unexpected response format');
+            }
+        } catch (error) {
+            console.error(`[API] Attempt ${attempt} error:`, error.message);
+            if (attempt === retries) throw error;
+            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+        }
+    }
+}
+
+async function callAPIWithoutLanguage(messages, retries = CONFIG.maxRetries) {
+    return callAPI(messages, null, false, retries);
+}
+
+async function callAPIWithRetry(prompt, maxRetries = 2, useAnalysisModel = false) {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            const response = await callAPI([{ role: "user", content: prompt }], null, useAnalysisModel);
+            return response.content || response;
+        } catch (error) {
+            console.error(`[API Retry] Attempt ${attempt}/${maxRetries} failed:`, error.message);
+            if (attempt === maxRetries) throw error;
+            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+        }
+    }
+}
+
+function parseJSON(text) {
+    try {
+        // Пытаемся найти JSON в тексте
+        let jsonStr = text;
+        
+        // Убираем markdown code blocks если есть
+        const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+        if (codeBlockMatch) {
+            jsonStr = codeBlockMatch[1].trim();
+        } else {
+            // Ищем JSON объект
+            const jsonMatch = text.match(/\{[\s\S]*\}/);
+            if (jsonMatch) jsonStr = jsonMatch[0];
+        }
+        
+        return JSON.parse(jsonStr);
+    } catch (error) {
+        console.error('[JSON Parse] FAILED:', error.message);
+        console.error('[JSON Parse] Text was:', text.substring(0, 200));
+        return null;
+    }
+}
+
+// ==================== SEND MESSAGE ====================
+async function sendMessage(event) {
+    event.preventDefault();
+    
+    if (isProcessing) return;
+
+    const input = document.getElementById('messageInput');
+    const message = input.value.trim();
+    
+    if (!message) return;
+
+    isProcessing = true;
+    const sendBtn = document.getElementById('sendBtn');
+    if (sendBtn) sendBtn.disabled = true;
+    input.value = '';
+    input.style.height = 'auto';
+
+    appendMessage('user', message);
+
+    try {
+        // ===== TWO-STAGE PROCESSING =====
+        const response = await processMessageWithTwoStages(message);
+        
+        removeThinkingMessage();
+        appendMessage('assistant', response);
+
+        const counter = incrementMessageCounter();
+        console.log(`[Counter] Messages: ${counter}`);
+
+        // Background analysis (без await — пусть работает параллельно)
+        runBackgroundAnalysis();
+        
+        // Periodic updates
+        if (shouldUpdateGaps()) {
+            console.log('[Gaps] Updating...');
+            runGapsUpdate(); // без await
+        }
+        
+        updateAskMeModeUI();
+
+        if (shouldUpdateStyle()) {
+            console.log('[Style] Updating...');
+            runStyleUpdate(); // без await
+        }
+
+        if (shouldUpdateHypotheses()) {
+            console.log('[Hypotheses] Updating...');
+            runHypothesesUpdate(); // без await
+        }
+
+    } catch (error) {
+        removeThinkingMessage();
+        console.error('[Chat] Error:', error);
+        appendMessage('system', `Error: ${error.message}`);
+    } finally {
+        isProcessing = false;
+        if (sendBtn) sendBtn.disabled = false;
+    }
+}
+
 // ==================== HELP MODAL ====================
 function openHelpModal() {
-    document.getElementById('helpModal').classList.add('active');
+    const modal = document.getElementById('helpModal');
+    if (modal) modal.classList.add('active');
     document.body.style.overflow = 'hidden';
 }
 
 function closeHelpModal() {
-    document.getElementById('helpModal').classList.remove('active');
+    const modal = document.getElementById('helpModal');
+    if (modal) modal.classList.remove('active');
     document.body.style.overflow = '';
 }
 
-// Закрытие по клику на оверлей
 document.addEventListener('click', (e) => {
-    if (e.target.id === 'helpModal') {
-        closeHelpModal();
-    }
+    if (e.target.id === 'helpModal') closeHelpModal();
 });
 
-// Закрытие по Escape
 document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-        closeHelpModal();
-    }
+    if (e.key === 'Escape') closeHelpModal();
 });
 
 // ==================== LOCAL DEV SETTINGS ====================
@@ -1309,14 +1737,14 @@ function initLocalDevSettings() {
     }
 }
 
-// Эта функция должна быть глобальной, чтобы работать из onclick в HTML
 window.saveLocalKey = function() {
     const input = document.getElementById('local-api-key');
     if (input) {
         const key = input.value.trim();
         if (key.startsWith('sk-or-')) {
             localStorage.setItem('my_openrouter_key', key);
-            document.getElementById('key-status').innerText = "💾 Saved!";
+            const status = document.getElementById('key-status');
+            if (status) status.innerText = "💾 Saved!";
             alert("API Key saved locally!");
         } else {
             alert("Key typically starts with 'sk-or-'. Please check.");
@@ -1324,10 +1752,30 @@ window.saveLocalKey = function() {
     }
 }
 
-// Проверка загрузки
-console.log('[ui.js] Загружен. UI функции доступны:',
-    typeof appendMessage !== 'undefined',
-    typeof sendMessage !== 'undefined',
-    typeof toggleAskMeMode !== 'undefined',
-    typeof showProactiveGreeting !== 'undefined'
-);
+// ==================== DEBUG UTILITIES ====================
+window.debugTwoStage = async function(message) {
+    console.log('=== TWO-STAGE DEBUG ===');
+    const history = getChatHistory();
+    
+    console.log('[Debug] Stage 1: Analyzing context...');
+    const context = await findRelevantContext(message, history);
+    console.log('[Debug] Context analysis result:', JSON.stringify(context, null, 2));
+    
+    console.log('[Debug] Stage 2: Would generate response with this context');
+    return context;
+};
+
+window.debugMemory = function() {
+    console.log('=== MEMORY DEBUG ===');
+    console.log('Facts:', getFactsForPrompt());
+    console.log('Traits:', getTraitsForPrompt());
+    console.log('Timeline:', getTimelineForPrompt());
+    console.log('Social:', getSocialForPrompt());
+    console.log('Hypotheses:', getHypothesesForPrompt());
+    console.log('Gaps:', getGapsForPrompt());
+    console.log('Style:', localStorage.getItem(STORAGE_KEYS.style));
+};
+
+// ==================== INITIALIZATION COMPLETE ====================
+console.log('[ui.js] Loaded. Two-Stage Response Architecture active.');
+console.log('[ui.js] Debug commands: debugTwoStage("message"), debugMemory()');
