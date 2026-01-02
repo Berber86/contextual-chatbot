@@ -1569,45 +1569,48 @@ function prepareRequestOptions(messages, tools = null, useAnalysisModel = false)
 async function callAPI(messages, tools = null, useAnalysisModel = false, retries = CONFIG.maxRetries) {
     for (let attempt = 1; attempt <= retries; attempt++) {
         try {
-            const modelType = useAnalysisModel ? 'analysis' : 'chat';
-            console.log(`[API] Attempt ${attempt}/${retries} (Model: ${modelType})`);
-            
             const options = prepareRequestOptions(messages, tools, useAnalysisModel);
+            
+            // Выполняем запрос
             const response = await fetch(CONFIG.apiUrl, options);
             
+            // 1. Сначала читаем ответ как ТЕКСТ (чтобы не упасть, если там HTML)
+            const responseText = await response.text();
+            
+            // 2. Проверяем статус HTTP
             if (!response.ok) {
-                const errorText = await response.text();
+                // Если ошибка (4xx, 5xx), выводим текст ошибки
                 if (response.status === 401 && isLocal) {
-                    throw new Error("Invalid API Key. Check your key.");
+                    throw new Error("Invalid API Key. Check Settings.");
                 }
-                throw new Error(`HTTP ${response.status}: ${errorText}`);
+                console.error('[API Error Raw]:', responseText);
+                throw new Error(`HTTP ${response.status}: ${responseText.substring(0, 100)}...`);
             }
             
-            const data = await response.json();
+            // 3. Пытаемся превратить текст в JSON
+            let data;
+            try {
+                data = JSON.parse(responseText);
+            } catch (e) {
+                console.error('[API Parse Error] Received non-JSON:', responseText);
+                throw new Error(`Could not parse API response. Server sent: ${responseText.substring(0, 50)}...`);
+            }
             
-            // Основной формат
-            if (data.choices?.[0]?.message) {
+            // 4. Проверяем структуру JSON от провайдера
+            if (data.error) {
+                throw new Error(`Provider Error: ${data.error.message}`);
+            }
+            
+            if (data.choices && data.choices[0] && data.choices[0].message) {
                 return data.choices[0].message;
+            } else {
+                console.error('[API Structure Error] Data:', data);
+                throw new Error('Response JSON is missing "choices" array');
             }
-            
-            // Fallback для других форматов
-            if (data.choices?.[0]?.text) {
-                return { content: data.choices[0].text, role: 'assistant' };
-            }
-            
-            if (data.content) {
-                return { content: data.content, role: 'assistant' };
-            }
-            
-            if (typeof data === 'string') {
-                return { content: data, role: 'assistant' };
-            }
-            
-            console.error('[API] Unexpected response:', JSON.stringify(data).slice(0, 200));
-            throw new Error('Could not parse API response');
             
         } catch (error) {
             console.error(`[API] Attempt ${attempt} error:`, error.message);
+            
             if (attempt === retries) throw error;
             await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
         }
