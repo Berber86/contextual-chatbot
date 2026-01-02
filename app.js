@@ -351,23 +351,7 @@ function getConfidenceEmoji(confidence) {
 }
 
 // ==================== FACTS STORAGE ====================
-function getFactsData() {
-    const data = localStorage.getItem(STORAGE_KEYS.facts);
-    if (!data) return { facts: [], legacy_text: '' };
-    
-    try {
-        const parsed = JSON.parse(data);
-        if (typeof parsed === 'string') {
-            return { facts: [], legacy_text: parsed };
-        }
-        if (!parsed.facts) {
-            return { facts: [], legacy_text: parsed.toString() };
-        }
-        return parsed;
-    } catch (e) {
-        return { facts: [], legacy_text: data };
-    }
-}
+
 
 function setFactsData(data) {
     localStorage.setItem(STORAGE_KEYS.facts, JSON.stringify(data));
@@ -424,23 +408,7 @@ function getFactsForPrompt() {
 }
 
 // ==================== TRAITS STORAGE ====================
-function getTraitsData() {
-    const data = localStorage.getItem(STORAGE_KEYS.traits);
-    if (!data) return { traits: [], legacy_text: '' };
-    
-    try {
-        const parsed = JSON.parse(data);
-        if (typeof parsed === 'string') {
-            return { traits: [], legacy_text: parsed };
-        }
-        if (!parsed.traits) {
-            return { traits: [], legacy_text: parsed.toString() };
-        }
-        return parsed;
-    } catch (e) {
-        return { traits: [], legacy_text: data };
-    }
-}
+
 
 function setTraitsData(data) {
     localStorage.setItem(STORAGE_KEYS.traits, JSON.stringify(data));
@@ -497,24 +465,55 @@ function getTraitsForPrompt() {
 }
 
 // ==================== TIMELINE STORAGE ====================
+// ==================== FACTS STORAGE ====================
+function getFactsData() {
+    const data = localStorage.getItem(STORAGE_KEYS.facts);
+    if (!data) return { facts: [], legacy_text: '' };
+    
+    try {
+        const parsed = JSON.parse(data);
+        if (parsed && typeof parsed === 'object' && parsed.facts) {
+            return parsed;
+        }
+        // Старый формат или строка
+        return { facts: [], legacy_text: typeof parsed === 'string' ? parsed : JSON.stringify(parsed) };
+    } catch (e) {
+        // Сырой текст — это legacy
+        return { facts: [], legacy_text: data };
+    }
+}
+
+// ==================== TRAITS STORAGE ====================
+function getTraitsData() {
+    const data = localStorage.getItem(STORAGE_KEYS.traits);
+    if (!data) return { traits: [], legacy_text: '' };
+    
+    try {
+        const parsed = JSON.parse(data);
+        if (parsed && typeof parsed === 'object' && parsed.traits) {
+            return parsed;
+        }
+        return { traits: [], legacy_text: typeof parsed === 'string' ? parsed : JSON.stringify(parsed) };
+    } catch (e) {
+        return { traits: [], legacy_text: data };
+    }
+}
+
+// ==================== TIMELINE STORAGE ====================
 function getTimelineData() {
     const data = localStorage.getItem(STORAGE_KEYS.timeline);
     if (!data) return { events: [], legacy_text: '' };
     
     try {
         const parsed = JSON.parse(data);
-        if (typeof parsed === 'string') {
-            return { events: [], legacy_text: parsed };
+        if (parsed && typeof parsed === 'object' && parsed.events) {
+            return parsed;
         }
-        if (!parsed.events) {
-            return { events: [], legacy_text: parsed.toString() };
-        }
-        return parsed;
+        return { events: [], legacy_text: typeof parsed === 'string' ? parsed : JSON.stringify(parsed) };
     } catch (e) {
         return { events: [], legacy_text: data };
     }
 }
-
 function setTimelineData(data) {
     localStorage.setItem(STORAGE_KEYS.timeline, JSON.stringify(data));
 }

@@ -1566,7 +1566,6 @@ function prepareRequestOptions(messages, tools = null, useAnalysisModel = false)
         body: JSON.stringify(body)
     };
 }
-
 async function callAPI(messages, tools = null, useAnalysisModel = false, retries = CONFIG.maxRetries) {
     for (let attempt = 1; attempt <= retries; attempt++) {
         try {
@@ -1586,11 +1585,27 @@ async function callAPI(messages, tools = null, useAnalysisModel = false, retries
             
             const data = await response.json();
             
+            // Основной формат
             if (data.choices?.[0]?.message) {
                 return data.choices[0].message;
-            } else {
-                throw new Error('Unexpected response format');
             }
+            
+            // Fallback для других форматов
+            if (data.choices?.[0]?.text) {
+                return { content: data.choices[0].text, role: 'assistant' };
+            }
+            
+            if (data.content) {
+                return { content: data.content, role: 'assistant' };
+            }
+            
+            if (typeof data === 'string') {
+                return { content: data, role: 'assistant' };
+            }
+            
+            console.error('[API] Unexpected response:', JSON.stringify(data).slice(0, 200));
+            throw new Error('Could not parse API response');
+            
         } catch (error) {
             console.error(`[API] Attempt ${attempt} error:`, error.message);
             if (attempt === retries) throw error;
