@@ -1,5 +1,4 @@
-// app.js - основная логика для Memory Chatbot
-// Все функции глобальные
+// ==================== CONFIGURATION ====================
 
 // ==================== LANGUAGES ====================
 const LANGUAGES = [
@@ -71,22 +70,19 @@ const DEFAULT_TRANSLATIONS = {
     
     // Tab Info
     styleInfo: "<strong>ℹ️ Стиль общения</strong> — автоматически генерируется каждые 10 сообщений на основе анализа черт личности. Вы можете редактировать настройки вручную.",
-    hypothesesInfo: "<strong>💡 Гипотезы</strong> — неочевидные инсайты о вас, генерируются каждые 16 сообщений. Основаны на анализе фактов, черт и хронологии. Только для чтения.",
-    socialInfo: "<strong>👥 Социальные связи</strong> — люди, упомянутые в ваших беседах. Нажмите на контакт, чтобы увидеть его профиль.",
-    gapsInfo: "<strong>🔍 Белые пятна</strong> — важные темы о вас, которые остаются неизвестными. Обновляются каждые 6 сообщений. Только для чтения.",
-    factsInfo: "<strong>📋 Факты</strong> — конкретная информация о вас: имя, работа, интересы, предпочтения. Каждый факт подтверждён цитатами.",
-    traitsInfo: "<strong>🧠 Черты личности</strong> — ваши психологические особенности, стиль мышления, ценности. Могут объединяться в сложные характеристики.",
-    timelineInfo: "<strong>📅 Хронология</strong> — события вашей жизни, текущие периоды, планы на будущее.",
+    hypothesesInfo: "<strong>💡 Гипотезы</strong> — неочевидные инсайты о вас, генерируются каждые 16 сообщений. Основаны на анализе фактов, черт и хронологии. Только для чтения — ИИ уточняет эти автоматически.",
+    socialInfo: "<strong>👥 Социальные связи</strong> — люди, упомянутые в ваших беседах. Нажмите на контакт, чтобы увидеть его профиль. Факты подтверждены цитатами из ваших сообщений.",
+    gapsInfo: "<strong>🔍 Белые пятна</strong> — важные темы о вас, которые остаются неизвестными. ИИ использует их, чтобы задавать лучшие вопросы. Обновляются каждые 6 сообщений. Только для чтения.",
     
     // Placeholders
     placeholderEmpty: "Пока ничего не накоплено...",
-    placeholderFacts: "Факты о пользователе будут накапливаться здесь...",
-    placeholderTraits: "Черты личности будут накапливаться здесь...",
-    placeholderTimeline: "Хронология жизни будет здесь...",
-    placeholderStyle: "Настройки стиля общения бота будут здесь...",
-    placeholderHypotheses: "Неочевидные гипотезы о вас появятся здесь...",
-    placeholderSocial: "Люди из вашей жизни появятся здесь...",
-    placeholderGaps: "Важные неизвестные темы появятся здесь...",
+    placeholderFacts: "Факты о пользователе будут накапливаться здесь...\n\nНапример:\n- Имя, возраст\n- Местоположение\n- Профессия\n- Хобби и интересы",
+    placeholderTraits: "Черты личности будут накапливаться здесь...\n\nНапример:\n- Интроверт/экстраверт\n- Стиль мышления\n- Эмоциональные характеристики\n- Ценности и приоритеты",
+    placeholderTimeline: "Хронология жизни будет здесь...\n\nНапример:\n- Ключевые события\n- Периоды жизни\n- Планы на будущее",
+    placeholderStyle: "Настройки стиля общения бота будут здесь...\n\nАвтоматически генерируются каждые 10 сообщений.\nВы можете редактировать вручную.",
+    placeholderHypotheses: "Неочевидные гипотезы о вас появятся здесь...\n\nГенерируются каждые 16 сообщений на основе накопленных знаний.\n\nЭто инсайты ИИ, которые выходят за рамки очевидных фактов.",
+    placeholderSocial: "Люди из вашей жизни появятся здесь...\n\nУпомянутые друзья, семья, коллеги и другие будут отслеживаться с их деталями.",
+    placeholderGaps: "Важные неизвестные темы появятся здесь...\n\nЭто области, где больше информации помогло бы ИИ лучше вам помогать.\n\nГенерируются каждые 6 сообщений.",
     
     // Social Tab
     noContactSelected: "← Выберите контакт для просмотра деталей",
@@ -106,45 +102,41 @@ const DEFAULT_TRANSLATIONS = {
     
     // Confirmations
     confirmClearChat: "Очистить историю чата?",
-    confirmClearKnowledge: "Очистить ВСЕ накопленные знания о пользователе?",
+    confirmClearKnowledge: "Очистить ВСЕ накопленные знания о пользователе (включая социальные связи)?",
     confirmUnsavedClose: "Есть несохранённые изменения. Закрыть без сохранения?",
     confirmUnsavedSwitch: "Есть несохранённые изменения. Переключить вкладку без сохранения?",
     
-    // Help Modal
+    // Help Modal (русская версия)
     helpTitle: "🧠 Чат-бот с памятью",
     helpWhatIs: "Что это?",
-    helpWhatIsText: "Персональный AI-ассистент, который <strong>запоминает</strong> информацию о вас.",
+    helpWhatIsText: "Персональный AI-ассистент, который <strong>запоминает</strong> информацию о вас. Чем больше общаетесь — тем лучше он вас понимает.",
     helpWhatRemembers: "Что он запоминает?",
     helpFacts: "Факты — имя, работа, интересы, предпочтения",
     helpTraits: "Черты личности — как вы думаете, что цените",
     helpTimeline: "Хронология — события, планы, важные даты",
-    helpPeople: "Люди — семья, друзья, коллеги",
-    helpInsights: "Инсайты — паттерны и наблюдения",
+    helpPeople: "Люди — семья, друзья, коллеги из ваших рассказов",
+    helpInsights: "Инсайты — паттерны и наблюдения о вас",
     helpAskMe: "Режим 'Спроси меня'",
-    helpAskMeText: "Включите переключатель — бот будет задавать вопросы, чтобы узнать вас лучше.",
+    helpAskMeText: "Включите переключатель — бот будет задавать вопросы, чтобы узнать вас лучше. Вопросы вплетаются естественно в разговор.",
     helpPrivacy: "Приватность",
     helpPrivacyText1: "Все данные хранятся только на вашем устройстве.",
-    helpPrivacyText2: "Автор бота не может прочитать вашу переписку.",
-    helpPrivacyText3: "Сообщения обрабатываются через OpenRouter.",
-    helpPrivacyText4: "Нажмите 'Очистить знания' чтобы удалить всё.",
-    helpRoadmap: "Что дальше?",
-    helpRoadmapSync: "Синхронизация между устройствами",
+    helpPrivacyText2: "Автор бота технически не может прочитать вашу переписку — она не отправляется лишь на серверы разработчиков ИИ и провайдеров .",
+    helpPrivacyText3: "Сообщения обрабатываются через OpenRouter для работы ИИ.",
+    helpPrivacyText4: "Нажмите 'Очистить знания' чтобы удалить всеинакопленнвеищнанич бота из Вашего браузера мгновенно.",
+    helpRoadmap: "Что ждать дальше?",
+    helpRoadmapSync: "Синхронизация между устройствами (опционально)",
     helpRoadmapExport: "Экспорт/импорт базы знаний",
-    helpRoadmapSettings: "Больше настроек",
+    helpRoadmapSettings: "Больше настроек персонализации",
     helpRoadmapMobile: "Мобильное приложение",
     helpAuthor: "Автор",
-    helpVersion: "Версия 1.3 · 2025",
+    helpVersion: "Версия 1.2 · 2026",
     
     // Alerts
     alertNoApiKey: "Пожалуйста, введите ваш ключ OpenRouter API",
     alertKnowledgeCleared: "Знания очищены",
     
-    // Structured data labels
-    labelSuperseded: "устарело",
-    labelOngoing: "продолжается",
-    labelPlan: "план",
-    labelEvent: "событие",
-    labelPeriod: "период"
+    // Other
+    translatingInterface: "Перевод интерфейса..."
 };
 
 let currentLanguage = 'ru';
@@ -166,28 +158,9 @@ const STORAGE_KEYS = {
     translations: 'chatbot_translations'
 };
 
-// ==================== LIMITS ====================
-const LIMITS = {
-    facts: 100,
-    traits: 50,
-    timeline: 50,
-    social: 20,
-    hypotheses: 10,
-    gaps: 5,
-    evidencePerItem: 3
-};
-
-// ==================== CONFIDENCE LEVELS ====================
-const CONFIDENCE_LEVELS = ['low', 'medium', 'high', 'verified'];
-
-const CONFIDENCE_EMOJI = {
-    low: '🔴',
-    medium: '🟡',
-    high: '🟢',
-    verified: '✅'
-};
-
 // ==================== KNOWLEDGE CATEGORIES ====================
+const KNOWLEDGE_CATEGORIES = ['facts', 'traits', 'timeline', 'social'];
+
 const CATEGORY_NAMES = {
     facts: 'facts about the user',
     traits: 'user personality traits',
@@ -199,37 +172,39 @@ const CATEGORY_NAMES = {
 };
 
 // Read-only tabs (cannot be edited manually)
-const READONLY_TABS = ['hypotheses', 'gaps', 'facts', 'traits', 'timeline', 'social'];
+const READONLY_TABS = ['hypotheses', 'gaps'];
 
 // ==================== STATE VARIABLES ====================
+let currentCategoryIndex = 0;
 let isProcessing = false;
 let currentTab = 'facts';
 let originalTabContent = '';
 let hasUnsavedChanges = false;
 let askMeMode = false;
 
-// ==================== LANGUAGE FUNCTIONS ====================
-function loadLanguage() {
-    const savedLang = localStorage.getItem(STORAGE_KEYS.language);
-    if (savedLang) {
-        currentLanguage = savedLang;
-        const cachedTranslations = localStorage.getItem(`${STORAGE_KEYS.translations}_${savedLang}`);
-        if (cachedTranslations) {
-            translations = JSON.parse(cachedTranslations);
-        }
-    } else {
-        currentLanguage = 'ru';
-        translations = { ...DEFAULT_TRANSLATIONS };
-    }
-    applyTranslations();
+// ==================== LANGUAGE FUNCTIONS (UPDATED FOR NEW UI) ====================
+function initLanguageDropdown() {
+    // Эта функция больше не нужна в новом интерфейсе
+    // Вместо неё используется renderLanguageMenu() в ui.js
+    console.log('[Language] initLanguageDropdown() is deprecated in new UI');
 }
 
+function toggleLanguageDropdown() {
+    // Эта функция больше не нужна в новом интерфейсе
+    console.log('[Language] toggleLanguageDropdown() is deprecated in new UI');
+}
+
+// Close dropdown when clicking outside - УДАЛЕНО, так как нет dropdown в старом стиле
+
 async function selectLanguage(langCode) {
-    if (langCode === currentLanguage) return;
+    if (langCode === currentLanguage) {
+        return;
+    }
 
     const lang = LANGUAGES.find(l => l.code === langCode);
     if (!lang) return;
 
+    // Check if we have cached translations
     const cachedTranslations = localStorage.getItem(`${STORAGE_KEYS.translations}_${langCode}`);
     
     if (cachedTranslations) {
@@ -237,9 +212,12 @@ async function selectLanguage(langCode) {
         currentLanguage = langCode;
         localStorage.setItem(STORAGE_KEYS.language, langCode);
         applyTranslations();
+        updateLanguageButton();
+        console.log(`[Language] Loaded cached translations for ${langCode}`);
         return;
     }
 
+    // Need to translate via API
     if (!getApiKey()) {
         alert('Please enter API key first to translate interface');
         return;
@@ -251,8 +229,10 @@ async function selectLanguage(langCode) {
 async function translateInterface(langCode) {
     const lang = LANGUAGES.find(l => l.code === langCode);
     
+    // Show loading overlay
     const overlay = document.getElementById('translatingOverlay');
-    document.getElementById('translatingText').textContent = `Translating to ${lang.name}...`;
+    document.getElementById('translatingText').textContent = 
+        `Translating to ${lang.name}...`;
     overlay.classList.add('active');
 
     try {
@@ -266,6 +246,7 @@ ${JSON.stringify(DEFAULT_TRANSLATIONS, null, 2)}`;
         const response = await callAPIWithoutLanguage([{ role: "user", content: prompt }]);
         const responseText = response.content || response;
         
+        // Parse JSON from response
         let jsonStr = responseText;
         const jsonMatch = responseText.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
@@ -274,6 +255,7 @@ ${JSON.stringify(DEFAULT_TRANSLATIONS, null, 2)}`;
         
         const newTranslations = JSON.parse(jsonStr);
         
+        // Save translations
         localStorage.setItem(`${STORAGE_KEYS.translations}_${langCode}`, JSON.stringify(newTranslations));
         
         translations = newTranslations;
@@ -281,6 +263,9 @@ ${JSON.stringify(DEFAULT_TRANSLATIONS, null, 2)}`;
         localStorage.setItem(STORAGE_KEYS.language, langCode);
         
         applyTranslations();
+        updateLanguageButton();
+        
+        console.log(`[Language] Translated to ${langCode}:`, translations);
         
     } catch (error) {
         console.error('[Language] Translation error:', error);
@@ -291,10 +276,11 @@ ${JSON.stringify(DEFAULT_TRANSLATIONS, null, 2)}`;
 }
 
 function applyTranslations() {
+    // Update elements with data-i18n attribute
     document.querySelectorAll('[data-i18n]').forEach(el => {
         const key = el.getAttribute('data-i18n');
         if (translations[key]) {
-            if (key.endsWith('Info')) {
+            if (key === 'styleInfo' || key === 'hypothesesInfo' || key === 'socialInfo' || key === 'gapsInfo') {
                 el.innerHTML = translations[key];
             } else {
                 el.textContent = translations[key];
@@ -302,6 +288,7 @@ function applyTranslations() {
         }
     });
 
+    // Update placeholders
     document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
         const key = el.getAttribute('data-i18n-placeholder');
         if (translations[key]) {
@@ -309,9 +296,16 @@ function applyTranslations() {
         }
     });
 
+    // Update current tab placeholder
     if (currentTab) {
         updateTabPlaceholder();
     }
+}
+
+function updateLanguageButton() {
+    // Эта функция больше не нужна, так как нет отдельной кнопки языка
+    // Язык теперь в меню настроек
+    console.log('[Language] updateLanguageButton() is deprecated in new UI');
 }
 
 function updateTabPlaceholder() {
@@ -330,498 +324,46 @@ function getLanguageName() {
     return lang ? lang.name : 'English';
 }
 
+// ==================== LANGUAGE LOADING ====================
+// В функции loadLanguage() в app.js добавь:
+function loadLanguage() {
+    const savedLang = localStorage.getItem(STORAGE_KEYS.language);
+    if (savedLang) {
+        currentLanguage = savedLang;
+        const cachedTranslations = localStorage.getItem(`${STORAGE_KEYS.translations}_${savedLang}`);
+        if (cachedTranslations) {
+            translations = JSON.parse(cachedTranslations);
+        }
+    } else {
+        // Если язык не сохранён, используем русский по умолчанию
+        currentLanguage = 'ru';
+        const cachedTranslations = localStorage.getItem(`${STORAGE_KEYS.translations}_ru`);
+        if (cachedTranslations) {
+            translations = JSON.parse(cachedTranslations);
+        } else {
+            // Если нет кэшированных переводов на русский, используем дефолтные
+            translations = { ...DEFAULT_TRANSLATIONS };
+        }
+    }
+    applyTranslations();
+}
+
+
 function getApiKey() {
+    // Определяем, локально ли мы (должно быть согласовано с ui.js)
     const isLocal = window.location.hostname.includes('localhost') ||
         window.location.hostname.includes('127.0.0.1');
     
     if (isLocal) {
+        // Локально: ищем ключ в LocalStorage
         const key = localStorage.getItem('my_openrouter_key');
         return key ? key.trim() : null;
     }
+    // На сервере: ключ подставит бэкенд, нам он тут не нужен
     return 'server-side';
 }
 
-// ==================== UTILITY FUNCTIONS ====================
-function generateId(prefix) {
-    return `${prefix}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-}
-
-function getConfidenceEmoji(confidence) {
-    return CONFIDENCE_EMOJI[confidence] || CONFIDENCE_EMOJI.medium;
-}
-
-// ==================== FACTS STORAGE ====================
-
-
-function setFactsData(data) {
-    localStorage.setItem(STORAGE_KEYS.facts, JSON.stringify(data));
-}
-
-function getFactsForDisplay() {
-    const data = getFactsData();
-    
-    if (data.facts.length === 0 && data.legacy_text) {
-        return `📜 Legacy data (will be restructured):\n\n${data.legacy_text}`;
-    }
-    
-    if (data.facts.length === 0) return '';
-    
-    const active = data.facts.filter(f => !f.superseded);
-    const superseded = data.facts.filter(f => f.superseded);
-    
-    let result = active.map((f, i) => {
-        const conf = getConfidenceEmoji(f.confidence);
-        const evidence = f.evidence?.length > 0 
-            ? `\n    📎 "${f.evidence.join('", "')}"` 
-            : '';
-        return `[${i + 1}] ${conf} ${f.text}${evidence}`;
-    }).join('\n\n');
-    
-    if (superseded.length > 0) {
-        result += `\n\n--- ${t('labelSuperseded')} (${superseded.length}) ---\n`;
-        result += superseded.map(f => `⊘ ${f.text}`).join('\n');
-    }
-    
-    return result;
-}
-
-function getFactsForPrompt() {
-    const data = getFactsData();
-    
-    let result = '';
-    
-    if (data.legacy_text) {
-        result += `[Legacy notes]: ${data.legacy_text}\n\n`;
-    }
-    
-    if (data.facts.length === 0) {
-        return result || '(no facts recorded yet)';
-    }
-    
-    const active = data.facts.filter(f => !f.superseded);
-    result += active.map((f, i) => {
-        const evidence = f.evidence?.length > 0 ? ` [evidence: "${f.evidence[0]}"]` : '';
-        return `${i + 1}. ${f.text} (${f.confidence})${evidence}`;
-    }).join('\n');
-    
-    return result;
-}
-
-// ==================== TRAITS STORAGE ====================
-
-
-function setTraitsData(data) {
-    localStorage.setItem(STORAGE_KEYS.traits, JSON.stringify(data));
-}
-
-function getTraitsForDisplay() {
-    const data = getTraitsData();
-    
-    if (data.traits.length === 0 && data.legacy_text) {
-        return `📜 Legacy data:\n\n${data.legacy_text}`;
-    }
-    
-    if (data.traits.length === 0) return '';
-    
-    const active = data.traits.filter(t => !t.superseded);
-    const superseded = data.traits.filter(t => t.superseded);
-    
-    let result = active.map((tr, i) => {
-        const conf = getConfidenceEmoji(tr.confidence);
-        const evidence = tr.evidence?.length > 0 
-            ? `\n    📎 "${tr.evidence.join('", "')}"` 
-            : '';
-        return `[${i + 1}] ${conf} ${tr.text}${evidence}`;
-    }).join('\n\n');
-    
-    if (superseded.length > 0) {
-        result += `\n\n--- ${t('labelSuperseded')} (${superseded.length}) ---\n`;
-        result += superseded.map(tr => `⊘ ${tr.text}`).join('\n');
-    }
-    
-    return result;
-}
-
-function getTraitsForPrompt() {
-    const data = getTraitsData();
-    
-    let result = '';
-    
-    if (data.legacy_text) {
-        result += `[Legacy notes]: ${data.legacy_text}\n\n`;
-    }
-    
-    if (data.traits.length === 0) {
-        return result || '(no personality traits recorded yet)';
-    }
-    
-    const active = data.traits.filter(t => !t.superseded);
-    result += active.map((tr, i) => {
-        const evidence = tr.evidence?.length > 0 ? ` [based on: "${tr.evidence[0]}"]` : '';
-        return `${i + 1}. ${tr.text} (${tr.confidence})${evidence}`;
-    }).join('\n');
-    
-    return result;
-}
-
-// ==================== TIMELINE STORAGE ====================
-// ==================== FACTS STORAGE ====================
-function getFactsData() {
-    const data = localStorage.getItem(STORAGE_KEYS.facts);
-    if (!data) return { facts: [], legacy_text: '' };
-    
-    try {
-        const parsed = JSON.parse(data);
-        if (parsed && typeof parsed === 'object' && parsed.facts) {
-            return parsed;
-        }
-        // Старый формат или строка
-        return { facts: [], legacy_text: typeof parsed === 'string' ? parsed : JSON.stringify(parsed) };
-    } catch (e) {
-        // Сырой текст — это legacy
-        return { facts: [], legacy_text: data };
-    }
-}
-
-// ==================== TRAITS STORAGE ====================
-function getTraitsData() {
-    const data = localStorage.getItem(STORAGE_KEYS.traits);
-    if (!data) return { traits: [], legacy_text: '' };
-    
-    try {
-        const parsed = JSON.parse(data);
-        if (parsed && typeof parsed === 'object' && parsed.traits) {
-            return parsed;
-        }
-        return { traits: [], legacy_text: typeof parsed === 'string' ? parsed : JSON.stringify(parsed) };
-    } catch (e) {
-        return { traits: [], legacy_text: data };
-    }
-}
-
-// ==================== TIMELINE STORAGE ====================
-function getTimelineData() {
-    const data = localStorage.getItem(STORAGE_KEYS.timeline);
-    if (!data) return { events: [], legacy_text: '' };
-    
-    try {
-        const parsed = JSON.parse(data);
-        if (parsed && typeof parsed === 'object' && parsed.events) {
-            return parsed;
-        }
-        return { events: [], legacy_text: typeof parsed === 'string' ? parsed : JSON.stringify(parsed) };
-    } catch (e) {
-        return { events: [], legacy_text: data };
-    }
-}
-function setTimelineData(data) {
-    localStorage.setItem(STORAGE_KEYS.timeline, JSON.stringify(data));
-}
-
-function getTimelineForDisplay() {
-    const data = getTimelineData();
-    
-    if (data.events.length === 0 && data.legacy_text) {
-        return `📜 Legacy data:\n\n${data.legacy_text}`;
-    }
-    
-    if (data.events.length === 0) return '';
-    
-    const active = data.events.filter(e => !e.superseded);
-    const superseded = data.events.filter(e => e.superseded);
-    
-    const events = active.filter(e => e.type === 'event');
-    const periods = active.filter(e => e.type === 'period');
-    const plans = active.filter(e => e.type === 'plan');
-    
-    let result = '';
-    
-    if (events.length > 0) {
-        result += `📅 ${t('labelEvent').toUpperCase()}S:\n`;
-        result += events.map(e => formatTimelineItem(e)).join('\n');
-        result += '\n\n';
-    }
-    
-    if (periods.length > 0) {
-        result += `🔄 ${t('labelPeriod').toUpperCase()}S:\n`;
-        result += periods.map(e => formatTimelineItem(e)).join('\n');
-        result += '\n\n';
-    }
-    
-    if (plans.length > 0) {
-        result += `🎯 ${t('labelPlan').toUpperCase()}S:\n`;
-        result += plans.map(e => formatTimelineItem(e)).join('\n');
-        result += '\n\n';
-    }
-    
-    if (superseded.length > 0) {
-        result += `--- ${t('labelSuperseded')} (${superseded.length}) ---\n`;
-        result += superseded.map(e => `⊘ ${e.text}`).join('\n');
-    }
-    
-    return result.trim();
-}
-
-function formatTimelineItem(item) {
-    const conf = getConfidenceEmoji(item.confidence);
-    let dateStr = '';
-    
-    if (item.date) {
-        if (item.date.exact) {
-            dateStr = item.date.exact;
-        } else if (item.date.description) {
-            dateStr = item.date.description;
-        }
-    }
-    
-    if (item.endDate) {
-        const endStr = item.endDate.exact || item.endDate.description || '';
-        dateStr = `${dateStr} → ${endStr}`;
-    } else if (item.ongoing) {
-        dateStr = `${dateStr} → ${t('labelOngoing')}`;
-    }
-    
-    const evidence = item.evidence?.length > 0 
-        ? `\n    📎 "${item.evidence[0]}"` 
-        : '';
-    
-    return `${conf} [${dateStr}] ${item.text}${evidence}`;
-}
-
-function getTimelineForPrompt() {
-    const data = getTimelineData();
-    
-    let result = '';
-    
-    if (data.legacy_text) {
-        result += `[Legacy notes]: ${data.legacy_text}\n\n`;
-    }
-    
-    if (data.events.length === 0) {
-        return result || '(no timeline events recorded yet)';
-    }
-    
-    const active = data.events.filter(e => !e.superseded);
-    
-    result += active.map(e => {
-        let dateStr = '';
-        if (e.date?.exact) dateStr = e.date.exact;
-        else if (e.date?.description) dateStr = e.date.description;
-        
-        if (e.ongoing) dateStr += ' (ongoing)';
-        if (e.type === 'plan') dateStr += ' [PLAN]';
-        
-        return `• [${dateStr}] ${e.text} (${e.confidence})`;
-    }).join('\n');
-    
-    return result;
-}
-
-// ==================== HYPOTHESES STORAGE ====================
-function getHypothesesData() {
-    const data = localStorage.getItem(STORAGE_KEYS.hypotheses);
-    if (!data) return { hypotheses: [] };
-    try {
-        const parsed = JSON.parse(data);
-        if (!parsed.hypotheses) {
-            return { hypotheses: [] };
-        }
-        return parsed;
-    } catch (e) {
-        console.error('[Hypotheses] Parse error:', e);
-        return { hypotheses: [] };
-    }
-}
-
-function setHypothesesData(data) {
-    localStorage.setItem(STORAGE_KEYS.hypotheses, JSON.stringify(data));
-}
-
-function getHypothesesForDisplay() {
-    const data = getHypothesesData();
-    if (data.hypotheses.length === 0) return '';
-    
-    return data.hypotheses.map((h, i) => {
-        const conf = getConfidenceEmoji(h.confidence);
-        const evidence = h.evidence?.length > 0 
-            ? h.evidence.join(', ') 
-            : 'No direct evidence';
-        const revision = h.revision || 1;
-        const updated = h.updatedAt !== h.createdAt 
-            ? ` | Updated: #${h.updatedAt}` 
-            : '';
-        
-        return `[${i + 1}] 💡 ${h.text}
-    📊 Confidence: ${conf} ${h.confidence}
-    📎 Based on: ${evidence}
-    🏷️ Category: ${h.category || 'general'}
-    📅 Created: #${h.createdAt}${updated} | Rev: ${revision}`;
-    }).join('\n\n');
-}
-
-function getHypothesesForPrompt() {
-    const data = getHypothesesData();
-    if (data.hypotheses.length === 0) return '(no hypotheses yet)';
-    
-    return data.hypotheses.map((h, i) => {
-        const evidence = h.evidence?.length > 0 
-            ? `Evidence: [${h.evidence.join('; ')}]` 
-            : 'Evidence: none';
-        return `[${i + 1}] ${h.text}
-   Confidence: ${h.confidence} | Category: ${h.category} | ${evidence}`;
-    }).join('\n\n');
-}
-
-// ==================== GAPS STORAGE ====================
-function getGapsData() {
-    const data = localStorage.getItem(STORAGE_KEYS.gaps);
-    if (!data) return { gaps: [], lastUpdated: 0 };
-    try {
-        return JSON.parse(data);
-    } catch (e) {
-        console.error('[Gaps] Parse error:', e);
-        return { gaps: [], lastUpdated: 0 };
-    }
-}
-
-function setGapsData(data) {
-    localStorage.setItem(STORAGE_KEYS.gaps, JSON.stringify(data));
-}
-
-function getGapsForDisplay() {
-    const data = getGapsData();
-    if (data.gaps.length === 0) return '';
-    
-    const priorityEmoji = { high: '🔴', medium: '🟡', low: '🟢' };
-    
-    return data.gaps.map((g, i) => {
-        const prio = priorityEmoji[g.priority] || '⚪';
-        const related = g.relatedTo?.length > 0 ? g.relatedTo.join(', ') : 'general';
-        
-        return `[${i + 1}] ${prio} ${g.topic}
-    💭 Why: ${g.reason}
-    🏷️ Related: ${related}`;
-    }).join('\n\n');
-}
-
-function getGapsForPrompt() {
-    const data = getGapsData();
-    if (data.gaps.length === 0) return '(no knowledge gaps identified yet)';
-    
-    return data.gaps.map((g, i) => {
-        const related = g.relatedTo?.length > 0 ? `[${g.relatedTo.join(', ')}]` : '';
-        return `${i + 1}. [${g.priority}] ${g.topic}\n   Why: ${g.reason} ${related}`;
-    }).join('\n\n');
-}
-
-// ==================== SOCIAL STORAGE ====================
-const SOCIAL_CONFIG = {
-    maxContacts: 20,
-    strengthColors: { 1: '🔴', 2: '🟡', 3: '🟢' },
-    sentimentEmoji: { positive: '💚', neutral: '😐', negative: '💔' }
-};
-
-function getSocialData() {
-    const data = localStorage.getItem(STORAGE_KEYS.social);
-    if (!data) return { contacts: [] };
-    try {
-        return JSON.parse(data);
-    } catch (e) {
-        console.error('[Social] Parse error:', e);
-        return { contacts: [] };
-    }
-}
-
-function setSocialData(data) {
-    localStorage.setItem(STORAGE_KEYS.social, JSON.stringify(data));
-}
-
-function getStrengthIndicator(strength) {
-    const s = Math.min(Math.max(strength, 1), 3);
-    return `${SOCIAL_CONFIG.strengthColors[s]} (${strength})`;
-}
-
-function getSentimentEmoji(sentiment) {
-    return SOCIAL_CONFIG.sentimentEmoji[sentiment] || SOCIAL_CONFIG.sentimentEmoji.neutral;
-}
-
-function getSocialForDisplay() {
-    const data = getSocialData();
-    if (data.contacts.length === 0) return '';
-    
-    return data.contacts.map((c, i) => {
-        const sentiment = getSentimentEmoji(c.sentiment);
-        return `[${i + 1}] ${sentiment} ${c.name}
-    📋 Relation: ${c.relation || 'unknown'}
-    📊 Facts: ${c.facts?.length || 0} | Traits: ${c.traits?.length || 0}
-    📅 Last: #${c.lastMentioned || c.createdAt}`;
-    }).join('\n\n');
-}
-
-function getSocialForPrompt() {
-    const data = getSocialData();
-    if (data.contacts.length === 0) return '(no social connections recorded yet)';
-    
-    return data.contacts.map((c, i) => {
-        const aliases = c.aliases?.length > 0 ? `(aka: ${c.aliases.join(', ')})` : '';
-        const factsText = c.facts?.length > 0
-            ? c.facts.map(f => `  • ${f.text}`).join('\n')
-            : '  (no facts)';
-        const traitsText = c.traits?.length > 0
-            ? c.traits.map(t => `  • ${t.text}`).join('\n')
-            : '  (no traits)';
-        
-        return `[${i + 1}] ${c.name} ${aliases}
-Relation: ${c.relation || 'unknown'} | Sentiment: ${c.sentiment || 'neutral'}
-Facts:\n${factsText}
-Traits:\n${traitsText}`;
-    }).join('\n\n---\n\n');
-}
-
-function getContactById(id) {
-    const data = getSocialData();
-    return data.contacts.find(c => c.id === id);
-}
-
-function findContactByName(name) {
-    const data = getSocialData();
-    const nameLower = name.toLowerCase();
-    return data.contacts.find(c => {
-        if (c.name.toLowerCase() === nameLower) return true;
-        if (c.aliases?.some(a => a.toLowerCase() === nameLower)) return true;
-        return false;
-    });
-}
-
-// ==================== UNIVERSAL GETTERS ====================
-function getKnowledge(category) {
-    switch (category) {
-        case 'facts':
-            return getFactsForDisplay();
-        case 'traits':
-            return getTraitsForDisplay();
-        case 'timeline':
-            return getTimelineForDisplay();
-        case 'hypotheses':
-            return getHypothesesForDisplay();
-        case 'social':
-            return getSocialForDisplay();
-        case 'gaps':
-            return getGapsForDisplay();
-        case 'style':
-            return localStorage.getItem(STORAGE_KEYS.style) || '';
-        default:
-            return '';
-    }
-}
-
-function setKnowledge(category, content) {
-    if (category === 'style') {
-        localStorage.setItem(STORAGE_KEYS.style, content);
-    }
-}
-
-// ==================== TOOL DEFINITIONS (FULL VERSION) ====================
+// ==================== TOOL DEFINITIONS ====================
 function getToolDefinitions() {
     return [
         {
@@ -1044,21 +586,297 @@ function executeTool(name, args) {
     
     switch (name) {
         case 'get_user_facts':
-            return getFactsForPrompt() || 'No facts accumulated yet.';
+            const facts = getKnowledge('facts');
+            return facts || 'No facts accumulated yet. User dossier is empty.';
+        
         case 'get_user_timeline':
-            return getTimelineForPrompt() || 'No timeline data yet.';
+            const timeline = getKnowledge('timeline');
+            return timeline || 'No timeline data yet. User life events not recorded.';
+        
         case 'get_user_traits':
-            return getTraitsForPrompt() || 'No personality traits yet.';
+            const traits = getKnowledge('traits');
+            return traits || 'No personality analysis yet. Traits not recorded.';
+        
         case 'get_user_hypotheses':
-            return getHypothesesForPrompt() || 'No hypotheses generated yet.';
+            const hypotheses = getHypothesesForDisplay();
+            return hypotheses || 'No hypotheses generated yet. Need more conversation data.';
+        
         case 'get_user_social':
-            return getSocialForPrompt() || 'No social connections yet.';
+            const social = getSocialForPrompt();
+            return social || 'No social connections recorded yet. User hasn\'t mentioned other people.';
+        
         case 'get_knowledge_gaps':
-            return getGapsForPrompt() || 'No knowledge gaps identified yet.';
+            const gaps = getGapsForPrompt();
+            return gaps || 'No knowledge gaps identified yet. Continue learning about the user.';
+        
         default:
             return `Unknown tool: ${name}`;
     }
 }
 
+// ==================== KNOWLEDGE STORAGE ====================
+function getKnowledge(category) {
+    if (category === 'hypotheses') {
+        return getHypothesesForDisplay();
+    }
+    if (category === 'social') {
+        return getSocialForDisplay();
+    }
+    if (category === 'gaps') {
+        return getGapsForDisplay();
+    }
+    return localStorage.getItem(STORAGE_KEYS[category]) || '';
+}
+
+function setKnowledge(category, content) {
+    if (category === 'hypotheses' || category === 'social' || category === 'gaps') {
+        return; // These have their own setters
+    }
+    localStorage.setItem(STORAGE_KEYS[category], content);
+}
+
+// ==================== HYPOTHESES STORAGE ====================
+function getHypothesesData() {
+    const data = localStorage.getItem(STORAGE_KEYS.hypotheses);
+    if (!data) return { hypotheses: [] };
+    try {
+        const parsed = JSON.parse(data);
+        // Migration from old format
+        if (parsed.hypotheses && parsed.hypotheses.length > 0 && !parsed.hypotheses[0].confidence) {
+            parsed.hypotheses = parsed.hypotheses.map(h => ({
+                text: h.text,
+                confidence: 'medium',
+                evidence: [],
+                category: 'general',
+                createdAt: h.createdAt || 0,
+                updatedAt: h.updatedAt || 0,
+                revision: 1
+            }));
+            setHypothesesData(parsed);
+        }
+        return parsed;
+    } catch (e) {
+        console.error('[Hypotheses] Parse error:', e);
+        return { hypotheses: [] };
+    }
+}
+
+function setHypothesesData(data) {
+    localStorage.setItem(STORAGE_KEYS.hypotheses, JSON.stringify(data));
+}
+
+function getHypothesesForDisplay() {
+    const data = getHypothesesData();
+    if (data.hypotheses.length === 0) return '';
+    
+    const confidenceEmoji = {
+        'low': '🔴',
+        'medium': '🟡', 
+        'high': '🟢',
+        'very_high': '🌟'
+    };
+    
+    return data.hypotheses.map((h, i) => {
+        const conf = confidenceEmoji[h.confidence] || '⚪';
+        const evidence = h.evidence && h.evidence.length > 0 
+            ? h.evidence.join(', ') 
+            : 'No direct evidence yet';
+        const revision = h.revision || 1;
+        const updated = h.updatedAt !== h.createdAt 
+            ? ` | Updated: #${h.updatedAt}` 
+            : '';
+        
+        return `[${i + 1}] 💡 ${h.text}
+    📊 Confidence: ${conf} ${h.confidence}
+    📎 Based on: ${evidence}
+    🏷️ Category: ${h.category || 'general'}
+    📅 Created: #${h.createdAt}${updated} | Revision: ${revision}`;
+    }).join('\n\n');
+}
+
+function getHypothesesForPrompt() {
+    const data = getHypothesesData();
+    if (data.hypotheses.length === 0) return '(no hypotheses yet)';
+    
+    return data.hypotheses.map((h, i) => {
+        const evidence = h.evidence && h.evidence.length > 0 
+            ? `Evidence: [${h.evidence.join('; ')}]` 
+            : 'Evidence: none';
+        return `[${i + 1}] ${h.text}
+   Confidence: ${h.confidence} | Category: ${h.category} | ${evidence}
+   Created: msg #${h.createdAt} | Updated: msg #${h.updatedAt} | Revisions: ${h.revision || 1}`;
+    }).join('\n\n');
+}
+
+function getHypothesesCount() {
+    return getHypothesesData().hypotheses.length;
+}
+
+// ==================== GAPS STORAGE ====================
+function getGapsData() {
+    const data = localStorage.getItem(STORAGE_KEYS.gaps);
+    if (!data) return { gaps: [], lastUpdated: 0 };
+    try {
+        return JSON.parse(data);
+    } catch (e) {
+        console.error('[Gaps] Parse error:', e);
+        return { gaps: [], lastUpdated: 0 };
+    }
+}
+
+function setGapsData(data) {
+    localStorage.setItem(STORAGE_KEYS.gaps, JSON.stringify(data));
+}
+
+function getGapsForDisplay() {
+    const data = getGapsData();
+    if (data.gaps.length === 0) return '';
+    
+    const priorityEmoji = {
+        'high': '🔴',
+        'medium': '🟡',
+        'low': '🟢'
+    };
+    
+    return data.gaps.map((g, i) => {
+        const prio = priorityEmoji[g.priority] || '⚪';
+        const related = g.relatedTo && g.relatedTo.length > 0 
+            ? g.relatedTo.join(', ') 
+            : 'general';
+        
+        return `[${i + 1}] ${prio} ${g.topic}
+    💭 Why important: ${g.reason}
+    🏷️ Related to: ${related}
+    📅 Added: #${g.createdAt || data.lastUpdated}`;
+    }).join('\n\n');
+}
+
+function getGapsForPrompt() {
+    const data = getGapsData();
+    if (data.gaps.length === 0) return '(no knowledge gaps identified yet)';
+    
+    return data.gaps.map((g, i) => {
+        const related = g.relatedTo && g.relatedTo.length > 0 
+            ? `[${g.relatedTo.join(', ')}]` 
+            : '';
+        return `${i + 1}. [${g.priority}] ${g.topic}
+   Why: ${g.reason} ${related}`;
+    }).join('\n\n');
+}
+
+// ==================== SOCIAL STORAGE ====================
+const SOCIAL_CONFIG = {
+    maxContacts: 20,
+    strengthColors: {
+        1: '🔴',
+        2: '🟡', 
+        3: '🟢'
+    },
+    sentimentEmoji: {
+        positive: '💚',
+        neutral: '😐',
+        negative: '💔'
+    }
+};
+
+function getSocialData() {
+    const data = localStorage.getItem(STORAGE_KEYS.social);
+    if (!data) return { contacts: [] };
+    try {
+        return JSON.parse(data);
+    } catch (e) {
+        console.error('[Social] Parse error:', e);
+        return { contacts: [] };
+    }
+}
+
+function setSocialData(data) {
+    localStorage.setItem(STORAGE_KEYS.social, JSON.stringify(data));
+}
+
+function getStrengthIndicator(strength) {
+    const s = Math.min(Math.max(strength, 1), 3);
+    const color = SOCIAL_CONFIG.strengthColors[s] || SOCIAL_CONFIG.strengthColors[1];
+    return `${color} (${strength})`;
+}
+
+function getSentimentEmoji(sentiment) {
+    return SOCIAL_CONFIG.sentimentEmoji[sentiment] || SOCIAL_CONFIG.sentimentEmoji.neutral;
+}
+
+function getSocialForDisplay() {
+    const data = getSocialData();
+    if (data.contacts.length === 0) return '';
+    
+    return data.contacts.map((c, i) => {
+        const sentiment = getSentimentEmoji(c.sentiment);
+        const factsCount = c.facts ? c.facts.length : 0;
+        const traitsCount = c.traits ? c.traits.length : 0;
+        
+        return `[${i + 1}] ${sentiment} ${c.name}
+    📋 Relation: ${c.relation || 'unknown'}
+    📊 Facts: ${factsCount} | Traits: ${traitsCount}
+    📅 Last mentioned: #${c.lastMentioned || c.createdAt}`;
+    }).join('\n\n');
+}
+
+function getSocialForPrompt() {
+    const data = getSocialData();
+    if (data.contacts.length === 0) return '(no social connections recorded yet)';
+    
+    return data.contacts.map((c, i) => {
+        const aliases = c.aliases && c.aliases.length > 0 
+            ? `(also known as: ${c.aliases.join(', ')})` 
+            : '';
+        
+        const factsText = c.facts && c.facts.length > 0
+            ? c.facts.map(f => `  • ${f.text} [strength: ${f.strength}]`).join('\n')
+            : '  (no facts)';
+            
+        const traitsText = c.traits && c.traits.length > 0
+            ? c.traits.map(t => `  • ${t.text} [strength: ${t.strength}]`).join('\n')
+            : '  (no traits)';
+            
+        const interactionsText = c.interactions && c.interactions.length > 0
+            ? c.interactions.map(int => `  • ${int.text} [strength: ${int.strength}]`).join('\n')
+            : '  (no interactions)';
+        
+        return `[${i + 1}] ${c.name} ${aliases}
+Relation: ${c.relation || 'unknown'} | Sentiment: ${c.sentiment || 'neutral'}
+Facts:
+${factsText}
+Traits:
+${traitsText}
+Interactions:
+${interactionsText}
+Last mentioned: msg #${c.lastMentioned || c.createdAt}`;
+    }).join('\n\n---\n\n');
+}
+
+function getContactById(id) {
+    const data = getSocialData();
+    return data.contacts.find(c => c.id === id);
+}
+
+function findContactByName(name) {
+    const data = getSocialData();
+    const nameLower = name.toLowerCase();
+    
+    return data.contacts.find(c => {
+        if (c.name.toLowerCase() === nameLower) return true;
+        if (c.aliases && c.aliases.some(a => a.toLowerCase() === nameLower)) return true;
+        return false;
+    });
+}
+
+function getSocialCount() {
+    return getSocialData().contacts.length;
+}
+
 // Проверка загрузки
-console.log('[app.js] Loaded. Full tool definitions. Structured storage ready.');
+console.log('[app.js] Загружен. Базовые функции доступны:',
+    typeof getKnowledge !== 'undefined',
+    typeof setKnowledge !== 'undefined',
+    typeof t !== 'undefined',
+    typeof getToolDefinitions !== 'undefined'
+);

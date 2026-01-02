@@ -23,17 +23,12 @@
 
     <!-- Header Bar -->
     <header class="header-bar">
-        <!-- Кнопка знаний -->
+        <!-- Кнопка знаний в левом верхнем углу -->
         <button class="header-btn knowledge-btn" onclick="openKnowledgeModal()" title="User Knowledge">
             🧠
         </button>
-        
-        <!-- Кнопка самопознания YOU -->
-        <button class="header-btn you-btn" onclick="openYouModal()" title="Self-Discovery">
-            🔮
-        </button>
 
-        <!-- Кнопка помощи -->
+        <!-- Кнопка помощи в правом верхнем углу -->
         <button class="header-btn help-btn" onclick="openHelpModal()" title="Help">
             ?
         </button>
@@ -122,61 +117,57 @@
             
             <h1>🧠 Memory Chatbot</h1>
             
-            <section class="help-section">
-                <h2>Что это?</h2>
-                <p>Персональный AI-ассистент, который <strong>запоминает</strong> информацию о вас. Чем больше общаетесь — тем лучше он вас понимает.</p>
-            </section>
+           <!-- В index.html обнови help modal: -->
+<section class="help-section">
+    <h2>Что это?</h2>
+    <p>Персональный AI-ассистент, который <strong>запоминает</strong> информацию о вас. Чем больше общаетесь — тем лучше он вас понимает.</p>
+</section>
 
-            <section class="help-section">
-                <h2>Что он запоминает?</h2>
-                <ul>
-                    <li>📋 <strong>Факты</strong> — имя, работа, интересы, предпочтения</li>
-                    <li>🧠 <strong>Черты личности</strong> — как вы думаете, что цените</li>
-                    <li>📅 <strong>Хронология</strong> — события, планы, важные даты</li>
-                    <li>👥 <strong>Люди</strong> — семья, друзья, коллеги из ваших рассказов</li>
-                    <li>💡 <strong>Инсайты</strong> — паттерны и наблюдения о вас</li>
-                </ul>
-            </section>
+<section class="help-section">
+    <h2>Что он запоминает?</h2>
+    <ul>
+        <li>📋 <strong>Факты</strong> — имя, работа, интересы, предпочтения</li>
+        <li>🧠 <strong>Черты личности</strong> — как вы думаете, что цените</li>
+        <li>📅 <strong>Хронология</strong> — события, планы, важные даты</li>
+        <li>👥 <strong>Люди</strong> — семья, друзья, коллеги из ваших рассказов</li>
+        <li>💡 <strong>Инсайты</strong> — паттерны и наблюдения о вас</li>
+    </ul>
+</section>
 
-            <section class="help-section">
-                <h2>🎤 Режим 'Спроси меня'</h2>
-                <p>Включите переключатель — бот будет задавать вопросы, чтобы узнать вас лучше. Вопросы вплетаются естественно в разговор.</p>
-            </section>
-            
-            <section class="help-section">
-                <h2>🔮 Самопознание</h2>
-                <p>Нажмите на магический шар в шапке — пройдите интерактивный тест личности. Узнайте свои качества, ценности и приоритетные сферы жизни.</p>
-            </section>
+<section class="help-section">
+    <h2>🎤 Режим 'Спроси меня'</h2>
+    <p>Включите переключатель — бот будет задавать вопросы, чтобы узнать вас лучше. Вопросы вплетаются естественно в разговор.</p>
+</section>
 
-            <section class="help-section">
-                <h2>🔒 Приватность</h2>
-                <p><strong>Все данные хранятся только на вашем устройстве.</strong></p>
-                <p>Мы технически не можем прочитать вашу переписку — она не отправляется на наши серверы.</p>
-                <p>Сообщения обрабатываются через <a href="https://openrouter.ai/privacy" target="_blank">OpenRouter</a> для работы ИИ.</p>
-                <p>Нажмите 'Очистить знания' чтобы удалить всё мгновенно.</p>
-            </section>
+<section class="help-section">
+    <h2>🔒 Приватность</h2>
+    <p><strong>Все данные хранятся только на вашем устройстве.</strong></p>
+    <p>Мы технически не можем прочитать вашу переписку — она не отправляется на наши серверы.</p>
+    <p>Сообщения обрабатываются через <a href="https://openrouter.ai/privacy" target="_blank">OpenRouter</a> для работы ИИ.</p>
+    <p>Нажмите 'Очистить знания' чтобы удалить всё мгновенно.</p>
+</section>
 
-            <section class="help-section">
-                <h2>🚀 Что дальше?</h2>
-                <ul>
-                    <li>Синхронизация между устройствами (опционально)</li>
-                    <li>Экспорт/импорт базы знаний</li>
-                    <li>Больше настроек персонализации</li>
-                    <li>Мобильное приложение</li>
-                </ul>
-            </section>
+<section class="help-section">
+    <h2>🚀 Что дальше?</h2>
+    <ul>
+        <li>Синхронизация между устройствами (опционально)</li>
+        <li>Экспорт/импорт базы знаний</li>
+        <li>Больше настроек персонализации</li>
+        <li>Мобильное приложение</li>
+    </ul>
+</section>
 
-            <section class="help-section">
-                <h2>👨‍💻 Автор</h2>
-                <p>Сергей Маслаков</p>
-                <p>
-                    <a href="https://t.me/Nascor" target="_blank">Telegram</a>
-                </p>
-            </section>
+<section class="help-section">
+    <h2>👨‍💻 Автор</h2>
+    <p>Сергей Маслаков</p>
+    <p>
+        <a href="https://t.me/Nascor" target="_blank">Telegram</a>
+    </p>
+</section>
 
-            <div class="help-footer">
-                <p>Версия 1.1 · 2025</p>
-            </div>
+<div class="help-footer">
+    <p>Версия 1.0 · 2024</p>
+</div>
         </div>
     </div>
 
@@ -211,19 +202,8 @@
             </button>
         </div>
         
-        <div id="structuredContainer" class="structured-container"></div>
-        
         <div class="modal-content">
             <!-- Info blocks -->
-            <div id="factsInfo" class="tab-info" style="display: none;" data-i18n="factsInfo">
-                <strong>📋 Facts</strong> — concrete information about you: name, job, interests, preferences. Each fact is backed by quotes.
-            </div>
-            <div id="traitsInfo" class="tab-info" style="display: none;" data-i18n="traitsInfo">
-                <strong>🧠 Personality Traits</strong> — your psychological characteristics, thinking style, values. Can be combined into complex traits.
-            </div>
-            <div id="timelineInfo" class="tab-info" style="display: none;" data-i18n="timelineInfo">
-                <strong>📅 Timeline</strong> — your life events, current periods, future plans.
-            </div>
             <div id="styleInfo" class="tab-info" style="display: none;" data-i18n="styleInfo">
                 <strong>ℹ️ Communication Style</strong> — automatically generated every 10 messages based on personality trait analysis. You can edit settings manually.
             </div>
@@ -270,53 +250,9 @@
         </div>
     </div>
 
-    <!-- YOU Modal (Self-Discovery) -->
-    <div class="you-modal-overlay" id="youModal">
-        <div class="you-header">
-            <div class="you-header-title">
-                <span class="you-title-star" id="youLeftStar">✨</span>
-                <span>Познай себя</span>
-                <span class="you-title-star" id="youRightStar">✨</span>
-            </div>
-            <button class="you-close-btn" onclick="closeYouModal()">✕ Закрыть</button>
-        </div>
-        
-        <!-- Mode Selector -->
-        <div class="you-mode-selector">
-            <button class="you-mode-btn active" data-mode="personality">
-                🎭 Личность <span class="you-mode-done-icon">✅</span>
-            </button>
-            <button class="you-mode-btn" data-mode="values">
-                💎 Ценности <span class="you-mode-done-icon">✅</span>
-            </button>
-            <button class="you-mode-btn" data-mode="lifeSpheres">
-                🌐 Сферы <span class="you-mode-done-icon">✅</span>
-            </button>
-            <button class="you-mode-btn" data-mode="final" disabled title="Сначала пройдите все тесты">
-                🏆 Итог
-            </button>
-        </div>
-        
-        <!-- Buttons Section -->
-        <div class="you-buttons-section">
-            <button class="you-btn you-btn-next" id="youNextBtn" onclick="youHandleNext()" disabled>
-                ✨ Далее
-            </button>
-        </div>
-        
-        <!-- Main Content -->
-        <div class="you-main-content" id="youMainContent">
-            <div class="you-empty-state">
-                <div class="you-emoji">🎭</div>
-                <p>Загрузка...</p>
-            </div>
-        </div>
-    </div>
-
     <!-- ВАЖНО: правильный порядок загрузки скриптов -->
     <script src="app.js"></script>        <!-- 1. Базовые функции и конфигурация -->
-    <script src="analytics.js"></script>  <!-- 2. Аналитические функции -->
-    <script src="ui.js"></script>         <!-- 3. UI и взаимодействие -->
-    <script src="you.js"></script>        <!-- 4. Модуль самопознания YOU -->
+    <script src="analytics.js"></script>  <!-- 2. Аналитические функции (использует app.js) -->
+    <script src="ui.js"></script>         <!-- 3. UI и взаимодействие (использует app.js и analytics.js) -->
 </body>
 </html>
