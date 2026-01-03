@@ -31,9 +31,6 @@ let greetingShown = false;
 // Cooldown для приветствий
 const GREETING_COOLDOWN_MS = 4 * 60 * 60 * 1000; // 4 часа
 const GREETING_TIMESTAMP_KEY = 'chatbot_last_greeting';
-const GREETING_HISTORY_KEY = 'chatbot_greeting_history';
-const MAX_GREETING_HISTORY = 2;
-
 
 document.addEventListener('DOMContentLoaded', async () => {
     loadLanguage();
@@ -61,41 +58,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 // ==================== PROACTIVE GREETING ====================
-// ==================== PROACTIVE GREETING ====================
-
-// ==================== GREETING HISTORY ====================
-function getGreetingHistory() {
-    const data = localStorage.getItem(GREETING_HISTORY_KEY);
-    if (!data) return [];
-    try {
-        return JSON.parse(data);
-    } catch (e) {
-        return [];
-    }
-}
-
-function saveGreetingToHistory(greeting) {
-    const history = getGreetingHistory();
-    history.push({
-        text: greeting,
-        timestamp: Date.now()
-    });
-    // Храним только последние N приветствий
-    const trimmed = history.slice(-MAX_GREETING_HISTORY);
-    localStorage.setItem(GREETING_HISTORY_KEY, JSON.stringify(trimmed));
-}
-
-function getGreetingHistoryForPrompt() {
-    const history = getGreetingHistory();
-    if (history.length === 0) return '';
-    
-    return history.map((g, i) => {
-        const date = new Date(g.timestamp);
-        const dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
-        return `[Greeting ${i + 1}, ${dateStr}]:\n"${g.text}"`;
-    }).join('\n\n');
-}
-
 // ==================== PROACTIVE GREETING ====================
 async function showProactiveGreeting() {
     if (greetingShown) return;
@@ -147,8 +109,6 @@ async function showProactiveGreeting() {
     }
     
     console.log('[Greeting] Generating proactive greeting with streaming...');
-    
-    // Показываем typing indicator пока готовимся
     showTypingIndicator();
     
     try {
@@ -157,13 +117,10 @@ async function showProactiveGreeting() {
             { role: "user", content: prompt.user }
         ];
         
-        // Убираем typing indicator перед стримингом
         hideTypingIndicator();
         
         // Создаём элемент для стриминга
         const streamingElement = createStreamingMessage();
-        
-        let finalGreeting = '';
         
         await streamResponse(
             messages,
@@ -171,15 +128,9 @@ async function showProactiveGreeting() {
                 updateStreamingMessage(streamingElement, partialText);
             },
             (finalText) => {
-                finalGreeting = finalText;
                 finalizeStreamingMessage(streamingElement, finalText);
             }
         );
-        
-        // Сохраняем приветствие в историю для будущего разнообразия
-        if (finalGreeting) {
-            saveGreetingToHistory(finalGreeting);
-        }
         
         localStorage.setItem(GREETING_TIMESTAMP_KEY, Date.now().toString());
         
@@ -192,9 +143,9 @@ async function showProactiveGreeting() {
         const streamingMsg = document.getElementById('streamingMessage');
         if (streamingMsg) streamingMsg.remove();
         
-        console.error('[Greeting] Streaming failed, trying fallback:', error.message);
+        console.error('[Greeting] Failed to generate greeting:', error.message);
         
-        // Fallback на обычный запрос без стриминга
+        // Fallback на обычный запрос
         try {
             const response = await callAPI([
                 { role: "system", content: prompt.system },
@@ -204,13 +155,7 @@ async function showProactiveGreeting() {
             const greeting = response.content || response;
             appendMessage('assistant', greeting, true);
             
-            // Сохраняем приветствие в историю
-            saveGreetingToHistory(greeting);
-            
             localStorage.setItem(GREETING_TIMESTAMP_KEY, Date.now().toString());
-            
-            console.log('[Greeting] Fallback greeting sent successfully');
-            
         } catch (fallbackError) {
             console.error('[Greeting] Fallback also failed:', fallbackError.message);
         }
@@ -338,41 +283,10 @@ Be warm and concise. Match the cultural context of the language.`,
 function buildPersonalizedGreetingPrompt(langName, timeContext, context) {
     const { facts, traits, timeline, style, gaps, hypotheses, social } = context;
     const timeContextText = formatTimeContextForPrompt(timeContext);
-    const previousGreetings = getGreetingHistoryForPrompt();
     
     let styleInstruction = '';
     if (style && style.trim()) {
         styleInstruction = `\n\n=== YOUR COMMUNICATION STYLE ===\n${style}`;
-    }
-    
-    let previousGreetingsBlock = '';
-    if (previousGreetings) {
-        previousGreetingsBlock = `
-
-=== YOUR PREVIOUS GREETINGS (DO NOT REPEAT!) ===
-${previousGreetings}
-
-⛔ STRICT PROHIBITION:
-- Do NOT ask about the same topics as in previous greetings
-- Do NOT make similar jokes or references
-- Do NOT use the same conversation starters
-- Find a FRESH angle — something you haven't touched before
-- If you mentioned work before → try hobbies, mood, plans, a person from their life
-- If you asked about family → try their interests, current events, hypotheses about them
-`;
-    }
-    
-    let gapsBlock = '';
-    if (gaps && gaps.length > 30 && !gaps.includes('(no ')) {
-        gapsBlock = `
-
-=== KNOWLEDGE GAPS (great topics to explore!) ===
-${gaps}
-
-💡 These are things you DON'T know yet about the user. 
-Consider weaving ONE of these into your greeting as a natural question or topic.
-This helps you learn more while keeping the greeting fresh and interesting.
-`;
     }
     
     return {
@@ -391,31 +305,25 @@ ${timeContextText}
 **Timeline:** ${timeline || '(no timeline)'}
 **People:** ${social || '(no connections)'}
 **Hypotheses:** ${hypotheses || '(none yet)'}
-${previousGreetingsBlock}
-${gapsBlock}
+
+=== KNOWLEDGE GAPS ===
+${gaps || '(none identified)'}
 
 === YOUR TASK ===
-Create a greeting that:
-1. **Is FRESH** — different from your previous greetings
-2. **Shows you KNOW them** — but pick a DIFFERENT aspect than before
-3. **Is time-aware** — consider the current moment
-4. **Optionally explores a gap** — if it fits naturally
-
-=== VARIETY STRATEGIES ===
-- Rotate between: work, hobbies, people in their life, recent events, mood, plans, observations
-- Use different tones: playful, warm, curious, supportive, reflective
-- Try different structures: question, observation, reference to shared history, hypothesis check
+Create a greeting that CONNECTS:
+1. **TIME CONTEXT** → What you know about them
+2. **SEASONAL/HOLIDAY AWARENESS** — Consider if today has a holiday relevant to ${langName} speakers
+3. **ONE KNOWLEDGE GAP** (optional, only if natural)
 
 === WHAT TO AVOID ===
-- REPEATING topics from previous greetings
 - Listing everything you know
-- Being creepy or overly familiar
-- Multiple questions (ONE is enough)
+- Being creepy
+- Multiple questions
 - Generic greetings ("How are you?")
 
-Be natural. Be warm. Be FRESH. Show you KNOW them from a NEW angle.`,
+Be natural. Be warm. Show you KNOW them AND are aware of the moment.`,
         
-        user: `Generate a personalized, time-aware greeting that is DIFFERENT from your previous ones.`
+        user: `Generate a personalized, time-aware greeting for this returning user.`
     };
 }
 
