@@ -4004,3 +4004,30 @@ body.server-mode .input-form {
         margin-bottom: 16px;
     }
 }
+/* ==================== STREAMING MESSAGE ==================== */
+
+.message.assistant.streaming {
+    position: relative;
+}
+
+.message.assistant.streaming::after {
+    content: '▊';
+    animation: blink 0.8s infinite;
+    color: #e94560;
+    margin-left: 2px;
+}
+
+@keyframes blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0; }
+}
+
+/* Плавное появление текста */
+.message.assistant.streaming * {
+    animation: fadeInText 0.1s ease-in;
+}
+
+@keyframes fadeInText {
+    from { opacity: 0.7; }
+    to { opacity: 1; }
+}

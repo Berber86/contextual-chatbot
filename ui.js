@@ -1,14 +1,12 @@
 // ui.js - интерфейсная логика для Memory Chatbot
-// Two-Stage Response Architecture: Context Analysis → Personalized Response
+// Two-Stage Response Architecture: Context Analysis → Personalized Response (Streaming)
 
 // ==================== INITIALIZATION & CONFIG ====================
 const isLocal = window.location.hostname.includes('localhost') ||
     window.location.hostname.includes('127.0.0.1');
 
 const CONFIG = {
-     //model_chat: "xiaomi/mimo-v2-flash:free",
-     model_chat: "nex-agi/deepseek-v3.1-nex-n1:free",
-    //model_chat: "mistralai/devstral-2512:free",
+    model_chat: "mistralai/devstral-2512:free",
     model_analysis: "xiaomi/mimo-v2-flash:free",
     
     apiUrl: isLocal ?
@@ -23,16 +21,19 @@ const CONFIG = {
     maxHypotheses: 10,
     maxGaps: 5,
     maxToolIterations: 5,
-    showToolCalls: false,  // Отключаем, т.к. используем two-stage
-    showContextAnalysis: true  // Показывать этап анализа
+    showToolCalls: false,
+    showContextAnalysis: true
 };
 
 // Флаг, что приветствие уже было показано в этой сессии
 let greetingShown = false;
 
 // Cooldown для приветствий
-const GREETING_COOLDOWN_MS = 4 * 60 * 60 * 1000; // 4 часа
+const GREETING_COOLDOWN_MS = 1 * 60 * 60 * 1; // 4 часа
 const GREETING_TIMESTAMP_KEY = 'chatbot_last_greeting';
+const GREETING_HISTORY_KEY = 'chatbot_greeting_history';
+const MAX_GREETING_HISTORY = 5;
+
 
 document.addEventListener('DOMContentLoaded', async () => {
     loadLanguage();
@@ -58,6 +59,42 @@ document.addEventListener('DOMContentLoaded', async () => {
     // === Инициативное приветствие ===
     await showProactiveGreeting();
 });
+
+// ==================== PROACTIVE GREETING ====================
+// ==================== PROACTIVE GREETING ====================
+
+// ==================== GREETING HISTORY ====================
+function getGreetingHistory() {
+    const data = localStorage.getItem(GREETING_HISTORY_KEY);
+    if (!data) return [];
+    try {
+        return JSON.parse(data);
+    } catch (e) {
+        return [];
+    }
+}
+
+function saveGreetingToHistory(greeting) {
+    const history = getGreetingHistory();
+    history.push({
+        text: greeting,
+        timestamp: Date.now()
+    });
+    // Храним только последние N приветствий
+    const trimmed = history.slice(-MAX_GREETING_HISTORY);
+    localStorage.setItem(GREETING_HISTORY_KEY, JSON.stringify(trimmed));
+}
+
+function getGreetingHistoryForPrompt() {
+    const history = getGreetingHistory();
+    if (history.length === 0) return '';
+    
+    return history.map((g, i) => {
+        const date = new Date(g.timestamp);
+        const dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+        return `[Greeting ${i + 1}, ${dateStr}]:\n"${g.text}"`;
+    }).join('\n\n');
+}
 
 // ==================== PROACTIVE GREETING ====================
 async function showProactiveGreeting() {
@@ -109,19 +146,40 @@ async function showProactiveGreeting() {
         });
     }
     
-    console.log('[Greeting] Generating proactive greeting...');
+    console.log('[Greeting] Generating proactive greeting with streaming...');
+    
+    // Показываем typing indicator пока готовимся
     showTypingIndicator();
     
     try {
-        const response = await callAPI([
+        const messages = [
             { role: "system", content: prompt.system },
             { role: "user", content: prompt.user }
-        ], null, false);
+        ];
         
+        // Убираем typing indicator перед стримингом
         hideTypingIndicator();
         
-        const greeting = response.content || response;
-        appendMessage('assistant', greeting, true);
+        // Создаём элемент для стриминга
+        const streamingElement = createStreamingMessage();
+        
+        let finalGreeting = '';
+        
+        await streamResponse(
+            messages,
+            (partialText) => {
+                updateStreamingMessage(streamingElement, partialText);
+            },
+            (finalText) => {
+                finalGreeting = finalText;
+                finalizeStreamingMessage(streamingElement, finalText);
+            }
+        );
+        
+        // Сохраняем приветствие в историю для будущего разнообразия
+        if (finalGreeting) {
+            saveGreetingToHistory(finalGreeting);
+        }
         
         localStorage.setItem(GREETING_TIMESTAMP_KEY, Date.now().toString());
         
@@ -129,7 +187,33 @@ async function showProactiveGreeting() {
         
     } catch (error) {
         hideTypingIndicator();
-        console.error('[Greeting] Failed to generate greeting:', error.message);
+        
+        // Удаляем streaming message если есть
+        const streamingMsg = document.getElementById('streamingMessage');
+        if (streamingMsg) streamingMsg.remove();
+        
+        console.error('[Greeting] Streaming failed, trying fallback:', error.message);
+        
+        // Fallback на обычный запрос без стриминга
+        try {
+            const response = await callAPI([
+                { role: "system", content: prompt.system },
+                { role: "user", content: prompt.user }
+            ], null, false);
+            
+            const greeting = response.content || response;
+            appendMessage('assistant', greeting, true);
+            
+            // Сохраняем приветствие в историю
+            saveGreetingToHistory(greeting);
+            
+            localStorage.setItem(GREETING_TIMESTAMP_KEY, Date.now().toString());
+            
+            console.log('[Greeting] Fallback greeting sent successfully');
+            
+        } catch (fallbackError) {
+            console.error('[Greeting] Fallback also failed:', fallbackError.message);
+        }
     }
 }
 
@@ -254,10 +338,41 @@ Be warm and concise. Match the cultural context of the language.`,
 function buildPersonalizedGreetingPrompt(langName, timeContext, context) {
     const { facts, traits, timeline, style, gaps, hypotheses, social } = context;
     const timeContextText = formatTimeContextForPrompt(timeContext);
+    const previousGreetings = getGreetingHistoryForPrompt();
     
     let styleInstruction = '';
     if (style && style.trim()) {
         styleInstruction = `\n\n=== YOUR COMMUNICATION STYLE ===\n${style}`;
+    }
+    
+    let previousGreetingsBlock = '';
+    if (previousGreetings) {
+        previousGreetingsBlock = `
+
+=== YOUR PREVIOUS GREETINGS (DO NOT REPEAT!) ===
+${previousGreetings}
+
+⛔ STRICT PROHIBITION:
+- Do NOT ask about the same topics as in previous greetings
+- Do NOT make similar jokes or references
+- Do NOT use the same conversation starters
+- Find a FRESH angle — something you haven't touched before
+- If you mentioned work before → try hobbies, mood, plans, a person from their life
+- If you asked about family → try their interests, current events, hypotheses about them
+`;
+    }
+    
+    let gapsBlock = '';
+    if (gaps && gaps.length > 30 && !gaps.includes('(no ')) {
+        gapsBlock = `
+
+=== KNOWLEDGE GAPS (great topics to explore!) ===
+${gaps}
+
+💡 These are things you DON'T know yet about the user. 
+Consider weaving ONE of these into your greeting as a natural question or topic.
+This helps you learn more while keeping the greeting fresh and interesting.
+`;
     }
     
     return {
@@ -276,25 +391,31 @@ ${timeContextText}
 **Timeline:** ${timeline || '(no timeline)'}
 **People:** ${social || '(no connections)'}
 **Hypotheses:** ${hypotheses || '(none yet)'}
-
-=== KNOWLEDGE GAPS ===
-${gaps || '(none identified)'}
+${previousGreetingsBlock}
+${gapsBlock}
 
 === YOUR TASK ===
-Create a greeting that CONNECTS:
-1. **TIME CONTEXT** → What you know about them
-2. **SEASONAL/HOLIDAY AWARENESS** — Consider if today has a holiday relevant to ${langName} speakers
-3. **ONE KNOWLEDGE GAP** (optional, only if natural)
+Create a greeting that:
+1. **Is FRESH** — different from your previous greetings
+2. **Shows you KNOW them** — but pick a DIFFERENT aspect than before
+3. **Is time-aware** — consider the current moment
+4. **Optionally explores a gap** — if it fits naturally
+
+=== VARIETY STRATEGIES ===
+- Rotate between: work, hobbies, people in their life, recent events, mood, plans, observations
+- Use different tones: playful, warm, curious, supportive, reflective
+- Try different structures: question, observation, reference to shared history, hypothesis check
 
 === WHAT TO AVOID ===
+- REPEATING topics from previous greetings
 - Listing everything you know
-- Being creepy
-- Multiple questions
+- Being creepy or overly familiar
+- Multiple questions (ONE is enough)
 - Generic greetings ("How are you?")
 
-Be natural. Be warm. Show you KNOW them AND are aware of the moment.`,
+Be natural. Be warm. Be FRESH. Show you KNOW them from a NEW angle.`,
         
-        user: `Generate a personalized, time-aware greeting for this returning user.`
+        user: `Generate a personalized, time-aware greeting that is DIFFERENT from your previous ones.`
     };
 }
 
@@ -1041,6 +1162,153 @@ function cancelChanges() {
     updateEditButtons(false);
 }
 
+// ==================== MARKDOWN FORMATTING ====================
+function formatMessageMarkdown(text) {
+    if (!text) return '';
+    
+    let html = text;
+    
+    // Экранируем HTML
+    html = html.replace(/&/g, '&amp;')
+               .replace(/</g, '&lt;')
+               .replace(/>/g, '&gt;');
+    
+    // Блоки кода ```language\ncode\n```
+    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (match, lang, code) => {
+        const langLabel = lang ? `<span class="msg-code-lang">${lang}</span>` : '';
+        return `<div class="msg-code-block">${langLabel}<pre><code>${code.trim()}</code></pre></div>`;
+    });
+    
+    // Блоки кода без языка ```code```
+    html = html.replace(/```([\s\S]*?)```/g, '<div class="msg-code-block"><pre><code>$1</code></pre></div>');
+    
+    // Таблицы (простые)
+    html = html.replace(/^\|(.+)\|$/gm, (match, content) => {
+        const cells = content.split('|').map(cell => cell.trim());
+        const isHeader = cells.every(cell => /^[-:]+$/.test(cell));
+        if (isHeader) return '';
+        const cellsHtml = cells.map(cell => `<td>${cell}</td>`).join('');
+        return `<tr>${cellsHtml}</tr>`;
+    });
+    html = html.replace(/(<tr>[\s\S]*?<\/tr>)+/g, '<table class="msg-table">$&</table>');
+    
+    // Заголовки
+    html = html.replace(/^#### (.+)$/gm, '<h4 class="msg-h4">$1</h4>');
+    html = html.replace(/^### (.+)$/gm, '<h3 class="msg-h3">$1</h3>');
+    html = html.replace(/^## (.+)$/gm, '<h2 class="msg-h2">$1</h2>');
+    html = html.replace(/^# (.+)$/gm, '<h1 class="msg-h1">$1</h1>');
+    
+    // Чекбоксы
+    html = html.replace(/^\s*\[x\]\s+(.+)$/gim, '<div class="msg-checkbox checked">☑ $1</div>');
+    html = html.replace(/^\s*\[\s?\]\s+(.+)$/gim, '<div class="msg-checkbox">☐ $1</div>');
+    
+    // Жирный + курсив ***text*** или ___text___
+    html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+    html = html.replace(/___(.+?)___/g, '<strong><em>$1</em></strong>');
+    
+    // Жирный **text** или __text__
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/__(.+?)__/g, '<strong>$1</strong>');
+    
+    // Курсив *text* или _text_
+    html = html.replace(/(?<![a-zA-Zа-яА-ЯёЁ0-9*_])\*([^*\n]+?)\*(?![a-zA-Zа-яА-ЯёЁ0-9*_])/g, '<em>$1</em>');
+    html = html.replace(/(?<![a-zA-Zа-яА-ЯёЁ0-9*_])_([^_\n]+?)_(?![a-zA-Zа-яА-ЯёЁ0-9*_])/g, '<em>$1</em>');
+    
+    // Зачёркнутый ~~text~~
+    html = html.replace(/~~(.+?)~~/g, '<del>$1</del>');
+    
+    // Подчёркнутый ++text++
+    html = html.replace(/\+\+(.+?)\+\+/g, '<u>$1</u>');
+    
+    // Маркер/хайлайт ==text==
+    html = html.replace(/==(.+?)==/g, '<mark class="msg-highlight">$1</mark>');
+    
+    // Подстрочный ~text~
+    html = html.replace(/(?<![~])~([^~\n]+?)~(?![~])/g, '<sub>$1</sub>');
+    
+    // Надстрочный ^text^
+    html = html.replace(/\^([^\^\n]+?)\^/g, '<sup>$1</sup>');
+    
+    // Инлайн код `code`
+    html = html.replace(/`([^`]+)`/g, '<code class="msg-code">$1</code>');
+    
+    // Ссылки [text](url)
+    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener" class="msg-link">$1</a>');
+    
+    // Автоссылки на URL
+    html = html.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener" class="msg-link">$1</a>');
+    
+    // Эмодзи-шорткоды
+    const emojiMap = {
+        ':)': '😊', ':-)': '😊', ':D': '😃', ':-D': '😃',
+        ':(': '😞', ':-(': '😞', ';)': '😉', ';-)': '😉',
+        ':P': '😛', ':-P': '😛', ':O': '😮', ':-O': '😮',
+        '<3': '❤️', ':heart:': '❤️', ':star:': '⭐',
+        ':fire:': '🔥', ':thumbsup:': '👍', ':thumbsdown:': '👎',
+        ':check:': '✅', ':x:': '❌', ':warning:': '⚠️',
+        ':info:': 'ℹ️', ':question:': '❓', ':bulb:': '💡',
+        ':rocket:': '🚀', ':sparkles:': '✨', ':zap:': '⚡'
+    };
+    for (const [code, emoji] of Object.entries(emojiMap)) {
+        html = html.split(code).join(emoji);
+    }
+    
+    // Цитаты > text
+    html = html.replace(/^&gt; (.+)$/gm, '<div class="msg-quote">$1</div>');
+    
+    // Горизонтальная линия
+    html = html.replace(/^(---|\*\*\*|___)$/gm, '<hr class="msg-hr">');
+    
+    // Нумерованные списки
+    html = html.replace(/^(\s*)(\d+)\. (.+)$/gm, (match, indent, num, text) => {
+        const level = Math.floor(indent.length / 2);
+        return `<div class="msg-list-item msg-list-level-${level}"><span class="msg-list-num">${num}.</span> ${text}</div>`;
+    });
+    
+    // Маркированные списки
+    html = html.replace(/^(\s*)[\-\*•] (.+)$/gm, (match, indent, text) => {
+        const level = Math.floor(indent.length / 2);
+        return `<div class="msg-list-item msg-list-level-${level}"><span class="msg-bullet">•</span> ${text}</div>`;
+    });
+    
+    // Сноски [^1]
+    html = html.replace(/\[\^(\d+)\]/g, '<sup class="msg-footnote">[$1]</sup>');
+    
+    // Клавиши [[Ctrl]]
+    html = html.replace(/\[\[([^\]]+)\]\]/g, '<kbd class="msg-kbd">$1</kbd>');
+    
+    // Спойлер ||text||
+    html = html.replace(/\|\|(.+?)\|\|/g, '<span class="msg-spoiler" onclick="this.classList.toggle(\'revealed\')">$1</span>');
+    
+    // Математика $formula$
+    html = html.replace(/\$([^$]+)\$/g, '<span class="msg-math">$1</span>');
+    
+    // Прогресс-бар [====    ] 40%
+    html = html.replace(/\[(=+)(\s*)\]\s*(\d+)%/g, (match, filled, empty, percent) => {
+        return `<div class="msg-progress"><div class="msg-progress-bar" style="width: ${percent}%"></div><span>${percent}%</span></div>`;
+    });
+    
+    // Цветной текст {red}text{/red}
+    html = html.replace(/\{(#[0-9a-fA-F]{3,6}|[a-z]+)\}(.+?)\{\/\1?\}/g, '<span style="color: $1">$2</span>');
+    
+    // Алерт-боксы
+    html = html.replace(/^:::(\w+)\s*\n([\s\S]*?)^:::/gm, (match, type, content) => {
+        return `<div class="msg-alert msg-alert-${type}">${content.trim()}</div>`;
+    });
+    
+    // Переносы строк
+    html = html.replace(/\n/g, '<br>');
+    
+    // Убираем лишние <br> после блочных элементов
+    html = html.replace(/(<\/div>)<br>/g, '$1');
+    html = html.replace(/(<\/h[1-4]>)<br>/g, '$1');
+    html = html.replace(/(<\/pre>)<br>/g, '$1');
+    html = html.replace(/(<\/table>)<br>/g, '$1');
+    html = html.replace(/(<hr[^>]*>)<br>/g, '$1');
+    
+    return html;
+}
+
 // ==================== CHAT UI ====================
 function appendMessage(role, content, save = true) {
     const chatArea = document.getElementById('chatArea');
@@ -1058,7 +1326,7 @@ function appendMessage(role, content, save = true) {
     
     chatArea.appendChild(msgDiv);
     chatArea.scrollTop = chatArea.scrollHeight;
-    
+
     if (save) {
         addToHistory(role, content);
     }
@@ -1078,7 +1346,7 @@ function appendToolCall(toolName, args) {
 }
 
 function appendThinkingMessage(text) {
-    removeThinkingMessage(); // Удаляем предыдущее, если есть
+    removeThinkingMessage();
     
     const chatArea = document.getElementById('chatArea');
     if (!chatArea) return;
@@ -1168,6 +1436,115 @@ function handleKeyDown(event) {
     }
 }
 
+// ==================== STREAMING RESPONSE ====================
+async function streamResponse(messages, onChunk, onComplete) {
+    const headers = {
+        'Content-Type': 'application/json',
+        'HTTP-Referer': window.location.href,
+        'X-Title': 'Memory Chatbot'
+    };
+    
+    if (isLocal) {
+        const apiKey = getApiKey();
+        if (!apiKey) {
+            throw new Error("API Key is missing!");
+        }
+        headers['Authorization'] = `Bearer ${apiKey}`;
+    }
+    
+    const apiUrl = isLocal 
+        ? 'https://openrouter.ai/api/v1/chat/completions'
+        : CONFIG.apiUrl;
+    
+    const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({
+            model: CONFIG.model_chat,
+            messages: messages,
+            stream: true
+        })
+    });
+    
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+    }
+    
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let fullText = '';
+    let buffer = '';
+    
+    while (true) {
+        const { done, value } = await reader.read();
+        
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        
+        for (const line of lines) {
+            const trimmed = line.trim();
+            
+            if (!trimmed || trimmed === 'data: [DONE]') continue;
+            
+            if (trimmed.startsWith('data: ')) {
+                try {
+                    const json = JSON.parse(trimmed.slice(6));
+                    const content = json.choices?.[0]?.delta?.content;
+                    
+                    if (content) {
+                        fullText += content;
+                        onChunk(fullText);
+                    }
+                } catch (e) {
+                    // Ignore parse errors for incomplete chunks
+                }
+            }
+        }
+    }
+    
+    onComplete(fullText);
+    return fullText;
+}
+
+function createStreamingMessage() {
+    const chatArea = document.getElementById('chatArea');
+    if (!chatArea) return null;
+    
+    const msgDiv = document.createElement('div');
+    msgDiv.className = 'message assistant streaming';
+    msgDiv.id = 'streamingMessage';
+    chatArea.appendChild(msgDiv);
+    
+    // Скроллим ОДИН раз — чтобы показать начало сообщения
+    chatArea.scrollTop = chatArea.scrollHeight;
+    
+    return msgDiv;
+}
+
+function updateStreamingMessage(element, content) {
+    if (!element) return;
+    
+    element.innerHTML = formatMessageMarkdown(content);
+    
+    // НЕ скроллим во время стриминга — пусть юзер читает с начала
+}
+
+
+function finalizeStreamingMessage(element, content) {
+    if (!element) return;
+    
+    element.classList.remove('streaming');
+    element.removeAttribute('id');
+    element.innerHTML = formatMessageMarkdown(content);
+    
+    addToHistory('assistant', content);
+}
+
 // ==================== RESPONSE ARCHETYPES & QUESTION POLICY ====================
 function pickResponseArchetype() {
     const archetypes = [
@@ -1198,29 +1575,18 @@ function decideQuestionPolicyForThisTurn() {
 
 // ==================== TWO-STAGE RESPONSE ARCHITECTURE ====================
 
-/**
- * Выбор пробела в знаниях для режима Ask Me.
- * Приоритет отдается пробелам с высоким приоритетом.
- */
 function selectGapForQuestion() {
-    const data = getGapsData(); // Используем глобальную функцию доступа к данным
+    const data = getGapsData();
     if (!data || !data.gaps || data.gaps.length === 0) return null;
 
-    // Сначала пытаемся найти high priority
     const highPriority = data.gaps.filter(g => g.priority === 'high');
     if (highPriority.length > 0) {
         return highPriority[Math.floor(Math.random() * highPriority.length)];
     }
 
-    // Если нет, берем любой
     return data.gaps[Math.floor(Math.random() * data.gaps.length)];
 }
 
-/**
- * Stage 1: Context Analysis
- * Анализирует сообщение пользователя и находит релевантные связи в памяти.
- * Использует быструю модель (model_analysis).
- */
 async function findRelevantContext(userMessage, history) {
     const allFacts = getFactsForPrompt();
     const allTraits = getTraitsForPrompt();
@@ -1301,11 +1667,7 @@ Return ONLY valid JSON:
         return null;
     }
 }
-/**
- * Stage 2: Response Generation
- * Генерирует ответ с учётом найденного контекста.
- * Использует основную модель (model_chat).
- */
+
 async function generateResponseWithContext(userMessage, history, contextAnalysis, targetGap = null) {
     const style = localStorage.getItem(STORAGE_KEYS.style) || '';
     const langName = getLanguageName();
@@ -1313,7 +1675,6 @@ async function generateResponseWithContext(userMessage, history, contextAnalysis
     const qp = decideQuestionPolicyForThisTurn();
     const timeContext = getTimeContext();
     
-    // Определяем интенсивность персонализации
     let contextBlock = '';
     
     if (contextAnalysis) {
@@ -1321,7 +1682,6 @@ async function generateResponseWithContext(userMessage, history, contextAnalysis
         const needsPersonalization = contextAnalysis.needs_personalization !== false;
         
         if (!needsPersonalization || intensity === 'none') {
-            // Простое сообщение — минимум контекста
             contextBlock = `
 === CONTEXT ===
 Message type: ${contextAnalysis.message_type || 'general'}
@@ -1329,7 +1689,6 @@ Tone: ${contextAnalysis.tone || 'neutral'}
 Note: This is a simple message. Respond naturally WITHOUT forcing memory references.
 `;
         } else if (intensity === 'light') {
-            // Лёгкая персонализация — максимум 1 элемент
             contextBlock = `
 === CONTEXT (use lightly) ===
 Intent: ${contextAnalysis.user_intent || 'respond helpfully'}
@@ -1341,7 +1700,6 @@ ${contextAnalysis.suggested_angle ? `Angle: ${contextAnalysis.suggested_angle}` 
 Rule: Use AT MOST one memory reference, and only if it flows naturally.
 `;
         } else {
-            // Moderate/heavy — можно больше, но не обязательно
             contextBlock = `
 === CONTEXT ===
 Intent: ${contextAnalysis.user_intent}
@@ -1365,14 +1723,10 @@ No specific context found. Respond naturally and helpfully.
 `;
     }
     
-    // Блок стиля
     let styleBlock = style?.trim() ? `\n=== STYLE ===\n${style}\n` : '';
     
-    // Блок вопросов
     let questionRule = '';
     
-    // Если передан конкретный пробел и режим Ask Me активен (и кубик выпал на "спросить")
-        // Если передан конкретный пробел и режим Ask Me активен
     if (targetGap && qp.modeLabel === 'ASK_ME' && qp.shouldAsk) {
         questionRule = `
 === ASK ME MODE: ACTIVE ===
@@ -1389,8 +1743,6 @@ INSTRUCTION:
 3. Ask the question about "${targetGap.topic}".
 `;
     } else if (qp.modeLabel === 'ASK_ME' && qp.shouldAsk) {
-        // ... (остальной код без изменений)
-        // Режим включен, но пробелов нет или не переданы — fallback
         questionRule = `\nQuestion: You MAY end with ONE question about them (Ask Me Mode is on).`;
     } else if (!qp.shouldAsk) {
         questionRule = `\nQuestion: Do NOT ask questions in this response.`;
@@ -1429,10 +1781,6 @@ Sometimes the best response is just helpful, without proving you have memory.`;
     return response.content || response;
 }
 
-/**
- * Main Two-Stage Processing Function
- * Координирует оба этапа обработки сообщения.
- */
 async function processMessageWithTwoStages(userMessage) {
     const history = getChatHistory();
     
@@ -1441,11 +1789,8 @@ async function processMessageWithTwoStages(userMessage) {
     
     const contextAnalysis = await findRelevantContext(userMessage, history);
     
-    // Проверяем, уместно ли задавать вопрос из "Ask Me"
     let targetGap = null;
     
-    // Если режим включен, и сообщение пользователя не является "эмоциональным" или "сложным"
-    // (мы не хотим перебивать важный момент вопросом о любимом цвете)
     const isSensitiveContext = contextAnalysis && (
         contextAnalysis.message_type === 'emotional' || 
         contextAnalysis.message_type === 'complex' ||
@@ -1461,15 +1806,140 @@ async function processMessageWithTwoStages(userMessage) {
         }
     }
 
-    // ========== STAGE 2: RESPONSE GENERATION ==========
-    updateThinkingMessage(t('generatingResponse') || '✨ Crafting response...');
+    // ========== STAGE 2: STREAMING RESPONSE ==========
+    removeThinkingMessage();
     
-    const response = await generateResponseWithContext(userMessage, history, contextAnalysis, targetGap);
+    const streamingElement = createStreamingMessage();
     
-    return response;
+    try {
+        const style = localStorage.getItem(STORAGE_KEYS.style) || '';
+        const langName = getLanguageName();
+        const archetype = pickResponseArchetype();
+        const qp = decideQuestionPolicyForThisTurn();
+        
+        let contextBlock = '';
+        
+        if (contextAnalysis) {
+            const intensity = contextAnalysis.personalization_intensity || 'light';
+            const needsPersonalization = contextAnalysis.needs_personalization !== false;
+            
+            if (!needsPersonalization || intensity === 'none') {
+                contextBlock = `
+=== CONTEXT ===
+Message type: ${contextAnalysis.message_type || 'general'}
+Tone: ${contextAnalysis.tone || 'neutral'}
+Note: This is a simple message. Respond naturally WITHOUT forcing memory references.
+`;
+            } else if (intensity === 'light') {
+                contextBlock = `
+=== CONTEXT (use lightly) ===
+Intent: ${contextAnalysis.user_intent || 'respond helpfully'}
+Tone: ${contextAnalysis.tone || 'warm'}
+${contextAnalysis.key_fact ? `Relevant fact: ${contextAnalysis.key_fact}` : ''}
+${contextAnalysis.key_trait ? `Consider trait: ${contextAnalysis.key_trait}` : ''}
+${contextAnalysis.suggested_angle ? `Angle: ${contextAnalysis.suggested_angle}` : ''}
+
+Rule: Use AT MOST one memory reference, and only if it flows naturally.
+`;
+            } else {
+                contextBlock = `
+=== CONTEXT ===
+Intent: ${contextAnalysis.user_intent}
+Emotional undertone: ${contextAnalysis.emotional_undertone || 'neutral'}
+Tone: ${contextAnalysis.tone || 'warm'}
+
+${contextAnalysis.key_fact ? `• Fact: ${contextAnalysis.key_fact}` : ''}
+${contextAnalysis.key_trait ? `• Trait: ${contextAnalysis.key_trait}` : ''}
+${contextAnalysis.key_person ? `• Person: ${contextAnalysis.key_person}` : ''}
+${contextAnalysis.key_insight ? `• Insight: ${contextAnalysis.key_insight}` : ''}
+${contextAnalysis.suggested_angle ? `\n💡 Angle: ${contextAnalysis.suggested_angle}` : ''}
+${contextAnalysis.gap_opportunity ? `\n🎯 Gap opportunity: ${contextAnalysis.gap_opportunity}` : ''}
+
+Rule: Pick 1-2 elements MAX that genuinely add value. Don't force them.
+`;
+            }
+        } else {
+            contextBlock = `
+=== CONTEXT ===
+No specific context found. Respond naturally and helpfully.
+`;
+        }
+        
+        let styleBlock = style?.trim() ? `\n=== STYLE ===\n${style}\n` : '';
+        
+        let questionRule = '';
+        
+        if (targetGap && qp.modeLabel === 'ASK_ME' && qp.shouldAsk) {
+            questionRule = `
+=== ASK ME MODE: ACTIVE ===
+YOUR GOAL: Fill a specific memory gap about: "${targetGap.topic}"
+REASON: ${targetGap.reason}
+
+INSTRUCTION:
+1. First, answer the user's current message naturally.
+2. Then, create a SEMANTIC BRIDGE to the target topic.
+3. Ask the question about "${targetGap.topic}".
+`;
+        } else if (qp.modeLabel === 'ASK_ME' && qp.shouldAsk) {
+            questionRule = `\nQuestion: You MAY end with ONE question about them (Ask Me Mode is on).`;
+        } else if (!qp.shouldAsk) {
+            questionRule = `\nQuestion: Do NOT ask questions in this response.`;
+        }
+        
+        const systemPrompt = `You are a personal AI who knows this user. Respond in ${langName}.
+
+${contextBlock}
+${styleBlock}
+=== APPROACH ===
+Archetype: ${archetype}
+${questionRule}
+
+=== KEY RULES ===
+1. LESS IS MORE — one natural reference beats three forced ones
+2. If context doesn't fit naturally, DON'T USE IT
+3. Simple messages get simple responses
+4. Sound like a friend, not a database query
+5. Vary your style — not every response needs to be "personalized"
+
+Sometimes the best response is just helpful, without proving you have memory.`;
+        
+        const apiMessages = [
+            { role: "system", content: systemPrompt },
+            ...history.slice(-8).map(msg => ({
+                role: msg.role === 'user' ? 'user' : 'assistant',
+                content: msg.content
+            })),
+            { role: "user", content: userMessage }
+        ];
+        
+        console.log('[Stage2] Streaming response...');
+        
+        const fullResponse = await streamResponse(
+            apiMessages,
+            (partialText) => {
+                updateStreamingMessage(streamingElement, partialText);
+            },
+            (finalText) => {
+                finalizeStreamingMessage(streamingElement, finalText);
+            }
+        );
+        
+        return fullResponse;
+        
+    } catch (error) {
+        console.error('[Streaming] Failed, falling back:', error.message);
+        
+        if (streamingElement) {
+            streamingElement.remove();
+        }
+        
+        const response = await generateResponseWithContext(userMessage, history, contextAnalysis, targetGap);
+        appendMessage('assistant', response, true);
+        return response;
+    }
 }
 
-// ==================== LEGACY: TOOLS-BASED PROCESSING (kept as fallback) ====================
+// ==================== LEGACY: TOOLS-BASED PROCESSING ====================
 async function processMessageWithTools(userMessage) {
     const history = getChatHistory();
     const systemPrompt = buildSystemPromptLegacy();
@@ -1509,449 +1979,299 @@ async function processMessageWithTools(userMessage) {
                 const toolArgs = JSON.parse(toolCall.function.arguments || '{}');
                 
                 appendToolCall(toolName, toolArgs);
-                
-                const result = executeTool(toolName, toolArgs);
+                  const result = executeTool(toolName, toolArgs);
                 console.log(`[Tools] ${toolName} result:`, result?.substring?.(0, 100) || result);
-
+                
                 apiMessages.push({
                     role: "tool",
                     tool_call_id: toolCall.id,
                     content: result
                 });
-            }
-
-            continue;
-        }
-
-        console.log(`[Tools] Final response after ${iterations} iteration(s)`);
-        return response.content || '';
-    }
-
-    throw new Error('Tool iteration limit exceeded');
-}
-
-function buildSystemPromptLegacy() {
-    let prompt = CONFIG.baseSystemPrompt;
-    const langName = getLanguageName();
-    prompt += `\n\nIMPORTANT: Always respond in ${langName}.`;
-    
-    const style = localStorage.getItem(STORAGE_KEYS.style);
-    if (style && style.trim()) {
-        prompt += `\n\n=== COMMUNICATION STYLE ===\n${style}`;
-    }
-    
-    return prompt;
-}
-
-// ==================== API REQUESTS ====================
-function prepareRequestOptions(messages, tools = null, useAnalysisModel = false) {
-    const headers = {
-        'Content-Type': 'application/json',
-        'HTTP-Referer': window.location.href,
-        'X-Title': 'Memory Chatbot'
-    };
-    
-    if (isLocal) {
-        const apiKey = getApiKey();
-        if (!apiKey) {
-            throw new Error("API Key is missing! Enter it in the Dev Settings box.");
-        }
-        headers['Authorization'] = `Bearer ${apiKey}`;
-    }
-    
-    const model = useAnalysisModel ? CONFIG.model_analysis : CONFIG.model_chat;
-    
-    const body = { model, messages };
-    
-    if (tools && tools.length > 0) {
-        body.tools = tools;
-        body.tool_choice = "auto";
-    }
-    
-    return {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body)
-    };
-}
-async function callAPI(messages, tools = null, useAnalysisModel = false, retries = CONFIG.maxRetries) {
-    for (let attempt = 1; attempt <= retries; attempt++) {
-        try {
-            const options = prepareRequestOptions(messages, tools, useAnalysisModel);
-            
-            // Выполняем запрос
-            const response = await fetch(CONFIG.apiUrl, options);
-            
-            // 1. Сначала читаем ответ как ТЕКСТ (чтобы не упасть, если там HTML)
-            const responseText = await response.text();
-            
-            // 2. Проверяем статус HTTP
-            if (!response.ok) {
-                // Если ошибка (4xx, 5xx), выводим текст ошибки
-                if (response.status === 401 && isLocal) {
-                    throw new Error("Invalid API Key. Check Settings.");
                 }
-                console.error('[API Error Raw]:', responseText);
-                throw new Error(`HTTP ${response.status}: ${responseText.substring(0, 100)}...`);
-            }
-            
-            // 3. Пытаемся превратить текст в JSON
-            let data;
-            try {
-                data = JSON.parse(responseText);
-            } catch (e) {
-                console.error('[API Parse Error] Received non-JSON:', responseText);
-                throw new Error(`Could not parse API response. Server sent: ${responseText.substring(0, 50)}...`);
-            }
-            
-            // 4. Проверяем структуру JSON от провайдера
-            if (data.error) {
-                throw new Error(`Provider Error: ${data.error.message}`);
-            }
-            
-            if (data.choices && data.choices[0] && data.choices[0].message) {
-                return data.choices[0].message;
-            } else {
-                console.error('[API Structure Error] Data:', data);
-                throw new Error('Response JSON is missing "choices" array');
-            }
-            
-        } catch (error) {
-            console.error(`[API] Attempt ${attempt} error:`, error.message);
-            
-            if (attempt === retries) throw error;
-            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-        }
-    }
-}
-
-async function callAPIWithoutLanguage(messages, retries = CONFIG.maxRetries) {
-    return callAPI(messages, null, false, retries);
-}
-
-async function callAPIWithRetry(prompt, maxRetries = 2, useAnalysisModel = false) {
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        try {
-            const response = await callAPI([{ role: "user", content: prompt }], null, useAnalysisModel);
-            return response.content || response;
-        } catch (error) {
-            console.error(`[API Retry] Attempt ${attempt}/${maxRetries} failed:`, error.message);
-            if (attempt === maxRetries) throw error;
-            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-        }
-    }
-}
-
-function parseJSON(text) {
-    try {
-        // Пытаемся найти JSON в тексте
-        let jsonStr = text;
-        
-        // Убираем markdown code blocks если есть
-        const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-        if (codeBlockMatch) {
-            jsonStr = codeBlockMatch[1].trim();
-        } else {
-            // Ищем JSON объект
-            const jsonMatch = text.match(/\{[\s\S]*\}/);
-            if (jsonMatch) jsonStr = jsonMatch[0];
-        }
-        
-        return JSON.parse(jsonStr);
-    } catch (error) {
-        console.error('[JSON Parse] FAILED:', error.message);
-        console.error('[JSON Parse] Text was:', text.substring(0, 200));
-        return null;
-    }
-}
-
-// ==================== SEND MESSAGE ====================
-async function sendMessage(event) {
-    event.preventDefault();
-    
-    if (isProcessing) return;
-
-    const input = document.getElementById('messageInput');
-    const message = input.value.trim();
-    
-    if (!message) return;
-
-    isProcessing = true;
-    const sendBtn = document.getElementById('sendBtn');
-    if (sendBtn) sendBtn.disabled = true;
-    input.value = '';
-    input.style.height = 'auto';
-
-    appendMessage('user', message);
-
-    try {
-        // ===== TWO-STAGE PROCESSING =====
-        const response = await processMessageWithTwoStages(message);
-        
-        removeThinkingMessage();
-        appendMessage('assistant', response);
-
-        const counter = incrementMessageCounter();
-        console.log(`[Counter] Messages: ${counter}`);
-
-        // Background analysis (без await — пусть работает параллельно)
-        runBackgroundAnalysis();
-        
-        // Periodic updates
-        if (shouldUpdateGaps()) {
-            console.log('[Gaps] Updating...');
-            runGapsUpdate(); // без await
-        }
-        
-        updateAskMeModeUI();
-
-        if (shouldUpdateStyle()) {
-            console.log('[Style] Updating...');
-            runStyleUpdate(); // без await
-        }
-
-        if (shouldUpdateHypotheses()) {
-            console.log('[Hypotheses] Updating...');
-            runHypothesesUpdate(); // без await
-        }
-
-    } catch (error) {
-        removeThinkingMessage();
-        console.error('[Chat] Error:', error);
-        appendMessage('system', `Error: ${error.message}`);
-    } finally {
-        isProcessing = false;
-        if (sendBtn) sendBtn.disabled = false;
-    }
-}
-
-// ==================== HELP MODAL ====================
-function openHelpModal() {
-    const modal = document.getElementById('helpModal');
-    if (modal) modal.classList.add('active');
-    document.body.style.overflow = 'hidden';
-}
-
-function closeHelpModal() {
-    const modal = document.getElementById('helpModal');
-    if (modal) modal.classList.remove('active');
-    document.body.style.overflow = '';
-}
-
-document.addEventListener('click', (e) => {
-    if (e.target.id === 'helpModal') closeHelpModal();
-});
-
-document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeHelpModal();
-});
-
-// ==================== LOCAL DEV SETTINGS ====================
-function initLocalDevSettings() {
-    const devBox = document.getElementById('dev-settings');
-    if (devBox) {
-        devBox.style.display = 'block';
-        
-        const savedKey = localStorage.getItem('my_openrouter_key');
-        const statusSpan = document.getElementById('key-status');
-        const input = document.getElementById('local-api-key');
-        
-        if (savedKey && input) {
-            input.value = savedKey;
-            if (statusSpan) statusSpan.innerText = "✅ Loaded";
-        }
-    }
-}
-
-window.saveLocalKey = function() {
-    const input = document.getElementById('local-api-key');
-    if (input) {
-        const key = input.value.trim();
-        if (key.startsWith('sk-or-')) {
-            localStorage.setItem('my_openrouter_key', key);
-            const status = document.getElementById('key-status');
-            if (status) status.innerText = "💾 Saved!";
-            alert("API Key saved locally!");
-        } else {
-            alert("Key typically starts with 'sk-or-'. Please check.");
-        }
-    }
-}
-
-// ==================== MARKDOWN FORMATTING ====================
-// ==================== FULL MARKDOWN FORMATTING ====================
-function formatMessageMarkdown(text) {
-    if (!text) return '';
-    
-    let html = text;
-    
-    // Экранируем HTML
-    html = html.replace(/&/g, '&amp;')
-               .replace(/</g, '&lt;')
-               .replace(/>/g, '&gt;');
-    
-    // Блоки кода ```language\ncode\n```
-    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (match, lang, code) => {
-        const langLabel = lang ? `<span class="msg-code-lang">${lang}</span>` : '';
-        return `<div class="msg-code-block">${langLabel}<pre><code>${code.trim()}</code></pre></div>`;
-    });
-    
-    // Блоки кода без языка ```code```
-    html = html.replace(/```([\s\S]*?)```/g, '<div class="msg-code-block"><pre><code>$1</code></pre></div>');
-    
-    // Таблицы (простые)
-    html = html.replace(/^\|(.+)\|$/gm, (match, content) => {
-        const cells = content.split('|').map(cell => cell.trim());
-        const isHeader = cells.every(cell => /^[-:]+$/.test(cell));
-        if (isHeader) return ''; // Пропускаем разделитель
-        const cellsHtml = cells.map(cell => `<td>${cell}</td>`).join('');
-        return `<tr>${cellsHtml}</tr>`;
-    });
-    html = html.replace(/(<tr>[\s\S]*?<\/tr>)+/g, '<table class="msg-table">$&</table>');
-    
-    // Заголовки
-    html = html.replace(/^#### (.+)$/gm, '<h4 class="msg-h4">$1</h4>');
-    html = html.replace(/^### (.+)$/gm, '<h3 class="msg-h3">$1</h3>');
-    html = html.replace(/^## (.+)$/gm, '<h2 class="msg-h2">$1</h2>');
-    html = html.replace(/^# (.+)$/gm, '<h1 class="msg-h1">$1</h1>');
-    
-    // Чекбоксы
-    html = html.replace(/^\s*\[x\]\s+(.+)$/gim, '<div class="msg-checkbox checked">☑ $1</div>');
-    html = html.replace(/^\s*\[\s?\]\s+(.+)$/gim, '<div class="msg-checkbox">☐ $1</div>');
-    
-    // Жирный + курсив ***text*** или ___text___
-    html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
-    html = html.replace(/___(.+?)___/g, '<strong><em>$1</em></strong>');
-    
-    // Жирный **text** или __text__
-    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    html = html.replace(/__(.+?)__/g, '<strong>$1</strong>');
-    
-    // Курсив *text* или _text_
-    html = html.replace(/(?<![a-zA-Zа-яА-ЯёЁ0-9*_])\*([^*\n]+?)\*(?![a-zA-Zа-яА-ЯёЁ0-9*_])/g, '<em>$1</em>');
-    html = html.replace(/(?<![a-zA-Zа-яА-ЯёЁ0-9*_])_([^_\n]+?)_(?![a-zA-Zа-яА-ЯёЁ0-9*_])/g, '<em>$1</em>');
-    
-    // Зачёркнутый ~~text~~
-    html = html.replace(/~~(.+?)~~/g, '<del>$1</del>');
-    
-    // Подчёркнутый ++text++ (нестандартный, но полезный)
-    html = html.replace(/\+\+(.+?)\+\+/g, '<u>$1</u>');
-    
-    // Маркер/хайлайт ==text==
-    html = html.replace(/==(.+?)==/g, '<mark class="msg-highlight">$1</mark>');
-    
-    // Подстрочный ~text~
-    html = html.replace(/(?<![~])~([^~\n]+?)~(?![~])/g, '<sub>$1</sub>');
-    
-    // Надстрочный ^text^
-    html = html.replace(/\^([^\^\n]+?)\^/g, '<sup>$1</sup>');
-    
-    // Инлайн код `code`
-    html = html.replace(/`([^`]+)`/g, '<code class="msg-code">$1</code>');
-    
-    // Ссылки [text](url)
-    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener" class="msg-link">$1</a>');
-    
-    // Автоссылки на URL
-    html = html.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener" class="msg-link">$1</a>');
-    
-    // Эмодзи-шорткоды (основные)
-    const emojiMap = {
-        ':)': '😊', ':-)': '😊', ':D': '😃', ':-D': '😃',
-        ':(': '😞', ':-(': '😞', ';)': '😉', ';-)': '😉',
-        ':P': '😛', ':-P': '😛', ':O': '😮', ':-O': '😮',
-        '<3': '❤️', ':heart:': '❤️', ':star:': '⭐',
-        ':fire:': '🔥', ':thumbsup:': '👍', ':thumbsdown:': '👎',
-        ':check:': '✅', ':x:': '❌', ':warning:': '⚠️',
-        ':info:': 'ℹ️', ':question:': '❓', ':bulb:': '💡',
-        ':rocket:': '🚀', ':sparkles:': '✨', ':zap:': '⚡'
-    };
-    for (const [code, emoji] of Object.entries(emojiMap)) {
-        html = html.split(code).join(emoji);
-    }
-    
-    // Цитаты (многострочные) > text
-    html = html.replace(/^&gt; (.+)$/gm, '<div class="msg-quote">$1</div>');
-    
-    // Горизонтальная линия --- или *** или ___
-    html = html.replace(/^(---|\*\*\*|___)$/gm, '<hr class="msg-hr">');
-    
-    // Нумерованные списки (с вложенностью)
-    html = html.replace(/^(\s*)(\d+)\. (.+)$/gm, (match, indent, num, text) => {
-        const level = Math.floor(indent.length / 2);
-        return `<div class="msg-list-item msg-list-level-${level}"><span class="msg-list-num">${num}.</span> ${text}</div>`;
-    });
-    
-    // Маркированные списки (с вложенностью)
-    html = html.replace(/^(\s*)[\-\*•] (.+)$/gm, (match, indent, text) => {
-        const level = Math.floor(indent.length / 2);
-        return `<div class="msg-list-item msg-list-level-${level}"><span class="msg-bullet">•</span> ${text}</div>`;
-    });
-    
-    // Сноски [^1]
-    html = html.replace(/\[\^(\d+)\]/g, '<sup class="msg-footnote">[$1]</sup>');
-    
-    // Аббревиатуры (показываем как есть с подсказкой)
-    html = html.replace(/\*\[([^\]]+)\]:\s*(.+)$/gm, ''); // Убираем определения
-    
-    // Клавиши [[Ctrl]] или <kbd>
-    html = html.replace(/\[\[([^\]]+)\]\]/g, '<kbd class="msg-kbd">$1</kbd>');
-    
-    // Спойлер/скрытый текст ||text||
-    html = html.replace(/\|\|(.+?)\|\|/g, '<span class="msg-spoiler" onclick="this.classList.toggle(\'revealed\')">$1</span>');
-    
-    // Математика $formula$ (просто стилизуем)
-    html = html.replace(/\$([^$]+)\$/g, '<span class="msg-math">$1</span>');
-    
-    // Прогресс-бар [====    ] 40%
-    html = html.replace(/\[(=+)(\s*)\]\s*(\d+)%/g, (match, filled, empty, percent) => {
-        return `<div class="msg-progress"><div class="msg-progress-bar" style="width: ${percent}%"></div><span>${percent}%</span></div>`;
-    });
-    
-    // Цветной текст {red}text{/red} или {#ff0000}text{/}
-    html = html.replace(/\{(#[0-9a-fA-F]{3,6}|[a-z]+)\}(.+?)\{\/\1?\}/g, '<span style="color: $1">$2</span>');
-    
-    // Алерт-боксы (кастомные)
-    html = html.replace(/^:::(\w+)\s*\n([\s\S]*?)^:::/gm, (match, type, content) => {
-        return `<div class="msg-alert msg-alert-${type}">${content.trim()}</div>`;
-    });
-    
-    // Переносы строк (в конце, чтобы не сломать блоки)
-    html = html.replace(/\n/g, '<br>');
-    
-    // Убираем лишние <br> после блочных элементов
-    html = html.replace(/(<\/div>)<br>/g, '$1');
-    html = html.replace(/(<\/h[1-4]>)<br>/g, '$1');
-    html = html.replace(/(<\/pre>)<br>/g, '$1');
-    html = html.replace(/(<\/table>)<br>/g, '$1');
-    html = html.replace(/(<hr[^>]*>)<br>/g, '$1');
-    
-    return html;
-}
-// ==================== DEBUG UTILITIES ====================
-window.debugTwoStage = async function(message) {
-    console.log('=== TWO-STAGE DEBUG ===');
-    const history = getChatHistory();
-    
-    console.log('[Debug] Stage 1: Analyzing context...');
-    const context = await findRelevantContext(message, history);
-    console.log('[Debug] Context analysis result:', JSON.stringify(context, null, 2));
-    
-    console.log('[Debug] Stage 2: Would generate response with this context');
-    return context;
-};
-
-window.debugMemory = function() {
-    console.log('=== MEMORY DEBUG ===');
-    console.log('Facts:', getFactsForPrompt());
-    console.log('Traits:', getTraitsForPrompt());
-    console.log('Timeline:', getTimelineForPrompt());
-    console.log('Social:', getSocialForPrompt());
-    console.log('Hypotheses:', getHypothesesForPrompt());
-    console.log('Gaps:', getGapsForPrompt());
-    console.log('Style:', localStorage.getItem(STORAGE_KEYS.style));
-};
-
-// ==================== INITIALIZATION COMPLETE ====================
-console.log('[ui.js] Loaded. Two-Stage Response Architecture active.');
-console.log('[ui.js] Debug commands: debugTwoStage("message"), debugMemory()');
+                
+                continue;
+                }
+                
+                console.log(`[Tools] Final response after ${iterations} iteration(s)`);
+                return response.content || '';
+                }
+                
+                throw new Error('Tool iteration limit exceeded');
+                }
+                
+                function buildSystemPromptLegacy() {
+                    let prompt = CONFIG.baseSystemPrompt;
+                    const langName = getLanguageName();
+                    prompt += `\n\nIMPORTANT: Always respond in ${langName}.`;
+                    
+                    const style = localStorage.getItem(STORAGE_KEYS.style);
+                    if (style && style.trim()) {
+                        prompt += `\n\n=== COMMUNICATION STYLE ===\n${style}`;
+                    }
+                    
+                    return prompt;
+                }
+                
+                // ==================== API REQUESTS ====================
+                function prepareRequestOptions(messages, tools = null, useAnalysisModel = false) {
+                    const headers = {
+                        'Content-Type': 'application/json',
+                        'HTTP-Referer': window.location.href,
+                        'X-Title': 'Memory Chatbot'
+                    };
+                    
+                    if (isLocal) {
+                        const apiKey = getApiKey();
+                        if (!apiKey) {
+                            throw new Error("API Key is missing! Enter it in the Dev Settings box.");
+                        }
+                        headers['Authorization'] = `Bearer ${apiKey}`;
+                    }
+                    
+                    const model = useAnalysisModel ? CONFIG.model_analysis : CONFIG.model_chat;
+                    
+                    const body = { model, messages };
+                    
+                    if (tools && tools.length > 0) {
+                        body.tools = tools;
+                        body.tool_choice = "auto";
+                    }
+                    
+                    return {
+                        method: 'POST',
+                        headers,
+                        body: JSON.stringify(body)
+                    };
+                }
+                
+                async function callAPI(messages, tools = null, useAnalysisModel = false, retries = CONFIG.maxRetries) {
+                    for (let attempt = 1; attempt <= retries; attempt++) {
+                        try {
+                            const modelType = useAnalysisModel ? 'analysis' : 'chat';
+                            console.log(`[API] Attempt ${attempt}/${retries} (Model: ${modelType})`);
+                            
+                            const options = prepareRequestOptions(messages, tools, useAnalysisModel);
+                            const response = await fetch(CONFIG.apiUrl, options);
+                            
+                            if (!response.ok) {
+                                const errorText = await response.text();
+                                if (response.status === 401 && isLocal) {
+                                    throw new Error("Invalid API Key. Check your key.");
+                                }
+                                throw new Error(`HTTP ${response.status}: ${errorText}`);
+                            }
+                            
+                            const data = await response.json();
+                            
+                            // Основной формат OpenRouter
+                            if (data.choices && data.choices.length > 0 && data.choices[0].message) {
+                                return data.choices[0].message;
+                            }
+                            
+                            // Альтернативный формат
+                            if (data.choices && data.choices.length > 0 && data.choices[0].text) {
+                                return { content: data.choices[0].text, role: 'assistant' };
+                            }
+                            
+                            // Прямой content
+                            if (data.content) {
+                                return { content: data.content, role: 'assistant' };
+                            }
+                            
+                            // Если data.message существует
+                            if (data.message && typeof data.message === 'string') {
+                                return { content: data.message, role: 'assistant' };
+                            }
+                            
+                            // Ошибка от API
+                            if (data.error) {
+                                throw new Error(data.error.message || JSON.stringify(data.error));
+                            }
+                            
+                            console.error('[API] Cannot parse response structure:', Object.keys(data));
+                            throw new Error('Could not parse API response');
+                            
+                        } catch (error) {
+                            console.error(`[API] Attempt ${attempt} error:`, error.message);
+                            if (attempt === retries) throw error;
+                            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+                        }
+                    }
+                }
+                
+                async function callAPIWithoutLanguage(messages, retries = CONFIG.maxRetries) {
+                    return callAPI(messages, null, false, retries);
+                }
+                
+                async function callAPIWithRetry(prompt, maxRetries = 2, useAnalysisModel = false) {
+                    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                        try {
+                            const response = await callAPI([{ role: "user", content: prompt }], null, useAnalysisModel);
+                            return response.content || response;
+                        } catch (error) {
+                            console.error(`[API Retry] Attempt ${attempt}/${maxRetries} failed:`, error.message);
+                            if (attempt === maxRetries) throw error;
+                            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+                        }
+                    }
+                }
+                
+                function parseJSON(text) {
+                    try {
+                        let jsonStr = text;
+                        
+                        const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+                        if (codeBlockMatch) {
+                            jsonStr = codeBlockMatch[1].trim();
+                        } else {
+                            const jsonMatch = text.match(/\{[\s\S]*\}/);
+                            if (jsonMatch) jsonStr = jsonMatch[0];
+                        }
+                        
+                        return JSON.parse(jsonStr);
+                    } catch (error) {
+                        console.error('[JSON Parse] FAILED:', error.message);
+                        console.error('[JSON Parse] Text was:', text.substring(0, 200));
+                        return null;
+                    }
+                }
+                
+                // ==================== SEND MESSAGE ====================
+                async function sendMessage(event) {
+                    event.preventDefault();
+                    
+                    if (isProcessing) return;
+                    
+                    const input = document.getElementById('messageInput');
+                    const message = input.value.trim();
+                    
+                    if (!message) return;
+                    
+                    isProcessing = true;
+                    const sendBtn = document.getElementById('sendBtn');
+                    if (sendBtn) sendBtn.disabled = true;
+                    input.value = '';
+                    input.style.height = 'auto';
+                    
+                    appendMessage('user', message);
+                    
+                    try {
+                        // ===== TWO-STAGE PROCESSING WITH STREAMING =====
+                        await processMessageWithTwoStages(message);
+                        
+                        const counter = incrementMessageCounter();
+                        console.log(`[Counter] Messages: ${counter}`);
+                        
+                        // Background analysis
+                        runBackgroundAnalysis();
+                        
+                        if (shouldUpdateGaps()) {
+                            console.log('[Gaps] Updating...');
+                            runGapsUpdate();
+                        }
+                        
+                        updateAskMeModeUI();
+                        
+                        if (shouldUpdateStyle()) {
+                            console.log('[Style] Updating...');
+                            runStyleUpdate();
+                        }
+                        
+                        if (shouldUpdateHypotheses()) {
+                            console.log('[Hypotheses] Updating...');
+                            runHypothesesUpdate();
+                        }
+                        
+                    } catch (error) {
+                        removeThinkingMessage();
+                        const streamingMsg = document.getElementById('streamingMessage');
+                        if (streamingMsg) streamingMsg.remove();
+                        
+                        console.error('[Chat] Error:', error);
+                        appendMessage('system', `Error: ${error.message}`);
+                    } finally {
+                        isProcessing = false;
+                        if (sendBtn) sendBtn.disabled = false;
+                    }
+                }
+                
+                // ==================== HELP MODAL ====================
+                function openHelpModal() {
+                    const modal = document.getElementById('helpModal');
+                    if (modal) modal.classList.add('active');
+                    document.body.style.overflow = 'hidden';
+                }
+                
+                function closeHelpModal() {
+                    const modal = document.getElementById('helpModal');
+                    if (modal) modal.classList.remove('active');
+                    document.body.style.overflow = '';
+                }
+                
+                document.addEventListener('click', (e) => {
+                    if (e.target.id === 'helpModal') closeHelpModal();
+                });
+                
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape') closeHelpModal();
+                });
+                
+                // ==================== LOCAL DEV SETTINGS ====================
+                function initLocalDevSettings() {
+                    const devBox = document.getElementById('dev-settings');
+                    if (devBox) {
+                        devBox.style.display = 'block';
+                        
+                        const savedKey = localStorage.getItem('my_openrouter_key');
+                        const statusSpan = document.getElementById('key-status');
+                        const input = document.getElementById('local-api-key');
+                        
+                        if (savedKey && input) {
+                            input.value = savedKey;
+                            if (statusSpan) statusSpan.innerText = "✅ Loaded";
+                        }
+                    }
+                }
+                
+                window.saveLocalKey = function() {
+                    const input = document.getElementById('local-api-key');
+                    if (input) {
+                        const key = input.value.trim();
+                        if (key.startsWith('sk-or-')) {
+                            localStorage.setItem('my_openrouter_key', key);
+                            const status = document.getElementById('key-status');
+                            if (status) status.innerText = "💾 Saved!";
+                            alert("API Key saved locally!");
+                        } else {
+                            alert("Key typically starts with 'sk-or-'. Please check.");
+                        }
+                    }
+                }
+                
+                // ==================== DEBUG UTILITIES ====================
+                window.debugTwoStage = async function(message) {
+                    console.log('=== TWO-STAGE DEBUG ===');
+                    const history = getChatHistory();
+                    
+                    console.log('[Debug] Stage 1: Analyzing context...');
+                    const context = await findRelevantContext(message, history);
+                    console.log('[Debug] Context analysis result:', JSON.stringify(context, null, 2));
+                    
+                    console.log('[Debug] Stage 2: Would generate response with this context');
+                    return context;
+                };
+                
+                window.debugMemory = function() {
+                    console.log('=== MEMORY DEBUG ===');
+                    console.log('Facts:', getFactsForPrompt());
+                    console.log('Traits:', getTraitsForPrompt());
+                    console.log('Timeline:', getTimelineForPrompt());
+                    console.log('Social:', getSocialForPrompt());
+                    console.log('Hypotheses:', getHypothesesForPrompt());
+                    console.log('Gaps:', getGapsForPrompt());
+                    console.log('Style:', localStorage.getItem(STORAGE_KEYS.style));
+                };
+                
+                // ==================== INITIALIZATION COMPLETE ====================
+                console.log('[ui.js] Loaded. Two-Stage Response Architecture with Streaming active.');
+                console.log('[ui.js] Debug commands: debugTwoStage("message"), debugMemory()');              
