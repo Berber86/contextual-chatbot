@@ -6,7 +6,8 @@
 // ============================================
 
 const YOU_CONFIG = {
-    model: 'mistralai/devstral-2512:free',
+   // model: 'mistralai/devstral-2512:free',
+  model: 'nex-agi/deepseek-v3.1-nex-n1:free',
     timeout: 60000,
     zoneLimits: {
         yes: 2,
@@ -1037,6 +1038,42 @@ function youParseQualities(text) {
     
     return qualities.slice(0, 5);
 }
+
+// ============================================
+// YOU Help Modal
+// ============================================
+
+function openYouHelpModal() {
+    const modal = document.getElementById('youHelpModal');
+    if (modal) {
+        modal.classList.add('active');
+    }
+}
+
+function closeYouHelpModal() {
+    const modal = document.getElementById('youHelpModal');
+    if (modal) {
+        modal.classList.remove('active');
+    }
+}
+
+// Закрытие по клику на оверлей
+document.addEventListener('click', (e) => {
+    if (e.target.id === 'youHelpModal') {
+        closeYouHelpModal();
+    }
+});
+
+// Закрытие по Escape
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        closeYouHelpModal();
+    }
+});
+
+// Добавь в экспорт
+window.openYouHelpModal = openYouHelpModal;
+window.closeYouHelpModal = closeYouHelpModal;
 
 function youEscapeHtml(text) {
     const div = document.createElement('div');

@@ -6,8 +6,9 @@ const isLocal = window.location.hostname.includes('localhost') ||
     window.location.hostname.includes('127.0.0.1');
 
 const CONFIG = {
-    // model_chat: "xiaomi/mimo-v2-flash:free",
-    model_chat: "mistralai/devstral-2512:free",
+     //model_chat: "xiaomi/mimo-v2-flash:free",
+     model_chat: "nex-agi/deepseek-v3.1-nex-n1:free",
+    //model_chat: "mistralai/devstral-2512:free",
     model_analysis: "xiaomi/mimo-v2-flash:free",
     
     apiUrl: isLocal ?
@@ -1047,10 +1048,17 @@ function appendMessage(role, content, save = true) {
     
     const msgDiv = document.createElement('div');
     msgDiv.className = `message ${role}`;
-    msgDiv.textContent = content;
+    
+    // Форматируем markdown только для assistant
+    if (role === 'assistant') {
+        msgDiv.innerHTML = formatMessageMarkdown(content);
+    } else {
+        msgDiv.textContent = content;
+    }
+    
     chatArea.appendChild(msgDiv);
     chatArea.scrollTop = chatArea.scrollHeight;
-
+    
     if (save) {
         addToHistory(role, content);
     }
@@ -1566,33 +1574,51 @@ function prepareRequestOptions(messages, tools = null, useAnalysisModel = false)
         body: JSON.stringify(body)
     };
 }
-
 async function callAPI(messages, tools = null, useAnalysisModel = false, retries = CONFIG.maxRetries) {
     for (let attempt = 1; attempt <= retries; attempt++) {
         try {
-            const modelType = useAnalysisModel ? 'analysis' : 'chat';
-            console.log(`[API] Attempt ${attempt}/${retries} (Model: ${modelType})`);
-            
             const options = prepareRequestOptions(messages, tools, useAnalysisModel);
+            
+            // Выполняем запрос
             const response = await fetch(CONFIG.apiUrl, options);
             
+            // 1. Сначала читаем ответ как ТЕКСТ (чтобы не упасть, если там HTML)
+            const responseText = await response.text();
+            
+            // 2. Проверяем статус HTTP
             if (!response.ok) {
-                const errorText = await response.text();
+                // Если ошибка (4xx, 5xx), выводим текст ошибки
                 if (response.status === 401 && isLocal) {
-                    throw new Error("Invalid API Key. Check your key.");
+                    throw new Error("Invalid API Key. Check Settings.");
                 }
-                throw new Error(`HTTP ${response.status}: ${errorText}`);
+                console.error('[API Error Raw]:', responseText);
+                throw new Error(`HTTP ${response.status}: ${responseText.substring(0, 100)}...`);
             }
             
-            const data = await response.json();
+            // 3. Пытаемся превратить текст в JSON
+            let data;
+            try {
+                data = JSON.parse(responseText);
+            } catch (e) {
+                console.error('[API Parse Error] Received non-JSON:', responseText);
+                throw new Error(`Could not parse API response. Server sent: ${responseText.substring(0, 50)}...`);
+            }
             
-            if (data.choices?.[0]?.message) {
+            // 4. Проверяем структуру JSON от провайдера
+            if (data.error) {
+                throw new Error(`Provider Error: ${data.error.message}`);
+            }
+            
+            if (data.choices && data.choices[0] && data.choices[0].message) {
                 return data.choices[0].message;
             } else {
-                throw new Error('Unexpected response format');
+                console.error('[API Structure Error] Data:', data);
+                throw new Error('Response JSON is missing "choices" array');
             }
+            
         } catch (error) {
             console.error(`[API] Attempt ${attempt} error:`, error.message);
+            
             if (attempt === retries) throw error;
             await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
         }
@@ -1752,6 +1778,156 @@ window.saveLocalKey = function() {
     }
 }
 
+// ==================== MARKDOWN FORMATTING ====================
+// ==================== FULL MARKDOWN FORMATTING ====================
+function formatMessageMarkdown(text) {
+    if (!text) return '';
+    
+    let html = text;
+    
+    // Экранируем HTML
+    html = html.replace(/&/g, '&amp;')
+               .replace(/</g, '&lt;')
+               .replace(/>/g, '&gt;');
+    
+    // Блоки кода ```language\ncode\n```
+    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (match, lang, code) => {
+        const langLabel = lang ? `<span class="msg-code-lang">${lang}</span>` : '';
+        return `<div class="msg-code-block">${langLabel}<pre><code>${code.trim()}</code></pre></div>`;
+    });
+    
+    // Блоки кода без языка ```code```
+    html = html.replace(/```([\s\S]*?)```/g, '<div class="msg-code-block"><pre><code>$1</code></pre></div>');
+    
+    // Таблицы (простые)
+    html = html.replace(/^\|(.+)\|$/gm, (match, content) => {
+        const cells = content.split('|').map(cell => cell.trim());
+        const isHeader = cells.every(cell => /^[-:]+$/.test(cell));
+        if (isHeader) return ''; // Пропускаем разделитель
+        const cellsHtml = cells.map(cell => `<td>${cell}</td>`).join('');
+        return `<tr>${cellsHtml}</tr>`;
+    });
+    html = html.replace(/(<tr>[\s\S]*?<\/tr>)+/g, '<table class="msg-table">$&</table>');
+    
+    // Заголовки
+    html = html.replace(/^#### (.+)$/gm, '<h4 class="msg-h4">$1</h4>');
+    html = html.replace(/^### (.+)$/gm, '<h3 class="msg-h3">$1</h3>');
+    html = html.replace(/^## (.+)$/gm, '<h2 class="msg-h2">$1</h2>');
+    html = html.replace(/^# (.+)$/gm, '<h1 class="msg-h1">$1</h1>');
+    
+    // Чекбоксы
+    html = html.replace(/^\s*\[x\]\s+(.+)$/gim, '<div class="msg-checkbox checked">☑ $1</div>');
+    html = html.replace(/^\s*\[\s?\]\s+(.+)$/gim, '<div class="msg-checkbox">☐ $1</div>');
+    
+    // Жирный + курсив ***text*** или ___text___
+    html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+    html = html.replace(/___(.+?)___/g, '<strong><em>$1</em></strong>');
+    
+    // Жирный **text** или __text__
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/__(.+?)__/g, '<strong>$1</strong>');
+    
+    // Курсив *text* или _text_
+    html = html.replace(/(?<![a-zA-Zа-яА-ЯёЁ0-9*_])\*([^*\n]+?)\*(?![a-zA-Zа-яА-ЯёЁ0-9*_])/g, '<em>$1</em>');
+    html = html.replace(/(?<![a-zA-Zа-яА-ЯёЁ0-9*_])_([^_\n]+?)_(?![a-zA-Zа-яА-ЯёЁ0-9*_])/g, '<em>$1</em>');
+    
+    // Зачёркнутый ~~text~~
+    html = html.replace(/~~(.+?)~~/g, '<del>$1</del>');
+    
+    // Подчёркнутый ++text++ (нестандартный, но полезный)
+    html = html.replace(/\+\+(.+?)\+\+/g, '<u>$1</u>');
+    
+    // Маркер/хайлайт ==text==
+    html = html.replace(/==(.+?)==/g, '<mark class="msg-highlight">$1</mark>');
+    
+    // Подстрочный ~text~
+    html = html.replace(/(?<![~])~([^~\n]+?)~(?![~])/g, '<sub>$1</sub>');
+    
+    // Надстрочный ^text^
+    html = html.replace(/\^([^\^\n]+?)\^/g, '<sup>$1</sup>');
+    
+    // Инлайн код `code`
+    html = html.replace(/`([^`]+)`/g, '<code class="msg-code">$1</code>');
+    
+    // Ссылки [text](url)
+    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener" class="msg-link">$1</a>');
+    
+    // Автоссылки на URL
+    html = html.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener" class="msg-link">$1</a>');
+    
+    // Эмодзи-шорткоды (основные)
+    const emojiMap = {
+        ':)': '😊', ':-)': '😊', ':D': '😃', ':-D': '😃',
+        ':(': '😞', ':-(': '😞', ';)': '😉', ';-)': '😉',
+        ':P': '😛', ':-P': '😛', ':O': '😮', ':-O': '😮',
+        '<3': '❤️', ':heart:': '❤️', ':star:': '⭐',
+        ':fire:': '🔥', ':thumbsup:': '👍', ':thumbsdown:': '👎',
+        ':check:': '✅', ':x:': '❌', ':warning:': '⚠️',
+        ':info:': 'ℹ️', ':question:': '❓', ':bulb:': '💡',
+        ':rocket:': '🚀', ':sparkles:': '✨', ':zap:': '⚡'
+    };
+    for (const [code, emoji] of Object.entries(emojiMap)) {
+        html = html.split(code).join(emoji);
+    }
+    
+    // Цитаты (многострочные) > text
+    html = html.replace(/^&gt; (.+)$/gm, '<div class="msg-quote">$1</div>');
+    
+    // Горизонтальная линия --- или *** или ___
+    html = html.replace(/^(---|\*\*\*|___)$/gm, '<hr class="msg-hr">');
+    
+    // Нумерованные списки (с вложенностью)
+    html = html.replace(/^(\s*)(\d+)\. (.+)$/gm, (match, indent, num, text) => {
+        const level = Math.floor(indent.length / 2);
+        return `<div class="msg-list-item msg-list-level-${level}"><span class="msg-list-num">${num}.</span> ${text}</div>`;
+    });
+    
+    // Маркированные списки (с вложенностью)
+    html = html.replace(/^(\s*)[\-\*•] (.+)$/gm, (match, indent, text) => {
+        const level = Math.floor(indent.length / 2);
+        return `<div class="msg-list-item msg-list-level-${level}"><span class="msg-bullet">•</span> ${text}</div>`;
+    });
+    
+    // Сноски [^1]
+    html = html.replace(/\[\^(\d+)\]/g, '<sup class="msg-footnote">[$1]</sup>');
+    
+    // Аббревиатуры (показываем как есть с подсказкой)
+    html = html.replace(/\*\[([^\]]+)\]:\s*(.+)$/gm, ''); // Убираем определения
+    
+    // Клавиши [[Ctrl]] или <kbd>
+    html = html.replace(/\[\[([^\]]+)\]\]/g, '<kbd class="msg-kbd">$1</kbd>');
+    
+    // Спойлер/скрытый текст ||text||
+    html = html.replace(/\|\|(.+?)\|\|/g, '<span class="msg-spoiler" onclick="this.classList.toggle(\'revealed\')">$1</span>');
+    
+    // Математика $formula$ (просто стилизуем)
+    html = html.replace(/\$([^$]+)\$/g, '<span class="msg-math">$1</span>');
+    
+    // Прогресс-бар [====    ] 40%
+    html = html.replace(/\[(=+)(\s*)\]\s*(\d+)%/g, (match, filled, empty, percent) => {
+        return `<div class="msg-progress"><div class="msg-progress-bar" style="width: ${percent}%"></div><span>${percent}%</span></div>`;
+    });
+    
+    // Цветной текст {red}text{/red} или {#ff0000}text{/}
+    html = html.replace(/\{(#[0-9a-fA-F]{3,6}|[a-z]+)\}(.+?)\{\/\1?\}/g, '<span style="color: $1">$2</span>');
+    
+    // Алерт-боксы (кастомные)
+    html = html.replace(/^:::(\w+)\s*\n([\s\S]*?)^:::/gm, (match, type, content) => {
+        return `<div class="msg-alert msg-alert-${type}">${content.trim()}</div>`;
+    });
+    
+    // Переносы строк (в конце, чтобы не сломать блоки)
+    html = html.replace(/\n/g, '<br>');
+    
+    // Убираем лишние <br> после блочных элементов
+    html = html.replace(/(<\/div>)<br>/g, '$1');
+    html = html.replace(/(<\/h[1-4]>)<br>/g, '$1');
+    html = html.replace(/(<\/pre>)<br>/g, '$1');
+    html = html.replace(/(<\/table>)<br>/g, '$1');
+    html = html.replace(/(<hr[^>]*>)<br>/g, '$1');
+    
+    return html;
+}
 // ==================== DEBUG UTILITIES ====================
 window.debugTwoStage = async function(message) {
     console.log('=== TWO-STAGE DEBUG ===');
