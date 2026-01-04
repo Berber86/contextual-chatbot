@@ -12,17 +12,29 @@ export default async function handler(req, res) {
         return res.status(405).json({ error: 'Method not allowed' });
     }
     
-    const { messages, tools, model, stream } = req.body;
+    // 1. ИЗВЛЕКАЕМ НОВЫЕ ПАРАМЕТРЫ (temperature, seed)
+    const { messages, tools, model, stream, temperature, seed } = req.body;
     
     try {
         let selectedModel = model || 'mistralai/devstral-2512:free';
         
-        console.log(`[Server] Using model: ${selectedModel}, tools: ${tools?.length || 0}, stream: ${!!stream}`);
+        console.log(`[Server] Model: ${selectedModel}, Temp: ${temperature}, Seed: ${seed}, Stream: ${!!stream}`);
         
+        // 2. ФОРМИРУЕМ ТЕЛО ЗАПРОСА
         const requestBody = {
             model: selectedModel,
             messages: messages
         };
+        
+        // Добавляем temperature, если она есть
+        if (typeof temperature !== 'undefined') {
+            requestBody.temperature = temperature;
+        }
+        
+        // Добавляем seed, если он есть
+        if (typeof seed !== 'undefined') {
+            requestBody.seed = seed;
+        }
         
         if (tools && tools.length > 0) {
             requestBody.tools = tools;
