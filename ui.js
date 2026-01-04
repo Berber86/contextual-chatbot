@@ -30,7 +30,7 @@ const CONFIG = {
 let greetingShown = false;
 
 // Cooldown для приветствий
-const GREETING_COOLDOWN_MS = 1 * 60 * 60 * 1000; // 4 часа
+const GREETING_COOLDOWN_MS = 1 * 60 * 60 * 1; // 4 часа
 const GREETING_TIMESTAMP_KEY = 'chatbot_last_greeting';
 const GREETING_HISTORY_KEY = 'chatbot_greeting_history';
 const MAX_GREETING_HISTORY = 5;
@@ -180,7 +180,7 @@ async function showProactiveGreeting() {
                 finalizeStreamingMessage(streamingElement, finalText);
             },
             // Передаем настройки температуры и сида
-            { temperature: 0.90, seed: randomSeed }
+            { temperature: 0.85, seed: randomSeed }
         );
         
         // Сохраняем приветствие в историю для будущего разнообразия
@@ -400,14 +400,14 @@ ${timeContextText}
 ${previousGreetingsBlock}
 ${gapsBlock}
 
-be natural. Be warm. Be FRESH. будь действительно оригинальным и не тривиальным. Show you KNOW them from a NEW angle.
+be natural. Be warm. Be FRESH. будь немного оригинальным и не слишком тривиальным. Show you KNOW them from a NEW angle.
 
 
 === YOUR TASK ===
 Create a greeting that:
 1. **Is FRESH** — different from your previous greetings
 2. **Shows you KNOW them** — but pick a DIFFERENT aspect than before
-3. **Is time-aware** — consider the current moment. но делай это оригинально и обязательно свяжи с другими аспектами знания о юзере.
+3. **Is time-aware** — consider the current moment. но делай это оригинально обыграй время дня, сезон, назови и контекстно обыграй праздники рядом с этой датой и подай все это адаптированном под стиль общения с юзером тексте.
 4. **Optionally explores a gap** — if it fits naturally
 
 === VARIETY STRATEGIES ===
