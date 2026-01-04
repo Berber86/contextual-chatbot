@@ -6,7 +6,8 @@ const isLocal = window.location.hostname.includes('localhost') ||
     window.location.hostname.includes('127.0.0.1');
 
 const CONFIG = {
-    model_chat: "mistralai/devstral-2512:free",
+  //  model_chat: "mistralai/devstral-2512:free",
+    model_chat: "xiaomi/mimo-v2-flash:free",
     model_analysis: "xiaomi/mimo-v2-flash:free",
     
     apiUrl: isLocal ?
@@ -14,7 +15,7 @@ const CONFIG = {
         "/api/chat",
     
     maxRetries: 3,
-    baseSystemPrompt: "You are a friendly assistant. Be an attentive and caring conversationalist.",
+    baseSystemPrompt: "You are a ai assistant. Be an attentive and caring conversationalist.",
     styleUpdateInterval: 10,
     hypothesesUpdateInterval: 16,
     gapsUpdateInterval: 6,
@@ -29,7 +30,7 @@ const CONFIG = {
 let greetingShown = false;
 
 // Cooldown для приветствий
-const GREETING_COOLDOWN_MS = 1 * 60 * 60 * 1; // 4 часа
+const GREETING_COOLDOWN_MS = 1 * 60 * 60 * 1000; // 4 часа
 const GREETING_TIMESTAMP_KEY = 'chatbot_last_greeting';
 const GREETING_HISTORY_KEY = 'chatbot_greeting_history';
 const MAX_GREETING_HISTORY = 5;
@@ -96,6 +97,7 @@ function getGreetingHistoryForPrompt() {
     }).join('\n\n');
 }
 
+// ==================== PROACTIVE GREETING ====================
 // ==================== PROACTIVE GREETING ====================
 async function showProactiveGreeting() {
     if (greetingShown) return;
@@ -165,6 +167,9 @@ async function showProactiveGreeting() {
         
         let finalGreeting = '';
         
+        // Генерируем случайный сид для гарантии разнообразия
+        const randomSeed = Math.floor(Math.random() * 100000000);
+        
         await streamResponse(
             messages,
             (partialText) => {
@@ -173,7 +178,9 @@ async function showProactiveGreeting() {
             (finalText) => {
                 finalGreeting = finalText;
                 finalizeStreamingMessage(streamingElement, finalText);
-            }
+            },
+            // Передаем настройки температуры и сида
+            { temperature: 0.90, seed: randomSeed }
         );
         
         // Сохраняем приветствие в историю для будущего разнообразия
@@ -183,7 +190,7 @@ async function showProactiveGreeting() {
         
         localStorage.setItem(GREETING_TIMESTAMP_KEY, Date.now().toString());
         
-        console.log('[Greeting] Proactive greeting sent successfully');
+        console.log(`[Greeting] Proactive greeting sent successfully (Temp: 1.3, Seed: ${randomSeed})`);
         
     } catch (error) {
         hideTypingIndicator();
@@ -216,7 +223,6 @@ async function showProactiveGreeting() {
         }
     }
 }
-
 // ==================== TIME CONTEXT ====================
 function getTimeContext() {
     const now = new Date();
@@ -376,7 +382,7 @@ This helps you learn more while keeping the greeting fresh and interesting.
     }
     
     return {
-        system: `You are a friendly AI assistant with persistent memory. A RETURNING user just opened the chat. You KNOW them!
+        system: `You are a AI assistant with persistent memory. A RETURNING user just opened the chat. You KNOW them! 
 
 IMPORTANT: Respond in ${langName}.
 ${styleInstruction}
@@ -394,11 +400,14 @@ ${timeContextText}
 ${previousGreetingsBlock}
 ${gapsBlock}
 
+be natural. Be warm. Be FRESH. будь действительно оригинальным и не тривиальным. Show you KNOW them from a NEW angle.
+
+
 === YOUR TASK ===
 Create a greeting that:
 1. **Is FRESH** — different from your previous greetings
 2. **Shows you KNOW them** — but pick a DIFFERENT aspect than before
-3. **Is time-aware** — consider the current moment
+3. **Is time-aware** — consider the current moment. но делай это оригинально и обязательно свяжи с другими аспектами знания о юзере.
 4. **Optionally explores a gap** — if it fits naturally
 
 === VARIETY STRATEGIES ===
@@ -413,7 +422,7 @@ Create a greeting that:
 - Multiple questions (ONE is enough)
 - Generic greetings ("How are you?")
 
-Be natural. Be warm. Be FRESH. Show you KNOW them from a NEW angle.`,
+`,
         
         user: `Generate a personalized, time-aware greeting that is DIFFERENT from your previous ones.`
     };
@@ -1437,7 +1446,8 @@ function handleKeyDown(event) {
 }
 
 // ==================== STREAMING RESPONSE ====================
-async function streamResponse(messages, onChunk, onComplete) {
+// ==================== STREAMING RESPONSE ====================
+async function streamResponse(messages, onChunk, onComplete, options = {}) {
     const headers = {
         'Content-Type': 'application/json',
         'HTTP-Referer': window.location.href,
@@ -1452,18 +1462,22 @@ async function streamResponse(messages, onChunk, onComplete) {
         headers['Authorization'] = `Bearer ${apiKey}`;
     }
     
-    const apiUrl = isLocal 
-        ? 'https://openrouter.ai/api/v1/chat/completions'
-        : CONFIG.apiUrl;
+    const apiUrl = isLocal ?
+        'https://openrouter.ai/api/v1/chat/completions' :
+        CONFIG.apiUrl;
+    
+    // Формируем тело запроса, объединяя базовые параметры и переданные опции
+    const requestBody = {
+        model: CONFIG.model_chat,
+        messages: messages,
+        stream: true,
+        ...options // Здесь подставятся temperature: 1.3 и seed
+    };
     
     const response = await fetch(apiUrl, {
         method: 'POST',
         headers: headers,
-        body: JSON.stringify({
-            model: CONFIG.model_chat,
-            messages: messages,
-            stream: true
-        })
+        body: JSON.stringify(requestBody)
     });
     
     if (!response.ok) {
