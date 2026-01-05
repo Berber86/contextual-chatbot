@@ -6,8 +6,12 @@
 // ============================================
 
 const YOU_CONFIG = {
-   // model: 'mistralai/devstral-2512:free',
-  model: 'nex-agi/deepseek-v3.1-nex-n1:free',
+   model: 'xiaomi/mimo-v2-flash:free',
+  // model: 'nex-agi/deepseek-v3.1-nex-n1:free',
+  
+  
+  
+  
     timeout: 60000,
     zoneLimits: {
         yes: 2,

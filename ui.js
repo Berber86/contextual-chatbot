@@ -8,6 +8,7 @@ const isLocal = window.location.hostname.includes('localhost') ||
 const CONFIG = {
   //  model_chat: "mistralai/devstral-2512:free",
     model_chat: "xiaomi/mimo-v2-flash:free",
+   // model_chat: "nex-agi/deepseek-v3.1-nex-n1:free",
     model_analysis: "xiaomi/mimo-v2-flash:free",
     
     apiUrl: isLocal ?
@@ -180,7 +181,7 @@ async function showProactiveGreeting() {
                 finalizeStreamingMessage(streamingElement, finalText);
             },
             // Передаем настройки температуры и сида
-            { temperature: 0.85, seed: randomSeed }
+            { temperature: 0.90, seed: randomSeed }
         );
         
         // Сохраняем приветствие в историю для будущего разнообразия
@@ -397,18 +398,20 @@ ${timeContextText}
 **Timeline:** ${timeline || '(no timeline)'}
 **People:** ${social || '(no connections)'}
 **Hypotheses:** ${hypotheses || '(none yet)'}
-${previousGreetingsBlock}
 ${gapsBlock}
 
-be natural. Be warm. Be FRESH. будь немного оригинальным и не слишком тривиальным. Show you KNOW them from a NEW angle.
+be natural. Be warm. будь не слишком тривиальным. но и не перегружай приветствие контекстуальными отсылками и следи чтобы в
+нём не было бреда и бредовых фраз. Show you KNOW them from a NEW angle.
 
 
 === YOUR TASK ===
 Create a greeting that:
-1. **Is FRESH** — different from your previous greetings
-2. **Shows you KNOW them** — but pick a DIFFERENT aspect than before
-3. **Is time-aware** — consider the current moment. но делай это оригинально обыграй время дня, сезон, назови и контекстно обыграй праздники рядом с этой датой и подай все это адаптированном под стиль общения с юзером тексте.
-4. **Optionally explores a gap** — if it fits naturally
+1. **Is FRESH** — different from your previous greetings. не повторяй контекст который ты уже использовал в предыдущих приветствиях. 
+2. **Shows you KNOW them**
+3. **Is time-aware** — consider the current moment. но делай это оригинально обыграв время дня, сезон, назови и контекстно обыграй праздники рядом с этой датой и подай все это адаптированном под стиль общения с юзером тексте.
+4. **Optionally explores a gap** — if it fits naturally и если будешь использовать, то построй адекватный и контекстно ловкий и уместный переход к этому вопросу
+5. не более 1000 символов
+6. используй мелкую деталь контекста, чтобы юзер увидел что ты помнишь даже мелочи о нём
 
 === VARIETY STRATEGIES ===
 - Rotate between: work, hobbies, people in their life, recent events, mood, plans, observations
@@ -1914,6 +1917,8 @@ ${questionRule}
 3. Simple messages get simple responses
 4. Sound like a friend, not a database query
 5. Vary your style — not every response needs to be "personalized"
+6. твой ответ не должен звучать как бред
+7. не используй слишком много отсылок к контексту в своем ответе
 
 Sometimes the best response is just helpful, without proving you have memory.`;
         
