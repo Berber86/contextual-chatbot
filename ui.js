@@ -126,15 +126,12 @@ async function showProactiveGreeting() {
     
     await new Promise(resolve => setTimeout(resolve, 800));
     
-    // Используем фильтрацию для facts, traits, hypotheses
-    const facts = getFactsForPrompt(true);
-    const traits = getTraitsForPrompt(true);
-    const hypotheses = getHypothesesForPrompt(true);
-    
-    // Без фильтрации
+    const facts = getFactsForPrompt();
+    const traits = getTraitsForPrompt();
     const timeline = getTimelineForPrompt();
     const style = localStorage.getItem(STORAGE_KEYS.style) || '';
     const gaps = getGapsForPrompt();
+    const hypotheses = getHypothesesForPrompt();
     const social = getSocialForPrompt();
     
     const timeContext = getTimeContext();
@@ -152,7 +149,7 @@ async function showProactiveGreeting() {
         });
     }
     
-    console.log('[Greeting] Generating proactive greeting with streaming (filtered context)...');
+    console.log('[Greeting] Generating proactive greeting with streaming...');
     
     // Показываем typing indicator пока готовимся
     showTypingIndicator();
@@ -194,7 +191,7 @@ async function showProactiveGreeting() {
         
         localStorage.setItem(GREETING_TIMESTAMP_KEY, Date.now().toString());
         
-        console.log(`[Greeting] Proactive greeting sent successfully (Temp: 0.90, Seed: ${randomSeed})`);
+        console.log(`[Greeting] Proactive greeting sent successfully (Temp: 1.3, Seed: ${randomSeed})`);
         
     } catch (error) {
         hideTypingIndicator();
@@ -1608,14 +1605,11 @@ function selectGapForQuestion() {
 }
 
 async function findRelevantContext(userMessage, history) {
-    // Используем фильтрацию для facts, traits, hypotheses
-    const allFacts = getFactsForPrompt(true);
-    const allTraits = getTraitsForPrompt(true);
-    const allHypotheses = getHypothesesForPrompt(true);
-    
-    // Без фильтрации
+    const allFacts = getFactsForPrompt();
+    const allTraits = getTraitsForPrompt();
     const allTimeline = getTimelineForPrompt();
     const allSocial = getSocialForPrompt();
+    const allHypotheses = getHypothesesForPrompt();
     const gaps = getGapsForPrompt();
     
     const recentHistory = history.slice(-4).map(m =>
@@ -1669,7 +1663,7 @@ Return ONLY valid JSON:
 }`;
     
     try {
-        console.log('[Stage1] Analyzing context (with filtered memory)...');
+        console.log('[Stage1] Analyzing context...');
         
         const response = await callAPI(
             [{ role: "user", content: analysisPrompt }],

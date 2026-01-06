@@ -177,14 +177,6 @@ const LIMITS = {
     evidencePerItem: 3
 };
 
-// ==================== CONTEXT FILTERING CONFIG ====================
-const CONTEXT_FILTER_CONFIG = {
-    FACTS_INCLUSION_CHANCE: 
-    66,      // % шанс включения каждого факта
-    TRAITS_INCLUSION_CHANCE: 66,     // % шанс включения каждой черты
-    HYPOTHESES_INCLUSION_CHANCE: 50  // % шанс включения каждой гипотезы
-};
-
 // ==================== CONFIDENCE LEVELS ====================
 const CONFIDENCE_LEVELS = ['low', 'medium', 'high', 'verified'];
 
@@ -358,26 +350,8 @@ function getConfidenceEmoji(confidence) {
     return CONFIDENCE_EMOJI[confidence] || CONFIDENCE_EMOJI.medium;
 }
 
-function filterByChance(items, chancePercent) {
-    if (!items || items.length === 0) return [];
-    return items.filter(() => Math.random() * 100 < chancePercent);
-}
-
 // ==================== FACTS STORAGE ====================
-function getFactsData() {
-    const data = localStorage.getItem(STORAGE_KEYS.facts);
-    if (!data) return { facts: [], legacy_text: '' };
-    
-    try {
-        const parsed = JSON.parse(data);
-        if (parsed && typeof parsed === 'object' && parsed.facts) {
-            return parsed;
-        }
-        return { facts: [], legacy_text: typeof parsed === 'string' ? parsed : JSON.stringify(parsed) };
-    } catch (e) {
-        return { facts: [], legacy_text: data };
-    }
-}
+
 
 function setFactsData(data) {
     localStorage.setItem(STORAGE_KEYS.facts, JSON.stringify(data));
@@ -411,7 +385,7 @@ function getFactsForDisplay() {
     return result;
 }
 
-function getFactsForPrompt(filtered = false) {
+function getFactsForPrompt() {
     const data = getFactsData();
     
     let result = '';
@@ -424,15 +398,7 @@ function getFactsForPrompt(filtered = false) {
         return result || '(no facts recorded yet)';
     }
     
-    let active = data.facts.filter(f => !f.superseded);
-    
-    if (filtered) {
-        active = filterByChance(active, CONTEXT_FILTER_CONFIG.FACTS_INCLUSION_CHANCE);
-        if (active.length === 0) {
-            return result || '(no facts selected this time)';
-        }
-    }
-    
+    const active = data.facts.filter(f => !f.superseded);
     result += active.map((f, i) => {
         const evidence = f.evidence?.length > 0 ? ` [evidence: "${f.evidence[0]}"]` : '';
         return `${i + 1}. ${f.text} (${f.confidence})${evidence}`;
@@ -442,20 +408,7 @@ function getFactsForPrompt(filtered = false) {
 }
 
 // ==================== TRAITS STORAGE ====================
-function getTraitsData() {
-    const data = localStorage.getItem(STORAGE_KEYS.traits);
-    if (!data) return { traits: [], legacy_text: '' };
-    
-    try {
-        const parsed = JSON.parse(data);
-        if (parsed && typeof parsed === 'object' && parsed.traits) {
-            return parsed;
-        }
-        return { traits: [], legacy_text: typeof parsed === 'string' ? parsed : JSON.stringify(parsed) };
-    } catch (e) {
-        return { traits: [], legacy_text: data };
-    }
-}
+
 
 function setTraitsData(data) {
     localStorage.setItem(STORAGE_KEYS.traits, JSON.stringify(data));
@@ -489,7 +442,7 @@ function getTraitsForDisplay() {
     return result;
 }
 
-function getTraitsForPrompt(filtered = false) {
+function getTraitsForPrompt() {
     const data = getTraitsData();
     
     let result = '';
@@ -502,21 +455,48 @@ function getTraitsForPrompt(filtered = false) {
         return result || '(no personality traits recorded yet)';
     }
     
-    let active = data.traits.filter(t => !t.superseded);
-    
-    if (filtered) {
-        active = filterByChance(active, CONTEXT_FILTER_CONFIG.TRAITS_INCLUSION_CHANCE);
-        if (active.length === 0) {
-            return result || '(no traits selected this time)';
-        }
-    }
-    
+    const active = data.traits.filter(t => !t.superseded);
     result += active.map((tr, i) => {
         const evidence = tr.evidence?.length > 0 ? ` [based on: "${tr.evidence[0]}"]` : '';
         return `${i + 1}. ${tr.text} (${tr.confidence})${evidence}`;
     }).join('\n');
     
     return result;
+}
+
+// ==================== TIMELINE STORAGE ====================
+// ==================== FACTS STORAGE ====================
+function getFactsData() {
+    const data = localStorage.getItem(STORAGE_KEYS.facts);
+    if (!data) return { facts: [], legacy_text: '' };
+    
+    try {
+        const parsed = JSON.parse(data);
+        if (parsed && typeof parsed === 'object' && parsed.facts) {
+            return parsed;
+        }
+        // Старый формат или строка
+        return { facts: [], legacy_text: typeof parsed === 'string' ? parsed : JSON.stringify(parsed) };
+    } catch (e) {
+        // Сырой текст — это legacy
+        return { facts: [], legacy_text: data };
+    }
+}
+
+// ==================== TRAITS STORAGE ====================
+function getTraitsData() {
+    const data = localStorage.getItem(STORAGE_KEYS.traits);
+    if (!data) return { traits: [], legacy_text: '' };
+    
+    try {
+        const parsed = JSON.parse(data);
+        if (parsed && typeof parsed === 'object' && parsed.traits) {
+            return parsed;
+        }
+        return { traits: [], legacy_text: typeof parsed === 'string' ? parsed : JSON.stringify(parsed) };
+    } catch (e) {
+        return { traits: [], legacy_text: data };
+    }
 }
 
 // ==================== TIMELINE STORAGE ====================
@@ -534,7 +514,6 @@ function getTimelineData() {
         return { events: [], legacy_text: data };
     }
 }
-
 function setTimelineData(data) {
     localStorage.setItem(STORAGE_KEYS.timeline, JSON.stringify(data));
 }
@@ -680,20 +659,11 @@ function getHypothesesForDisplay() {
     }).join('\n\n');
 }
 
-function getHypothesesForPrompt(filtered = false) {
+function getHypothesesForPrompt() {
     const data = getHypothesesData();
     if (data.hypotheses.length === 0) return '(no hypotheses yet)';
     
-    let hypotheses = data.hypotheses;
-    
-    if (filtered) {
-        hypotheses = filterByChance(hypotheses, CONTEXT_FILTER_CONFIG.HYPOTHESES_INCLUSION_CHANCE);
-        if (hypotheses.length === 0) {
-            return '(no hypotheses selected this time)';
-        }
-    }
-    
-    return hypotheses.map((h, i) => {
+    return data.hypotheses.map((h, i) => {
         const evidence = h.evidence?.length > 0 
             ? `Evidence: [${h.evidence.join('; ')}]` 
             : 'Evidence: none';
@@ -1091,4 +1061,4 @@ function executeTool(name, args) {
 }
 
 // Проверка загрузки
-console.log('[app.js] Loaded. Full tool definitions. Structured storage ready. Context filtering enabled.');
+console.log('[app.js] Loaded. Full tool definitions. Structured storage ready.');
