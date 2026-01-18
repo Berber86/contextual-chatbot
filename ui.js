@@ -1738,232 +1738,259 @@ function selectGapForQuestion() {
     return data.gaps[Math.floor(Math.random() * data.gaps.length)];
 }
 
+// ==================== STAGE 1: CONTEXT COMPRESSION ====================
+
 async function findRelevantContext(userMessage, history) {
-    // Используем фильтрацию для facts, traits, hypotheses
-    const allFacts = getFactsForPrompt(true);
-    const allTraits = getTraitsForPrompt(true);
-    const allHypotheses = getHypothesesForPrompt(true);
-    
-    // Без фильтрации
+    // Собираем ВСЁ из памяти (без фильтрации)
+    const allFacts = getFactsForPrompt(false);
+    const allTraits = getTraitsForPrompt(false);
+    const allHypotheses = getHypothesesForPrompt(false);
     const allTimeline = getTimelineForPrompt();
     const allSocial = getSocialForPrompt();
     const gaps = getGapsForPrompt();
+    const style = localStorage.getItem(STORAGE_KEYS.style) || '';
     
-    // === ЛОГИРОВАНИЕ ОТФИЛЬТРОВАННОГО КОНТЕКСТА ===
-    console.log('╔═══════════════════════════════════════════════════════════╗');
-    console.log('║        FILTERED CONTEXT FOR ANALYSIS (Stage 1)            ║');
-    console.log('╚═══════════════════════════════════════════════════════════╝');
-    console.log(`\n[FACTS] (${CONTEXT_FILTER_CONFIG.FACTS_INCLUSION_CHANCE}% chance per item):`);
-    console.log(allFacts);
-    console.log(`\n[TRAITS] (${CONTEXT_FILTER_CONFIG.TRAITS_INCLUSION_CHANCE}% chance per item):`);
-    console.log(allTraits);
-    console.log(`\n[HYPOTHESES] (${CONTEXT_FILTER_CONFIG.HYPOTHESES_INCLUSION_CHANCE}% chance per item):`);
-    console.log(allHypotheses);
-    console.log('\n[TIMELINE] (no filter):');
-    console.log(allTimeline);
-    console.log('\n[SOCIAL] (no filter):');
-    console.log(allSocial);
-    console.log('\n[GAPS] (no filter):');
-    console.log(gaps);
-    console.log('═══════════════════════════════════════════════════════════\n');
-    // === КОНЕЦ ЛОГИРОВАНИЯ ===
-    
-    const recentHistory = history.slice(-4).map(m =>
+    // Последние 10 сообщений
+    const recentHistory = history.slice(-10).map(m =>
         `${m.role.toUpperCase()}: ${m.content}`
-    ).join('\n');
+    ).join('\n\n');
     
     const timeContext = getTimeContext();
-    const timeInfo = `${timeContext.dayName}, ${timeContext.timeOfDay}, ${timeContext.season}`;
+    const timeInfo = formatTimeContextForPrompt(timeContext);
     
-    const analysisPrompt = `You are a context analyst for a personal AI assistant.
-Find connections between the user's message and their memory — but ONLY if genuinely relevant.
+    // Считаем общий объём контекста
+    const totalContextLength = [allFacts, allTraits, allHypotheses, allTimeline, allSocial, gaps, style]
+        .filter(Boolean)
+        .join('').length;
+    
+    console.log(`[Stage1] Total context size: ${totalContextLength} chars`);
+    
+    // Если контекста мало — пропускаем компрессию
+    if (totalContextLength < 2000) {
+        console.log('[Stage1] Context too small, skipping compression');
+        return {
+            compressed: false,
+            facts: allFacts,
+            traits: allTraits,
+            timeline: allTimeline,
+            social: allSocial,
+            hypotheses: allHypotheses,
+            style: style,
+            gaps: gaps
+        };
+    }
+    
+    const langName = getLanguageName();
+    
+    const compressionPrompt = `You are a context preparation assistant. Your task is to read the user's conversation and their full profile, then prepare a COMPRESSED but RICH context dossier for another AI that will generate the response.
 
-=== USER'S MESSAGE ===
+=== CURRENT USER MESSAGE ===
 "${userMessage}"
 
-=== RECENT CONVERSATION ===
-${recentHistory || '(start of conversation)'}
+=== RECENT CONVERSATION (last 10 messages) ===
+${recentHistory || '(conversation just started)'}
 
-=== TIME CONTEXT ===
+=== CURRENT TIME ===
 ${timeInfo}
 
-=== USER MEMORY ===
-Facts: ${allFacts || '(none)'}
-Traits: ${allTraits || '(none)'}
-Timeline: ${allTimeline || '(none)'}
-Social: ${allSocial || '(none)'}
-Hypotheses: ${allHypotheses || '(none)'}
-Gaps: ${gaps || '(none)'}
+=== FULL USER MEMORY DATABASE ===
 
-=== ANALYSIS RULES ===
-1. NOT every message needs memory references
-2. Simple questions deserve simple answers
-3. Only flag connections that would GENUINELY improve the response
-4. Empty arrays are FINE — don't force connections
-5. Quality over quantity — max 1-2 items per category
+**FACTS about user:**
+${allFacts || '(no facts yet)'}
 
-Return ONLY valid JSON:
-{
-    "message_type": "simple_question|emotional|advice_seeking|sharing|complex|casual_chat",
-    "needs_personalization": true/false,
-    "personalization_intensity": "none|light|moderate|heavy",
-    "user_intent": "brief intent",
-    "emotional_undertone": "emotion or neutral",
-    "key_fact": "ONE most relevant fact, or null",
-    "key_trait": "ONE trait that affects HOW to respond, or null",
-    "key_person": "relevant person, or null",
-    "key_insight": "relevant hypothesis/pattern, or null",
-    "suggested_angle": "how to be personal WITHOUT listing facts, or null",
-    "gap_opportunity": "only if VERY natural, or null",
-    "tone": "warm|playful|serious|supportive|matter-of-fact|neutral"
-}`;
+**PERSONALITY TRAITS:**
+${allTraits || '(no traits yet)'}
+
+**LIFE TIMELINE:**
+${allTimeline || '(no timeline yet)'}
+
+**SOCIAL CONNECTIONS:**
+${allSocial || '(no social data yet)'}
+
+**HYPOTHESES & INSIGHTS:**
+${allHypotheses || '(no hypotheses yet)'}
+
+**KNOWLEDGE GAPS (topics we don't know yet):**
+${gaps || '(no gaps identified)'}
+
+**COMMUNICATION STYLE SETTINGS:**
+${style || '(no style configured yet)'}
+
+=== YOUR TASK ===
+
+Prepare a context dossier for another AI that will respond to the user. This dossier must:
+
+1. Be between 1000-2500 characters (это важно!)
+2. Be CONTEXTUALLY RELEVANT to the current message and conversation
+3. Include a small buffer of extra context "just in case"
+4. NOT contain your own response — only prepare context
+
+=== OUTPUT FORMAT ===
+
+Respond in ${langName}. Structure your response EXACTLY like this:
+
+## 📋 РЕЛЕВАНТНЫЕ ФАКТЫ
+(Facts relevant to current conversation + 2-3 extra that might be useful)
+
+## 🧠 КЛЮЧЕВЫЕ ЧЕРТЫ ЛИЧНОСТИ  
+(Traits that affect HOW to respond to this specific message)
+
+## 📅 КОНТЕКСТ ИЗ ХРОНОЛОГИИ
+(Timeline events relevant to current topic, if any)
+
+## 👥 ЛЮДИ
+(Relevant people if mentioned or related to topic)
+
+## 💡 ГИПОТЕЗЫ И ИНСАЙТЫ
+(Hypotheses that might inform the response)
+
+## 🎭 СТИЛЬ ОБЩЕНИЯ
+(Copy the key points from communication style settings — just the recommendations, no percentages or arguments. Include: special recommendations, anti-patterns, tone guidance)
+
+## 🎯 РЕКОМЕНДАЦИЯ ДЛЯ ОТВЕТА
+(1-2 sentences: what angle to take, what to consider, what to avoid)
+
+=== IMPORTANT RULES ===
+- Be generous with context — more is better than less
+- If something MIGHT be relevant, include it
+- The other AI has NO access to the full database — you are its only source
+- Copy style recommendations verbatim, don't summarize
+- If a section has nothing relevant, write "(не релевантно для данного сообщения)"
+- Current message context is priority, but add buffer context too`;
     
     try {
-        console.log('[Stage1] Analyzing context via OpenRouter...');
+        console.log('[Stage1] Compressing context via OpenRouter...');
         
-        // Stage 1 ВСЕГДА идёт через OpenRouter (лёгкая модель)
+        // Логируем полный промпт
+        console.log('\n' + '='.repeat(70));
+        console.log('📤 STAGE 1: CONTEXT COMPRESSION PROMPT');
+        console.log('='.repeat(70));
+        console.log(compressionPrompt);
+        console.log('='.repeat(70) + '\n');
+        
         const response = await callAPIOpenRouter(
-            [{ role: "user", content: analysisPrompt }],
-            true  // useAnalysisModel = true
+            [{ role: "user", content: compressionPrompt }],
+            true // useAnalysisModel
         );
         
-        const parsed = parseJSON(response.content || response);
+        const compressedContext = response.content || response;
         
-        if (parsed) {
-            console.log('[Stage1] Analysis result:', parsed);
-            return parsed;
-        }
-        return null;
+        console.log('[Stage1] Compressed context received:');
+        console.log('-'.repeat(50));
+        console.log(compressedContext);
+        console.log('-'.repeat(50));
+        console.log(`[Stage1] Compression: ${totalContextLength} → ${compressedContext.length} chars (${Math.round(compressedContext.length / totalContextLength * 100)}%)`);
+        
+        return {
+            compressed: true,
+            fullContext: compressedContext,
+            originalSize: totalContextLength,
+            compressedSize: compressedContext.length
+        };
         
     } catch (error) {
-        console.error('[Stage1] Failed:', error.message);
-        return null;
+        console.error('[Stage1] Compression failed:', error.message);
+        // Fallback — возвращаем сырой контекст
+        return {
+            compressed: false,
+            facts: allFacts,
+            traits: allTraits,
+            timeline: allTimeline,
+            social: allSocial,
+            hypotheses: allHypotheses,
+            style: style,
+            gaps: gaps
+        };
     }
 }
+// ==================== TWO-STAGE RESPONSE ARCHITECTURE ====================
 
 async function processMessageWithTwoStages(userMessage) {
     const history = getChatHistory();
     
-    // ========== STAGE 1: CONTEXT ANALYSIS (OpenRouter) ==========
-    updateThinkingMessage(t('analyzingContext') || '🔍 Understanding context...');
+    // ========== STAGE 1: CONTEXT COMPRESSION ==========
+    updateThinkingMessage('🔍 Preparing context...');
     
-    const contextAnalysis = await findRelevantContext(userMessage, history);
+    const contextResult = await findRelevantContext(userMessage, history);
     
-    let targetGap = null;
-    
-    const isSensitiveContext = contextAnalysis && (
-        contextAnalysis.message_type === 'emotional' || 
-        contextAnalysis.message_type === 'complex' ||
-        contextAnalysis.emotional_undertone === 'sad' ||
-        contextAnalysis.emotional_undertone === 'angry' ||
-        contextAnalysis.emotional_undertone === 'anxious'
-    );
-
-    if (askMeMode && isAskMeModeAvailable() && !isSensitiveContext) {
-        targetGap = selectGapForQuestion();
-        if (targetGap) {
-            console.log(`[AskMe] Targeted gap: "${targetGap.topic}"`);
-        }
-    }
-
-    // ========== STAGE 2: STREAMING RESPONSE (Hydra или fallback) ==========
+    // ========== STAGE 2: GENERATE RESPONSE ==========
     removeThinkingMessage();
     
     const streamingElement = createStreamingMessage();
     
     try {
-        const style = localStorage.getItem(STORAGE_KEYS.style) || '';
         const langName = getLanguageName();
         const archetype = pickResponseArchetype();
         const qp = decideQuestionPolicyForThisTurn();
         
+        // Формируем контекстный блок
         let contextBlock = '';
         
-        if (contextAnalysis) {
-            const intensity = contextAnalysis.personalization_intensity || 'light';
-            const needsPersonalization = contextAnalysis.needs_personalization !== false;
-            
-            if (!needsPersonalization || intensity === 'none') {
-                contextBlock = `
-=== CONTEXT ===
-Message type: ${contextAnalysis.message_type || 'general'}
-Tone: ${contextAnalysis.tone || 'neutral'}
-Note: This is a simple message. Respond naturally WITHOUT forcing memory references.
+        if (contextResult.compressed && contextResult.fullContext) {
+            // Используем сжатый контекст от Stage 1
+            contextBlock = `
+=== ПОДГОТОВЛЕННЫЙ КОНТЕКСТ О ПОЛЬЗОВАТЕЛЕ ===
+${contextResult.fullContext}
 `;
-            } else if (intensity === 'light') {
-                contextBlock = `
-=== CONTEXT (use lightly) ===
-Intent: ${contextAnalysis.user_intent || 'respond helpfully'}
-Tone: ${contextAnalysis.tone || 'warm'}
-${contextAnalysis.key_fact ? `Relevant fact: ${contextAnalysis.key_fact}` : ''}
-${contextAnalysis.key_trait ? `Consider trait: ${contextAnalysis.key_trait}` : ''}
-${contextAnalysis.suggested_angle ? `Angle: ${contextAnalysis.suggested_angle}` : ''}
-
-Rule: Use AT MOST one memory reference, and only if it flows naturally.
-`;
-            } else {
-                contextBlock = `
-=== CONTEXT ===
-Intent: ${contextAnalysis.user_intent}
-Emotional undertone: ${contextAnalysis.emotional_undertone || 'neutral'}
-Tone: ${contextAnalysis.tone || 'warm'}
-
-${contextAnalysis.key_fact ? `• Fact: ${contextAnalysis.key_fact}` : ''}
-${contextAnalysis.key_trait ? `• Trait: ${contextAnalysis.key_trait}` : ''}
-${contextAnalysis.key_person ? `• Person: ${contextAnalysis.key_person}` : ''}
-${contextAnalysis.key_insight ? `• Insight: ${contextAnalysis.key_insight}` : ''}
-${contextAnalysis.suggested_angle ? `\n💡 Angle: ${contextAnalysis.suggested_angle}` : ''}
-${contextAnalysis.gap_opportunity ? `\n🎯 Gap opportunity: ${contextAnalysis.gap_opportunity}` : ''}
-
-Rule: Pick 1-2 elements MAX that genuinely add value. Don't force them.
-`;
-            }
         } else {
+            // Fallback — формируем контекст напрямую (если Stage 1 не сработал или контекста мало)
             contextBlock = `
 === CONTEXT ===
-No specific context found. Respond naturally and helpfully.
-`;
-        }
-        
-        let styleBlock = style?.trim() ? `\n=== STYLE ===\n${style}\n` : '';
-        
-        let questionRule = '';
-        
-        if (targetGap && qp.modeLabel === 'ASK_ME' && qp.shouldAsk) {
-            questionRule = `
-=== ASK ME MODE: ACTIVE ===
-YOUR GOAL: Fill a specific memory gap about: "${targetGap.topic}"
-REASON: ${targetGap.reason}
+Facts: ${contextResult.facts || '(none)'}
+Traits: ${contextResult.traits || '(none)'}
+Timeline: ${contextResult.timeline || '(none)'}
+People: ${contextResult.social || '(none)'}
+Hypotheses: ${contextResult.hypotheses || '(none)'}
 
-INSTRUCTION:
-1. First, answer the user's current message naturally.
-2. Then, create a SEMANTIC BRIDGE to the target topic.
-3. Ask the question about "${targetGap.topic}".
+Style: ${contextResult.style || '(default)'}
 `;
-        } else if (qp.modeLabel === 'ASK_ME' && qp.shouldAsk) {
-            questionRule = `\nQuestion: You MAY end with ONE question about them (Ask Me Mode is on).`;
-        } else if (!qp.shouldAsk) {
-            questionRule = `\nQuestion: Do NOT ask questions in this response.`;
         }
         
-        const systemPrompt = `You are a personal AI who knows this user. Respond in ${langName}.
+        // Определяем правило про вопросы
+        let questionRule = '';
+        let targetGap = null;
+        
+        if (askMeMode && isAskMeModeAvailable()) {
+            targetGap = selectGapForQuestion();
+            if (targetGap && qp.shouldAsk) {
+                questionRule = `
+=== РЕЖИМ "СПРОСИ МЕНЯ" АКТИВЕН ===
+Твоя цель: узнать о теме "${targetGap.topic}"
+Причина: ${targetGap.reason}
+
+Инструкция:
+1. Сначала ответь на текущее сообщение пользователя
+2. Затем создай СМЫСЛОВОЙ МОСТ к целевой теме
+3. Задай вопрос о "${targetGap.topic}"
+`;
+            }
+        }
+        
+        if (!questionRule) {
+            if (qp.shouldAsk) {
+                questionRule = '\nМожешь закончить ОДНИМ вопросом к пользователю, если это уместно.';
+            } else {
+                questionRule = '\nНе задавай вопросов в этом ответе.';
+            }
+        }
+        
+        const systemPrompt = `Ты — персональный ИИ-ассистент, который ЗНАЕТ этого пользователя. Отвечай на ${langName}.
 
 ${contextBlock}
-${styleBlock}
-=== APPROACH ===
-Archetype: ${archetype}
+
+=== ПОДХОД К ОТВЕТУ ===
+Архетип: ${archetype}
 ${questionRule}
 
-=== KEY RULES ===
-1. LESS IS MORE — one natural reference beats three forced ones
-2. If context doesn't fit naturally, DON'T USE IT
-3. Simple messages get simple responses
-4. Sound like a friend, not a database query
-5. Vary your style — not every response needs to be "personalized"
-6. твой ответ не должен звучать как бред
-7. не используй слишком много отсылок к контексту в своем ответе
+=== КЛЮЧЕВЫЕ ПРАВИЛА ===
+1. Используй контекст ЕСТЕСТВЕННО — не перечисляй факты, а вплетай их в ответ
+2. Если контекст не подходит к теме — не форсируй его
+3. Простые сообщения = простые ответы
+4. Звучи как друг, а не как база данных
+5. Разнообразь стиль — не каждый ответ должен быть "персонализированным"
+6. НЕ БРЕДЬ — твой ответ должен быть логичным и адекватным
 
-Sometimes the best response is just helpful, without proving you have memory.`;
+Иногда лучший ответ — просто полезный, без демонстрации того, что у тебя есть память.`;
         
         const apiMessages = [
             { role: "system", content: systemPrompt },
@@ -1974,7 +2001,19 @@ Sometimes the best response is just helpful, without proving you have memory.`;
             { role: "user", content: userMessage }
         ];
         
-        console.log('[Stage2] Streaming response via ' + (hasValidHydraKey() ? 'Hydra' : 'OpenRouter fallback'));
+        // Логируем полный промпт Stage 2
+        console.log('\n' + '='.repeat(2270));
+        console.log('📤 STAGE 2: FINAL PROMPT TO LLM');
+        console.log('='.repeat(2270));
+        apiMessages.forEach((msg, idx) => {
+            console.log(`\n[${idx + 1}] ROLE: ${msg.role.toUpperCase()}`);
+            console.log('-'.repeat(2250));
+            console.log(msg.content);
+            console.log('-'.repeat(2250));
+        });
+        console.log('='.repeat(2270) + '\n');
+        
+        console.log(`[Stage2] Streaming via ${hasValidHydraKey() ? 'Hydra' : 'OpenRouter'}`);
         
         const fullResponse = await streamResponse(
             apiMessages,
@@ -1989,16 +2028,14 @@ Sometimes the best response is just helpful, without proving you have memory.`;
         return fullResponse;
         
     } catch (error) {
-        console.error('[Streaming] Failed, falling back:', error.message);
+        console.error('[Stage2] Failed:', error.message);
         
         if (streamingElement) {
             streamingElement.remove();
         }
         
-        // Fallback без стриминга
-        const response = await generateResponseWithContext(userMessage, history, contextAnalysis, targetGap);
-        appendMessage('assistant', response, true);
-        return response;
+        appendMessage('system', `Error: ${error.message}`);
+        return null;
     }
 }
 
