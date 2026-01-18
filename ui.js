@@ -1,19 +1,22 @@
 // ui.js - интерфейсная логика для Memory Chatbot
 // Two-Stage Response Architecture: Context Analysis → Personalized Response (Streaming)
+// Поддержка Hydra API для финальных ответов
 
 // ==================== INITIALIZATION & CONFIG ====================
 const isLocal = window.location.hostname.includes('localhost') ||
     window.location.hostname.includes('127.0.0.1');
 
 const CONFIG = {
-    model_chat: "mistralai/devstral-2512:free",
-  //  model_chat: "xiaomi/mimo-v2-flash:free",
-   // model_chat: "nex-agi/deepseek-v3.1-nex-n1:free",
-    model_analysis: "xiaomi/mimo-v2-flash:free",
+    // Модели
+    model_chat: "gemini-2.5-pro",           // Hydra модель для финального ответа
+    model_analysis: "xiaomi/mimo-v2-flash:free",  // OpenRouter для анализа
+    model_fallback: "xiaomi/mimo-v2-flash:free",  // Fallback если нет Hydra ключа
     
-    apiUrl: isLocal ?
-        "https://openrouter.ai/api/v1/chat/completions" :
-        "/api/chat",
+    // API URLs
+    hydraApiUrl: "https://api.hydraai.ru/v1/chat/completions",
+    openrouterApiUrl: isLocal 
+        ? "https://openrouter.ai/api/v1/chat/completions"
+        : "/api/chat",
     
     maxRetries: 3,
     baseSystemPrompt: "You are a ai assistant. Be an attentive and caring conversationalist.",
@@ -31,11 +34,21 @@ const CONFIG = {
 let greetingShown = false;
 
 // Cooldown для приветствий
-const GREETING_COOLDOWN_MS = 1 * 60 * 60 * 1; // 4 часа
+const GREETING_COOLDOWN_MS = 1 * 60 * 60 * 10000; // 4 часа
 const GREETING_TIMESTAMP_KEY = 'chatbot_last_greeting';
 const GREETING_HISTORY_KEY = 'chatbot_greeting_history';
 const MAX_GREETING_HISTORY = 5;
 
+// ==================== API KEY FUNCTIONS ====================
+function getHydraKey() {
+    const key = localStorage.getItem(STORAGE_KEYS.hydraKey);
+    return key ? key.trim() : null;
+}
+
+function hasValidHydraKey() {
+    const key = getHydraKey();
+    return key && key.startsWith('sk') && key.length > 10;
+}
 
 document.addEventListener('DOMContentLoaded', async () => {
     loadLanguage();
@@ -55,17 +68,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     updateAskMeModeUI();
     
-    // Инициализация розового окошка с ключом
-    if (isLocal) initLocalDevSettings();
+    // Инициализация розового окошка с ключом (для всех пользователей)
+    initApiKeySettings();
     
     // === Инициативное приветствие ===
     await showProactiveGreeting();
 });
 
 // ==================== PROACTIVE GREETING ====================
-// ==================== PROACTIVE GREETING ====================
-
-// ==================== GREETING HISTORY ====================
 function getGreetingHistory() {
     const data = localStorage.getItem(GREETING_HISTORY_KEY);
     if (!data) return [];
@@ -98,8 +108,6 @@ function getGreetingHistoryForPrompt() {
     }).join('\n\n');
 }
 
-// ==================== PROACTIVE GREETING ====================
-// ==================== PROACTIVE GREETING ====================
 async function showProactiveGreeting() {
     if (greetingShown) return;
     greetingShown = true;
@@ -136,6 +144,27 @@ async function showProactiveGreeting() {
     const style = localStorage.getItem(STORAGE_KEYS.style) || '';
     const gaps = getGapsForPrompt();
     const social = getSocialForPrompt();
+    
+    // === ЛОГИРОВАНИЕ ОТФИЛЬТРОВАННОГО КОНТЕКСТА ===
+    console.log('╔═══════════════════════════════════════════════════════════╗');
+    console.log('║        FILTERED CONTEXT FOR GREETING                      ║');
+    console.log('╚═══════════════════════════════════════════════════════════╝');
+    console.log(`\n[FACTS] (${CONTEXT_FILTER_CONFIG.FACTS_INCLUSION_CHANCE}% chance per item):`);
+    console.log(facts);
+    console.log(`\n[TRAITS] (${CONTEXT_FILTER_CONFIG.TRAITS_INCLUSION_CHANCE}% chance per item):`);
+    console.log(traits);
+    console.log(`\n[HYPOTHESES] (${CONTEXT_FILTER_CONFIG.HYPOTHESES_INCLUSION_CHANCE}% chance per item):`);
+    console.log(hypotheses);
+    console.log('\n[TIMELINE] (no filter):');
+    console.log(timeline);
+    console.log('\n[SOCIAL] (no filter):');
+    console.log(social);
+    console.log('\n[GAPS] (no filter):');
+    console.log(gaps);
+    console.log('\n[STYLE] (no filter):');
+    console.log(style);
+    console.log('═══════════════════════════════════════════════════════════\n');
+    // === КОНЕЦ ЛОГИРОВАНИЯ ===
     
     const timeContext = getTimeContext();
     
@@ -174,7 +203,8 @@ async function showProactiveGreeting() {
         // Генерируем случайный сид для гарантии разнообразия
         const randomSeed = Math.floor(Math.random() * 100000000);
         
-        await streamResponse(
+        // Для приветствия всегда используем OpenRouter (лёгкая модель)
+        await streamResponseOpenRouter(
             messages,
             (partialText) => {
                 updateStreamingMessage(streamingElement, partialText);
@@ -183,7 +213,6 @@ async function showProactiveGreeting() {
                 finalGreeting = finalText;
                 finalizeStreamingMessage(streamingElement, finalText);
             },
-            // Передаем настройки температуры и сида
             { temperature: 0.90, seed: randomSeed }
         );
         
@@ -227,6 +256,7 @@ async function showProactiveGreeting() {
         }
     }
 }
+
 // ==================== TIME CONTEXT ====================
 function getTimeContext() {
     const now = new Date();
@@ -403,8 +433,11 @@ ${timeContextText}
 **Hypotheses:** ${hypotheses || '(none yet)'}
 ${gapsBlock}
 
+
+выбери две области из контекста, которые являются самыми жирными и весомыми - те которые ты бы точно использовал в своем контекстуальности приветствии и не используй их! это защитит тебя от банальностей.
 be natural. Be warm. будь не слишком тривиальным. но и не перегружай приветствие контекстуальными отсылками и следи чтобы в
 нём не было бреда и бредовых фраз. Show you KNOW them from a NEW angle.
+твоё приветствие не должно быть перечнем нескольких абзацев разного контекста. ты должен показать что связываешь контекст, видишь его переплетения и можешь углубляться в его слои. удиви юзера этим, а не просто заполни свой ответ рандомными зацепками о нём 
 
 
 === YOUR TASK ===
@@ -882,7 +915,7 @@ function renderTimelineList() {
         html += '</div>';
     }
     
-    if (superseded.length > 0) {
+        if (superseded.length > 0) {
         html += `
             <div class="superseded-section">
                 <div class="superseded-header" onclick="toggleSupersededSection('timeline')">
@@ -1451,34 +1484,133 @@ function handleKeyDown(event) {
     }
 }
 
-// ==================== STREAMING RESPONSE ====================
-// ==================== STREAMING RESPONSE ====================
-async function streamResponse(messages, onChunk, onComplete, options = {}) {
+// ==================== STREAMING VIA OPENROUTER (для приветствий и анализа) ====================
+async function streamResponseOpenRouter(messages, onChunk, onComplete, options = {}) {
     const headers = {
         'Content-Type': 'application/json',
         'HTTP-Referer': window.location.href,
         'X-Title': 'Memory Chatbot'
     };
     
+    let apiUrl;
+    
     if (isLocal) {
-        const apiKey = getApiKey();
-        if (!apiKey) {
-            throw new Error("API Key is missing!");
+        apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
+        const orKey = localStorage.getItem('my_openrouter_key');
+        if (orKey) {
+            headers['Authorization'] = `Bearer ${orKey}`;
         }
-        headers['Authorization'] = `Bearer ${apiKey}`;
+    } else {
+        apiUrl = CONFIG.openrouterApiUrl; // /api/chat
     }
     
-    const apiUrl = isLocal ?
-        'https://openrouter.ai/api/v1/chat/completions' :
-        CONFIG.apiUrl;
-    
-    // Формируем тело запроса, объединяя базовые параметры и переданные опции
     const requestBody = {
-        model: CONFIG.model_chat,
+        model: CONFIG.model_analysis, // Лёгкая модель для приветствий
         messages: messages,
         stream: true,
-        ...options // Здесь подставятся temperature: 1.3 и seed
+        ...options
     };
+    
+    console.log(`[OpenRouter Stream] Model: ${CONFIG.model_analysis}`);
+    
+    const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify(requestBody)
+    });
+    
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+    }
+    
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let fullText = '';
+    let buffer = '';
+    
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || trimmed === 'data: [DONE]') continue;
+            
+            if (trimmed.startsWith('data: ')) {
+                try {
+                    const json = JSON.parse(trimmed.slice(6));
+                    const content = json.choices?.[0]?.delta?.content;
+                    if (content) {
+                        fullText += content;
+                        onChunk(fullText);
+                    }
+                } catch (e) {}
+            }
+        }
+    }
+    
+    onComplete(fullText);
+    return fullText;
+}
+
+// ==================== STREAMING RESPONSE (Hydra или OpenRouter fallback) ====================
+async function streamResponse(messages, onChunk, onComplete, options = {}) {
+    const useHydra = hasValidHydraKey();
+    
+    const headers = {
+        'Content-Type': 'application/json',
+        'HTTP-Referer': window.location.href,
+        'X-Title': 'Memory Chatbot'
+    };
+    
+    let apiUrl;
+    let model;
+    
+    if (useHydra) {
+        // Используем Hydra напрямую
+        apiUrl = CONFIG.hydraApiUrl;
+        model = CONFIG.model_chat;
+        headers['Authorization'] = `Bearer ${getHydraKey()}`;
+        console.log('[Stream] Using Hydra API');
+    } else if (isLocal) {
+        // Локальная разработка — OpenRouter напрямую
+        apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
+        model = CONFIG.model_fallback;
+        const orKey = localStorage.getItem('my_openrouter_key');
+        if (orKey) {
+            headers['Authorization'] = `Bearer ${orKey}`;
+        }
+        console.log('[Stream] Using OpenRouter (local)');
+    } else {
+        // Production без Hydra — через сервер
+        apiUrl = CONFIG.openrouterApiUrl;
+        model = CONFIG.model_fallback;
+        console.log('[Stream] Using OpenRouter (server)');
+    }
+    
+    const requestBody = {
+        model: model,
+        messages: messages,
+        stream: true,
+        ...options
+    };
+    
+    // Логирование
+    console.log('═══════════════════════════════════════════════════════════');
+    console.log(`[STREAM REQUEST] Model: ${model}, Via: ${useHydra ? 'Hydra' : 'OpenRouter'}`);
+    if (options.temperature) console.log(`[STREAM REQUEST] Temperature: ${options.temperature}`);
+    console.log('═══════════════════════════════════════════════════════════');
+    messages.forEach((msg, idx) => {
+        console.log(`\n[MESSAGE ${idx + 1}] Role: ${msg.role.toUpperCase()}`);
+        console.log('───────────────────────────────────────────────────────────');
+        console.log(msg.content?.substring(0, 500) + (msg.content?.length > 500 ? '...' : ''));
+    });
+    console.log('═══════════════════════════════════════════════════════════\n');
     
     const response = await fetch(apiUrl, {
         method: 'POST',
@@ -1554,7 +1686,6 @@ function updateStreamingMessage(element, content) {
     // НЕ скроллим во время стриминга — пусть юзер читает с начала
 }
 
-
 function finalizeStreamingMessage(element, content) {
     if (!element) return;
     
@@ -1618,6 +1749,25 @@ async function findRelevantContext(userMessage, history) {
     const allSocial = getSocialForPrompt();
     const gaps = getGapsForPrompt();
     
+    // === ЛОГИРОВАНИЕ ОТФИЛЬТРОВАННОГО КОНТЕКСТА ===
+    console.log('╔═══════════════════════════════════════════════════════════╗');
+    console.log('║        FILTERED CONTEXT FOR ANALYSIS (Stage 1)            ║');
+    console.log('╚═══════════════════════════════════════════════════════════╝');
+    console.log(`\n[FACTS] (${CONTEXT_FILTER_CONFIG.FACTS_INCLUSION_CHANCE}% chance per item):`);
+    console.log(allFacts);
+    console.log(`\n[TRAITS] (${CONTEXT_FILTER_CONFIG.TRAITS_INCLUSION_CHANCE}% chance per item):`);
+    console.log(allTraits);
+    console.log(`\n[HYPOTHESES] (${CONTEXT_FILTER_CONFIG.HYPOTHESES_INCLUSION_CHANCE}% chance per item):`);
+    console.log(allHypotheses);
+    console.log('\n[TIMELINE] (no filter):');
+    console.log(allTimeline);
+    console.log('\n[SOCIAL] (no filter):');
+    console.log(allSocial);
+    console.log('\n[GAPS] (no filter):');
+    console.log(gaps);
+    console.log('═══════════════════════════════════════════════════════════\n');
+    // === КОНЕЦ ЛОГИРОВАНИЯ ===
+    
     const recentHistory = history.slice(-4).map(m =>
         `${m.role.toUpperCase()}: ${m.content}`
     ).join('\n');
@@ -1669,18 +1819,18 @@ Return ONLY valid JSON:
 }`;
     
     try {
-        console.log('[Stage1] Analyzing context (with filtered memory)...');
+        console.log('[Stage1] Analyzing context via OpenRouter...');
         
-        const response = await callAPI(
+        // Stage 1 ВСЕГДА идёт через OpenRouter (лёгкая модель)
+        const response = await callAPIOpenRouter(
             [{ role: "user", content: analysisPrompt }],
-            null,
-            true
+            true  // useAnalysisModel = true
         );
         
         const parsed = parseJSON(response.content || response);
         
         if (parsed) {
-            console.log('[Stage1] Analysis:', parsed);
+            console.log('[Stage1] Analysis result:', parsed);
             return parsed;
         }
         return null;
@@ -1691,123 +1841,10 @@ Return ONLY valid JSON:
     }
 }
 
-async function generateResponseWithContext(userMessage, history, contextAnalysis, targetGap = null) {
-    const style = localStorage.getItem(STORAGE_KEYS.style) || '';
-    const langName = getLanguageName();
-    const archetype = pickResponseArchetype();
-    const qp = decideQuestionPolicyForThisTurn();
-    const timeContext = getTimeContext();
-    
-    let contextBlock = '';
-    
-    if (contextAnalysis) {
-        const intensity = contextAnalysis.personalization_intensity || 'light';
-        const needsPersonalization = contextAnalysis.needs_personalization !== false;
-        
-        if (!needsPersonalization || intensity === 'none') {
-            contextBlock = `
-=== CONTEXT ===
-Message type: ${contextAnalysis.message_type || 'general'}
-Tone: ${contextAnalysis.tone || 'neutral'}
-Note: This is a simple message. Respond naturally WITHOUT forcing memory references.
-`;
-        } else if (intensity === 'light') {
-            contextBlock = `
-=== CONTEXT (use lightly) ===
-Intent: ${contextAnalysis.user_intent || 'respond helpfully'}
-Tone: ${contextAnalysis.tone || 'warm'}
-${contextAnalysis.key_fact ? `Relevant fact: ${contextAnalysis.key_fact}` : ''}
-${contextAnalysis.key_trait ? `Consider trait: ${contextAnalysis.key_trait}` : ''}
-${contextAnalysis.suggested_angle ? `Angle: ${contextAnalysis.suggested_angle}` : ''}
-
-Rule: Use AT MOST one memory reference, and only if it flows naturally.
-`;
-        } else {
-            contextBlock = `
-=== CONTEXT ===
-Intent: ${contextAnalysis.user_intent}
-Emotional undertone: ${contextAnalysis.emotional_undertone || 'neutral'}
-Tone: ${contextAnalysis.tone || 'warm'}
-
-${contextAnalysis.key_fact ? `• Fact: ${contextAnalysis.key_fact}` : ''}
-${contextAnalysis.key_trait ? `• Trait: ${contextAnalysis.key_trait}` : ''}
-${contextAnalysis.key_person ? `• Person: ${contextAnalysis.key_person}` : ''}
-${contextAnalysis.key_insight ? `• Insight: ${contextAnalysis.key_insight}` : ''}
-${contextAnalysis.suggested_angle ? `\n💡 Angle: ${contextAnalysis.suggested_angle}` : ''}
-${contextAnalysis.gap_opportunity ? `\n🎯 Gap opportunity: ${contextAnalysis.gap_opportunity}` : ''}
-
-Rule: Pick 1-2 elements MAX that genuinely add value. Don't force them.
-`;
-        }
-    } else {
-        contextBlock = `
-=== CONTEXT ===
-No specific context found. Respond naturally and helpfully.
-`;
-    }
-    
-    let styleBlock = style?.trim() ? `\n=== STYLE ===\n${style}\n` : '';
-    
-    let questionRule = '';
-    
-    if (targetGap && qp.modeLabel === 'ASK_ME' && qp.shouldAsk) {
-        questionRule = `
-=== ASK ME MODE: ACTIVE ===
-YOUR GOAL: Fill a specific memory gap about: "${targetGap.topic}"
-REASON: ${targetGap.reason}
-
-INSTRUCTION:
-1. First, answer the user's current message naturally.
-2. Then, create a SEMANTIC BRIDGE to the target topic:
-   - If there is a connection (even a loose one), use it (e.g. "Speaking of...", "That reminds me of...").
-   - If the topics are totally unrelated, use a "Pivot" phrase (e.g. "On a totally different note...", "This popped into my head...").
-   - DO NOT make a jarring transition like "Cool cat. When did your grandma die?". Acknowledge the shift if necessary.
-   - в идеале стремись к тому чтобы семантический мост был сам по себе интересным и обоснованным
-3. Ask the question about "${targetGap.topic}".
-`;
-    } else if (qp.modeLabel === 'ASK_ME' && qp.shouldAsk) {
-        questionRule = `\nQuestion: You MAY end with ONE question about them (Ask Me Mode is on).`;
-    } else if (!qp.shouldAsk) {
-        questionRule = `\nQuestion: Do NOT ask questions in this response.`;
-    }
-    
-    const systemPrompt = `You are a personal AI who knows this user. Respond in ${langName}.
-
-${contextBlock}
-${styleBlock}
-=== APPROACH ===
-Archetype: ${archetype}
-${questionRule}
-
-=== KEY RULES ===
-1. LESS IS MORE — one natural reference beats three forced ones
-2. If context doesn't fit naturally, DON'T USE IT
-3. Simple messages get simple responses
-4. Sound like a friend, not a database query
-5. Vary your style — not every response needs to be "personalized"
-
-Sometimes the best response is just helpful, without proving you have memory.`;
-    
-    const apiMessages = [
-        { role: "system", content: systemPrompt },
-        ...history.slice(-8).map(msg => ({
-            role: msg.role === 'user' ? 'user' : 'assistant',
-            content: msg.content
-        })),
-        { role: "user", content: userMessage }
-    ];
-    
-    console.log('[Stage2] Generating response (intensity: ' +
-        (contextAnalysis?.personalization_intensity || 'unknown') + ')');
-    
-    const response = await callAPI(apiMessages, null, false);
-    return response.content || response;
-}
-
 async function processMessageWithTwoStages(userMessage) {
     const history = getChatHistory();
     
-    // ========== STAGE 1: CONTEXT ANALYSIS ==========
+    // ========== STAGE 1: CONTEXT ANALYSIS (OpenRouter) ==========
     updateThinkingMessage(t('analyzingContext') || '🔍 Understanding context...');
     
     const contextAnalysis = await findRelevantContext(userMessage, history);
@@ -1829,7 +1866,7 @@ async function processMessageWithTwoStages(userMessage) {
         }
     }
 
-    // ========== STAGE 2: STREAMING RESPONSE ==========
+    // ========== STAGE 2: STREAMING RESPONSE (Hydra или fallback) ==========
     removeThinkingMessage();
     
     const streamingElement = createStreamingMessage();
@@ -1937,7 +1974,7 @@ Sometimes the best response is just helpful, without proving you have memory.`;
             { role: "user", content: userMessage }
         ];
         
-        console.log('[Stage2] Streaming response...');
+        console.log('[Stage2] Streaming response via ' + (hasValidHydraKey() ? 'Hydra' : 'OpenRouter fallback'));
         
         const fullResponse = await streamResponse(
             apiMessages,
@@ -1958,10 +1995,119 @@ Sometimes the best response is just helpful, without proving you have memory.`;
             streamingElement.remove();
         }
         
+        // Fallback без стриминга
         const response = await generateResponseWithContext(userMessage, history, contextAnalysis, targetGap);
         appendMessage('assistant', response, true);
         return response;
     }
+}
+
+async function generateResponseWithContext(userMessage, history, contextAnalysis, targetGap = null) {
+    const style = localStorage.getItem(STORAGE_KEYS.style) || '';
+    const langName = getLanguageName();
+    const archetype = pickResponseArchetype();
+    const qp = decideQuestionPolicyForThisTurn();
+    
+    let contextBlock = '';
+    
+    if (contextAnalysis) {
+        const intensity = contextAnalysis.personalization_intensity || 'light';
+        const needsPersonalization = contextAnalysis.needs_personalization !== false;
+        
+        if (!needsPersonalization || intensity === 'none') {
+            contextBlock = `
+=== CONTEXT ===
+Message type: ${contextAnalysis.message_type || 'general'}
+Tone: ${contextAnalysis.tone || 'neutral'}
+Note: This is a simple message. Respond naturally WITHOUT forcing memory references.
+`;
+        } else if (intensity === 'light') {
+            contextBlock = `
+=== CONTEXT (use lightly) ===
+Intent: ${contextAnalysis.user_intent || 'respond helpfully'}
+Tone: ${contextAnalysis.tone || 'warm'}
+${contextAnalysis.key_fact ? `Relevant fact: ${contextAnalysis.key_fact}` : ''}
+${contextAnalysis.key_trait ? `Consider trait: ${contextAnalysis.key_trait}` : ''}
+${contextAnalysis.suggested_angle ? `Angle: ${contextAnalysis.suggested_angle}` : ''}
+
+Rule: Use AT MOST one memory reference, and only if it flows naturally.
+`;
+        } else {
+            contextBlock = `
+=== CONTEXT ===
+Intent: ${contextAnalysis.user_intent}
+Emotional undertone: ${contextAnalysis.emotional_undertone || 'neutral'}
+Tone: ${contextAnalysis.tone || 'warm'}
+
+${contextAnalysis.key_fact ? `• Fact: ${contextAnalysis.key_fact}` : ''}
+${contextAnalysis.key_trait ? `• Trait: ${contextAnalysis.key_trait}` : ''}
+${contextAnalysis.key_person ? `• Person: ${contextAnalysis.key_person}` : ''}
+${contextAnalysis.key_insight ? `• Insight: ${contextAnalysis.key_insight}` : ''}
+${contextAnalysis.suggested_angle ? `\n💡 Angle: ${contextAnalysis.suggested_angle}` : ''}
+${contextAnalysis.gap_opportunity ? `\n🎯 Gap opportunity: ${contextAnalysis.gap_opportunity}` : ''}
+
+Rule: Pick 1-2 elements MAX that genuinely add value. Don't force them.
+`;
+        }
+    } else {
+        contextBlock = `
+=== CONTEXT ===
+No specific context found. Respond naturally and helpfully.
+`;
+    }
+    
+    let styleBlock = style?.trim() ? `\n=== STYLE ===\n${style}\n` : '';
+    
+    let questionRule = '';
+    
+    if (targetGap && qp.modeLabel === 'ASK_ME' && qp.shouldAsk) {
+        questionRule = `
+=== ASK ME MODE: ACTIVE ===
+YOUR GOAL: Fill a specific memory gap about: "${targetGap.topic}"
+REASON: ${targetGap.reason}
+
+INSTRUCTION:
+1. First, answer the user's current message naturally.
+2. Then, create a SEMANTIC BRIDGE to the target topic.
+3. Ask the question about "${targetGap.topic}".
+`;
+    } else if (qp.modeLabel === 'ASK_ME' && qp.shouldAsk) {
+        questionRule = `\nQuestion: You MAY end with ONE question about them (Ask Me Mode is on).`;
+    } else if (!qp.shouldAsk) {
+        questionRule = `\nQuestion: Do NOT ask questions in this response.`;
+    }
+    
+    const systemPrompt = `You are a personal AI who knows this user. Respond in ${langName}.
+
+${contextBlock}
+${styleBlock}
+=== APPROACH ===
+Archetype: ${archetype}
+${questionRule}
+
+=== KEY RULES ===
+1. LESS IS MORE — one natural reference beats three forced ones
+2. If context doesn't fit naturally, DON'T USE IT
+3. Simple messages get simple responses
+4. Sound like a friend, not a database query
+5. Vary your style — not every response needs to be "personalized"
+
+Sometimes the best response is just helpful, without proving you have memory.`;
+    
+    const apiMessages = [
+        { role: "system", content: systemPrompt },
+        ...history.slice(-8).map(msg => ({
+            role: msg.role === 'user' ? 'user' : 'assistant',
+            content: msg.content
+        })),
+        { role: "user", content: userMessage }
+    ];
+    
+    console.log('[Stage2] Generating response (non-streaming fallback)');
+    
+    // Для финального ответа используем Hydra или fallback
+    const response = await callAPIWithHydraFallback(apiMessages);
+    return response.content || response;
 }
 
 // ==================== LEGACY: TOOLS-BASED PROCESSING ====================
@@ -1985,7 +2131,7 @@ async function processMessageWithTools(userMessage) {
         iterations++;
         console.log(`[Tools] Iteration ${iterations}/${CONFIG.maxToolIterations}`);
 
-        const response = await callAPI(apiMessages, tools, false);
+        const response = await callAPIOpenRouter(apiMessages, false);
         
         if (response.tool_calls?.length > 0) {
             console.log('[Tools] Model requested tools:', response.tool_calls);
@@ -2004,7 +2150,7 @@ async function processMessageWithTools(userMessage) {
                 const toolArgs = JSON.parse(toolCall.function.arguments || '{}');
                 
                 appendToolCall(toolName, toolArgs);
-                  const result = executeTool(toolName, toolArgs);
+                const result = executeTool(toolName, toolArgs);
                 console.log(`[Tools] ${toolName} result:`, result?.substring?.(0, 100) || result);
                 
                 apiMessages.push({
@@ -2012,291 +2158,366 @@ async function processMessageWithTools(userMessage) {
                     tool_call_id: toolCall.id,
                     content: result
                 });
-                }
-                
-                continue;
-                }
-                
-                console.log(`[Tools] Final response after ${iterations} iteration(s)`);
-                return response.content || '';
-                }
-                
-                throw new Error('Tool iteration limit exceeded');
-                }
-                
-                function buildSystemPromptLegacy() {
-                    let prompt = CONFIG.baseSystemPrompt;
-                    const langName = getLanguageName();
-                    prompt += `\n\nIMPORTANT: Always respond in ${langName}.`;
-                    
-                    const style = localStorage.getItem(STORAGE_KEYS.style);
-                    if (style && style.trim()) {
-                        prompt += `\n\n=== COMMUNICATION STYLE ===\n${style}`;
-                    }
-                    
-                    return prompt;
-                }
-                
-                // ==================== API REQUESTS ====================
-                function prepareRequestOptions(messages, tools = null, useAnalysisModel = false) {
-                    const headers = {
-                        'Content-Type': 'application/json',
-                        'HTTP-Referer': window.location.href,
-                        'X-Title': 'Memory Chatbot'
-                    };
-                    
-                    if (isLocal) {
-                        const apiKey = getApiKey();
-                        if (!apiKey) {
-                            throw new Error("API Key is missing! Enter it in the Dev Settings box.");
-                        }
-                        headers['Authorization'] = `Bearer ${apiKey}`;
-                    }
-                    
-                    const model = useAnalysisModel ? CONFIG.model_analysis : CONFIG.model_chat;
-                    
-                    const body = { model, messages };
-                    
-                    if (tools && tools.length > 0) {
-                        body.tools = tools;
-                        body.tool_choice = "auto";
-                    }
-                    
-                    return {
-                        method: 'POST',
-                        headers,
-                        body: JSON.stringify(body)
-                    };
-                }
-                
-                async function callAPI(messages, tools = null, useAnalysisModel = false, retries = CONFIG.maxRetries) {
-                    for (let attempt = 1; attempt <= retries; attempt++) {
-                        try {
-                            const modelType = useAnalysisModel ? 'analysis' : 'chat';
-                            console.log(`[API] Attempt ${attempt}/${retries} (Model: ${modelType})`);
-                            
-                            const options = prepareRequestOptions(messages, tools, useAnalysisModel);
-                            const response = await fetch(CONFIG.apiUrl, options);
-                            
-                            if (!response.ok) {
-                                const errorText = await response.text();
-                                if (response.status === 401 && isLocal) {
-                                    throw new Error("Invalid API Key. Check your key.");
-                                }
-                                throw new Error(`HTTP ${response.status}: ${errorText}`);
-                            }
-                            
-                            const data = await response.json();
-                            
-                            // Основной формат OpenRouter
-                            if (data.choices && data.choices.length > 0 && data.choices[0].message) {
-                                return data.choices[0].message;
-                            }
-                            
-                            // Альтернативный формат
-                            if (data.choices && data.choices.length > 0 && data.choices[0].text) {
-                                return { content: data.choices[0].text, role: 'assistant' };
-                            }
-                            
-                            // Прямой content
-                            if (data.content) {
-                                return { content: data.content, role: 'assistant' };
-                            }
-                            
-                            // Если data.message существует
-                            if (data.message && typeof data.message === 'string') {
-                                return { content: data.message, role: 'assistant' };
-                            }
-                            
-                            // Ошибка от API
-                            if (data.error) {
-                                throw new Error(data.error.message || JSON.stringify(data.error));
-                            }
-                            
-                            console.error('[API] Cannot parse response structure:', Object.keys(data));
-                            throw new Error('Could not parse API response');
-                            
-                        } catch (error) {
-                            console.error(`[API] Attempt ${attempt} error:`, error.message);
-                            if (attempt === retries) throw error;
-                            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-                        }
-                    }
-                }
-                
-                async function callAPIWithoutLanguage(messages, retries = CONFIG.maxRetries) {
-                    return callAPI(messages, null, false, retries);
-                }
-                
-                async function callAPIWithRetry(prompt, maxRetries = 2, useAnalysisModel = false) {
-                    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-                        try {
-                            const response = await callAPI([{ role: "user", content: prompt }], null, useAnalysisModel);
-                            return response.content || response;
-                        } catch (error) {
-                            console.error(`[API Retry] Attempt ${attempt}/${maxRetries} failed:`, error.message);
-                            if (attempt === maxRetries) throw error;
-                            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-                        }
-                    }
-                }
-                
-                function parseJSON(text) {
-                    try {
-                        let jsonStr = text;
-                        
-                        const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-                        if (codeBlockMatch) {
-                            jsonStr = codeBlockMatch[1].trim();
-                        } else {
-                            const jsonMatch = text.match(/\{[\s\S]*\}/);
-                            if (jsonMatch) jsonStr = jsonMatch[0];
-                        }
-                        
-                        return JSON.parse(jsonStr);
-                    } catch (error) {
-                        console.error('[JSON Parse] FAILED:', error.message);
-                        console.error('[JSON Parse] Text was:', text.substring(0, 200));
-                        return null;
-                    }
-                }
-                
-                // ==================== SEND MESSAGE ====================
-                async function sendMessage(event) {
-                    event.preventDefault();
-                    
-                    if (isProcessing) return;
-                    
-                    const input = document.getElementById('messageInput');
-                    const message = input.value.trim();
-                    
-                    if (!message) return;
-                    
-                    isProcessing = true;
-                    const sendBtn = document.getElementById('sendBtn');
-                    if (sendBtn) sendBtn.disabled = true;
-                    input.value = '';
-                    input.style.height = 'auto';
-                    
-                    appendMessage('user', message);
-                    
-                    try {
-                        // ===== TWO-STAGE PROCESSING WITH STREAMING =====
-                        await processMessageWithTwoStages(message);
-                        
-                        const counter = incrementMessageCounter();
-                        console.log(`[Counter] Messages: ${counter}`);
-                        
-                        // Background analysis
-                        runBackgroundAnalysis();
-                        
-                        if (shouldUpdateGaps()) {
-                            console.log('[Gaps] Updating...');
-                            runGapsUpdate();
-                        }
-                        
-                        updateAskMeModeUI();
-                        
-                        if (shouldUpdateStyle()) {
-                            console.log('[Style] Updating...');
-                            runStyleUpdate();
-                        }
-                        
-                        if (shouldUpdateHypotheses()) {
-                            console.log('[Hypotheses] Updating...');
-                            runHypothesesUpdate();
-                        }
-                        
-                    } catch (error) {
-                        removeThinkingMessage();
-                        const streamingMsg = document.getElementById('streamingMessage');
-                        if (streamingMsg) streamingMsg.remove();
-                        
-                        console.error('[Chat] Error:', error);
-                        appendMessage('system', `Error: ${error.message}`);
-                    } finally {
-                        isProcessing = false;
-                        if (sendBtn) sendBtn.disabled = false;
-                    }
-                }
-                
-                // ==================== HELP MODAL ====================
-                function openHelpModal() {
-                    const modal = document.getElementById('helpModal');
-                    if (modal) modal.classList.add('active');
-                    document.body.style.overflow = 'hidden';
-                }
-                
-                function closeHelpModal() {
-                    const modal = document.getElementById('helpModal');
-                    if (modal) modal.classList.remove('active');
-                    document.body.style.overflow = '';
-                }
-                
-                document.addEventListener('click', (e) => {
-                    if (e.target.id === 'helpModal') closeHelpModal();
-                });
-                
-                document.addEventListener('keydown', (e) => {
-                    if (e.key === 'Escape') closeHelpModal();
-                });
-                
-                // ==================== LOCAL DEV SETTINGS ====================
-                function initLocalDevSettings() {
-                    const devBox = document.getElementById('dev-settings');
-                    if (devBox) {
-                        devBox.style.display = 'block';
-                        
-                        const savedKey = localStorage.getItem('my_openrouter_key');
-                        const statusSpan = document.getElementById('key-status');
-                        const input = document.getElementById('local-api-key');
-                        
-                        if (savedKey && input) {
-                            input.value = savedKey;
-                            if (statusSpan) statusSpan.innerText = "✅ Loaded";
-                        }
-                    }
-                }
-                
-                window.saveLocalKey = function() {
-                    const input = document.getElementById('local-api-key');
-                    if (input) {
-                        const key = input.value.trim();
-                        if (key.startsWith('sk-or-')) {
-                            localStorage.setItem('my_openrouter_key', key);
-                            const status = document.getElementById('key-status');
-                            if (status) status.innerText = "💾 Saved!";
-                            alert("API Key saved locally!");
-                        } else {
-                            alert("Key typically starts with 'sk-or-'. Please check.");
-                        }
-                    }
-                }
-                
-                // ==================== DEBUG UTILITIES ====================
-                window.debugTwoStage = async function(message) {
-                    console.log('=== TWO-STAGE DEBUG ===');
-                    const history = getChatHistory();
-                    
-                    console.log('[Debug] Stage 1: Analyzing context...');
-                    const context = await findRelevantContext(message, history);
-                    console.log('[Debug] Context analysis result:', JSON.stringify(context, null, 2));
-                    
-                    console.log('[Debug] Stage 2: Would generate response with this context');
-                    return context;
-                };
-                
-                window.debugMemory = function() {
-                    console.log('=== MEMORY DEBUG ===');
-                    console.log('Facts:', getFactsForPrompt());
-                    console.log('Traits:', getTraitsForPrompt());
-                    console.log('Timeline:', getTimelineForPrompt());
-                    console.log('Social:', getSocialForPrompt());
-                    console.log('Hypotheses:', getHypothesesForPrompt());
-                    console.log('Gaps:', getGapsForPrompt());
-                    console.log('Style:', localStorage.getItem(STORAGE_KEYS.style));
-                };
-                
-                // ==================== INITIALIZATION COMPLETE ====================
-                console.log('[ui.js] Loaded. Two-Stage Response Architecture with Streaming active.');
-                console.log('[ui.js] Debug commands: debugTwoStage("message"), debugMemory()');              
+            }
+            
+            continue;
+        }
+        
+        console.log(`[Tools] Final response after ${iterations} iteration(s)`);
+        return response.content || '';
+    }
+    
+    throw new Error('Tool iteration limit exceeded');
+}
+
+function buildSystemPromptLegacy() {
+    let prompt = CONFIG.baseSystemPrompt;
+    const langName = getLanguageName();
+    prompt += `\n\nIMPORTANT: Always respond in ${langName}.`;
+    
+    const style = localStorage.getItem(STORAGE_KEYS.style);
+    if (style && style.trim()) {
+        prompt += `\n\n=== COMMUNICATION STYLE ===\n${style}`;
+    }
+    
+    return prompt;
+}
+
+// ==================== API REQUESTS ====================
+
+// Вызов API через OpenRouter (для анализа, аналитики, приветствий)
+async function callAPIOpenRouter(messages, useAnalysisModel = false, tools = null) {
+    const headers = {
+        'Content-Type': 'application/json',
+        'HTTP-Referer': window.location.href,
+        'X-Title': 'Memory Chatbot'
+    };
+    
+    let apiUrl;
+    
+    if (isLocal) {
+        apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
+        const orKey = localStorage.getItem('my_openrouter_key');
+        if (orKey) {
+            headers['Authorization'] = `Bearer ${orKey}`;
+        }
+    } else {
+        apiUrl = CONFIG.openrouterApiUrl; // /api/chat (server proxy)
+    }
+    
+    const model = useAnalysisModel ? CONFIG.model_analysis : CONFIG.model_fallback;
+    
+    const body = { model, messages };
+    
+    if (tools && tools.length > 0) {
+        body.tools = tools;
+        body.tool_choice = 'auto';
+    }
+    
+    console.log(`[API OpenRouter] Model: ${model}`);
+    
+    const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body)
+    });
+    
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+    }
+    
+    const data = await response.json();
+    
+    if (data.choices && data.choices.length > 0 && data.choices[0].message) {
+        return data.choices[0].message;
+    }
+    
+    if (data.choices && data.choices.length > 0 && data.choices[0].text) {
+        return { content: data.choices[0].text, role: 'assistant' };
+    }
+    
+    if (data.content) {
+        return { content: data.content, role: 'assistant' };
+    }
+    
+    if (data.error) {
+        throw new Error(data.error.message || JSON.stringify(data.error));
+    }
+    
+    throw new Error('Could not parse API response');
+}
+
+// Вызов API с приоритетом Hydra, fallback на OpenRouter
+async function callAPIWithHydraFallback(messages, tools = null) {
+    const useHydra = hasValidHydraKey();
+    
+    if (useHydra) {
+        try {
+            return await callAPIHydra(messages, tools);
+        } catch (error) {
+            console.error('[Hydra] Failed, falling back to OpenRouter:', error.message);
+            return await callAPIOpenRouter(messages, false, tools);
+        }
+    } else {
+        return await callAPIOpenRouter(messages, false, tools);
+    }
+}
+
+// Прямой вызов Hydra API
+async function callAPIHydra(messages, tools = null) {
+    const headers = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${getHydraKey()}`,
+        'HTTP-Referer': window.location.href,
+        'X-Title': 'Memory Chatbot'
+    };
+    
+    const body = { 
+        model: CONFIG.model_chat, 
+        messages 
+    };
+    
+    if (tools && tools.length > 0) {
+        body.tools = tools;
+        body.tool_choice = 'auto';
+    }
+    
+    console.log(`[API Hydra] Model: ${CONFIG.model_chat}`);
+    
+    const response = await fetch(CONFIG.hydraApiUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body)
+    });
+    
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+    }
+    
+    const data = await response.json();
+    
+    if (data.choices && data.choices.length > 0 && data.choices[0].message) {
+        return data.choices[0].message;
+    }
+    
+    if (data.content) {
+        return { content: data.content, role: 'assistant' };
+    }
+    
+    if (data.error) {
+        throw new Error(data.error.message || JSON.stringify(data.error));
+    }
+    
+    throw new Error('Could not parse Hydra API response');
+}
+
+// Legacy callAPI — теперь использует OpenRouter
+async function callAPI(messages, tools = null, useAnalysisModel = false, retries = CONFIG.maxRetries) {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+        try {
+            console.log(`[API] Attempt ${attempt}/${retries}`);
+            return await callAPIOpenRouter(messages, useAnalysisModel, tools);
+        } catch (error) {
+            console.error(`[API] Attempt ${attempt} error:`, error.message);
+            if (attempt === retries) throw error;
+            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+        }
+    }
+}
+
+async function callAPIWithoutLanguage(messages, retries = CONFIG.maxRetries) {
+    return callAPI(messages, null, false, retries);
+}
+
+async function callAPIWithRetry(prompt, maxRetries = 2, useAnalysisModel = false) {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            const response = await callAPIOpenRouter([{ role: "user", content: prompt }], useAnalysisModel);
+            return response.content || response;
+        } catch (error) {
+            console.error(`[API Retry] Attempt ${attempt}/${maxRetries} failed:`, error.message);
+            if (attempt === maxRetries) throw error;
+            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+        }
+    }
+}
+
+function parseJSON(text) {
+    try {
+        let jsonStr = text;
+        
+        const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+        if (codeBlockMatch) {
+            jsonStr = codeBlockMatch[1].trim();
+        } else {
+            const jsonMatch = text.match(/\{[\s\S]*\}/);
+            if (jsonMatch) jsonStr = jsonMatch[0];
+        }
+        
+        return JSON.parse(jsonStr);
+    } catch (error) {
+        console.error('[JSON Parse] FAILED:', error.message);
+        console.error('[JSON Parse] Text was:', text.substring(0, 200));
+        return null;
+    }
+}
+
+// ==================== SEND MESSAGE ====================
+async function sendMessage(event) {
+    event.preventDefault();
+    
+    if (isProcessing) return;
+    
+    const input = document.getElementById('messageInput');
+    const message = input.value.trim();
+    
+    if (!message) return;
+    
+    isProcessing = true;
+    const sendBtn = document.getElementById('sendBtn');
+    if (sendBtn) sendBtn.disabled = true;
+    input.value = '';
+    input.style.height = 'auto';
+    
+    appendMessage('user', message);
+    
+    try {
+        // ===== TWO-STAGE PROCESSING WITH STREAMING =====
+        await processMessageWithTwoStages(message);
+        
+        const counter = incrementMessageCounter();
+        console.log(`[Counter] Messages: ${counter}`);
+        
+        // Background analysis
+        runBackgroundAnalysis();
+        
+        if (shouldUpdateGaps()) {
+            console.log('[Gaps] Updating...');
+            runGapsUpdate();
+        }
+        
+        updateAskMeModeUI();
+        
+        if (shouldUpdateStyle()) {
+            console.log('[Style] Updating...');
+            runStyleUpdate();
+        }
+        
+        if (shouldUpdateHypotheses()) {
+            console.log('[Hypotheses] Updating...');
+            runHypothesesUpdate();
+        }
+        
+    } catch (error) {
+        removeThinkingMessage();
+        const streamingMsg = document.getElementById('streamingMessage');
+        if (streamingMsg) streamingMsg.remove();
+        
+        console.error('[Chat] Error:', error);
+        appendMessage('system', `Error: ${error.message}`);
+    } finally {
+        isProcessing = false;
+        if (sendBtn) sendBtn.disabled = false;
+    }
+}
+
+// ==================== HELP MODAL ====================
+function openHelpModal() {
+    const modal = document.getElementById('helpModal');
+    if (modal) modal.classList.add('active');
+    document.body.style.overflow = 'hidden';
+}
+
+function closeHelpModal() {
+    const modal = document.getElementById('helpModal');
+    if (modal) modal.classList.remove('active');
+    document.body.style.overflow = '';
+}
+
+document.addEventListener('click', (e) => {
+    if (e.target.id === 'helpModal') closeHelpModal();
+});
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeHelpModal();
+});
+
+// ==================== API KEY SETTINGS (для всех пользователей) ====================
+function initApiKeySettings() {
+    const devBox = document.getElementById('dev-settings');
+    if (!devBox) return;
+    
+    // Показываем всегда, не только для localhost
+    devBox.style.display = 'block';
+    
+    const savedKey = localStorage.getItem(STORAGE_KEYS.hydraKey);
+    const statusSpan = document.getElementById('key-status');
+    const input = document.getElementById('local-api-key');
+    
+    if (savedKey && input) {
+        input.value = savedKey;
+        if (statusSpan) statusSpan.innerText = "✅ Hydra key loaded";
+    } else {
+        if (statusSpan) statusSpan.innerText = "ℹ️ Using free model";
+    }
+}
+
+window.saveLocalKey = function() {
+    const input = document.getElementById('local-api-key');
+    if (!input) return;
+    
+    const key = input.value.trim();
+    const status = document.getElementById('key-status');
+    
+    if (!key) {
+        // Очистка ключа
+        localStorage.removeItem(STORAGE_KEYS.hydraKey);
+        if (status) status.innerText = "ℹ️ Using free model";
+        return;
+    }
+    
+    if (key.startsWith('sk')) {
+        localStorage.setItem(STORAGE_KEYS.hydraKey, key);
+        if (status) status.innerText = "✅ Hydra key saved!";
+    } else {
+        if (status) status.innerText = "⚠️ Key should start with 'sk'";
+    }
+}
+
+// ==================== DEBUG UTILITIES ====================
+window.debugTwoStage = async function(message) {
+    console.log('=== TWO-STAGE DEBUG ===');
+    const history = getChatHistory();
+    
+    console.log('[Debug] Stage 1: Analyzing context...');
+    const context = await findRelevantContext(message, history);
+    console.log('[Debug] Context analysis result:', JSON.stringify(context, null, 2));
+    
+    console.log('[Debug] Stage 2: Would generate response with this context');
+    return context;
+};
+
+window.debugMemory = function() {
+    console.log('=== MEMORY DEBUG ===');
+    console.log('Facts:', getFactsForPrompt());
+    console.log('Traits:', getTraitsForPrompt());
+    console.log('Timeline:', getTimelineForPrompt());
+    console.log('Social:', getSocialForPrompt());
+    console.log('Hypotheses:', getHypothesesForPrompt());
+    console.log('Gaps:', getGapsForPrompt());
+    console.log('Style:', localStorage.getItem(STORAGE_KEYS.style));
+};
+
+window.debugApiStatus = function() {
+    console.log('=== API STATUS ===');
+    console.log('Hydra key present:', hasValidHydraKey());
+    console.log('Hydra key:', getHydraKey() ? '***' + getHydraKey().slice(-4) : 'none');
+    console.log('isLocal:', isLocal);
+    console.log('OpenRouter key (local):', localStorage.getItem('my_openrouter_key') ? 'present' : 'none');
+};
+
+// ==================== INITIALIZATION COMPLETE ====================
+console.log('[ui.js] Loaded. Two-Stage Response Architecture with Hydra/OpenRouter support.');
+console.log('[ui.js] Debug commands: debugTwoStage("message"), debugMemory(), debugApiStatus()');

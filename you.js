@@ -5,13 +5,16 @@
 // Конфигурация YOU
 // ============================================
 
+// ============================================
+// Конфигурация YOU
+// ============================================
+
 const YOU_CONFIG = {
-   model: 'xiaomi/mimo-v2-flash:free',
-  // model: 'nex-agi/deepseek-v3.1-nex-n1:free',
-  
-  
-  
-  
+    models: {
+        cards: 'mistralai/devstral-2512:free', // Генерация уточнённых карточек
+        analysis: 'xiaomi/mimo-v2-flash:free', // Промежуточные и финальные выводы
+        discussion: 'tngtech/deepseek-r1t2-chimera:free' // Обсуждение с ассистентом
+    },
     timeout: 60000,
     zoneLimits: {
         yes: 2,
@@ -19,7 +22,6 @@ const YOU_CONFIG = {
         no: 1
     }
 };
-
 // ============================================
 // Storage ключи (изолированные)
 // ============================================
@@ -278,7 +280,11 @@ let youState = {
 // API вызов (через общий endpoint, как в основном боте)
 // ============================================
 
-async function youCallAI(prompt) {
+// ============================================
+// API вызов (через общий endpoint, как в основном боте)
+// ============================================
+
+async function youCallAI(prompt, model = YOU_CONFIG.models.analysis) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), YOU_CONFIG.timeout);
     
@@ -308,11 +314,13 @@ async function youCallAI(prompt) {
             'https://openrouter.ai/api/v1/chat/completions' :
             '/api/chat';
         
+        console.log(`[YOU] Using model: ${model}`);
+        
         const response = await fetch(apiUrl, {
             method: 'POST',
             headers: headers,
             body: JSON.stringify({
-                model: YOU_CONFIG.model,
+                model: model,
                 messages: [{ role: 'user', content: prompt }]
             }),
             signal: controller.signal
@@ -340,6 +348,7 @@ async function youCallAI(prompt) {
         throw error;
     }
 }
+
 // ============================================
 // Открытие/закрытие модалки YOU
 // ============================================
@@ -534,8 +543,13 @@ async function youHandleNext() {
         
         data.step1Promise = (async () => {
             try {
+                // Портрет — модель analysis
                 data.portrait1 = await youCallAI(config.promptPortrait(selection));
-                const qualitiesText = await youCallAI(config.promptItems(data.portrait1));
+                // Карточки — модель cards
+                const qualitiesText = await youCallAI(
+                    config.promptItems(data.portrait1),
+                    YOU_CONFIG.models.cards
+                );
                 data.step2Qualities = youParseQualities(qualitiesText);
             } catch (error) {
                 console.error(`[YOU] Background processing failed for ${round.mode}:`, error);
@@ -553,6 +567,7 @@ async function youHandleNext() {
         } else {
             data.step2Promise = (async () => {
                 try {
+                    // Финальный портрет режима — модель analysis
                     data.finalPortrait = await youCallAI(config.promptPortrait(selection));
                 } catch (error) {
                     console.error(`[YOU] Final portrait failed for ${round.mode}:`, error);
@@ -1352,7 +1367,7 @@ ${botTimeline || '(нет данных)'}
 Пиши живо, интересно, без занудства. Удиви пользователя глубиной понимания.`;
     
     try {
-        const response = await youCallAI(prompt);
+        const response = await youCallAI(prompt, YOU_CONFIG.models.discussion);
         youShowDiscussionResult(response);
     } catch (error) {
         youShowDiscussionError(error.message);

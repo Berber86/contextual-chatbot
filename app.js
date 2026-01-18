@@ -153,7 +153,9 @@ let translations = { ...DEFAULT_TRANSLATIONS };
 // ==================== STORAGE KEYS ====================
 const STORAGE_KEYS = {
     apiKey: 'chatbot_api_key',
+    hydraKey: 'chatbot_hydra_key', // ← ДОБАВИТЬ
     chatHistory: 'chatbot_chat_history',
+
     facts: 'chatbot_knowledge_facts',
     traits: 'chatbot_knowledge_traits',
     timeline: 'chatbot_knowledge_timeline',
@@ -179,9 +181,9 @@ const LIMITS = {
 
 // ==================== CONTEXT FILTERING CONFIG ====================
 const CONTEXT_FILTER_CONFIG = {
-    FACTS_INCLUSION_CHANCE: 95,      // % шанс включения каждого факта
-    TRAITS_INCLUSION_CHANCE: 95,     // % шанс включения каждой черты
-    HYPOTHESES_INCLUSION_CHANCE: 95  // % шанс включения каждой гипотезы
+    FACTS_INCLUSION_CHANCE: 100,      // % шанс включения каждого факта
+    TRAITS_INCLUSION_CHANCE: 100,     // % шанс включения каждой черты
+    HYPOTHESES_INCLUSION_CHANCE: 100  // % шанс включения каждой гипотезы
 };
 
 // ==================== CONFIDENCE LEVELS ====================
@@ -413,14 +415,8 @@ function getFactsForDisplay() {
 function getFactsForPrompt(filtered = false) {
     const data = getFactsData();
     
-    let result = '';
-    
-    if (data.legacy_text) {
-        result += `[Legacy notes]: ${data.legacy_text}\n\n`;
-    }
-    
     if (data.facts.length === 0) {
-        return result || '(no facts recorded yet)';
+        return '(no facts recorded yet)';
     }
     
     let active = data.facts.filter(f => !f.superseded);
@@ -428,16 +424,14 @@ function getFactsForPrompt(filtered = false) {
     if (filtered) {
         active = filterByChance(active, CONTEXT_FILTER_CONFIG.FACTS_INCLUSION_CHANCE);
         if (active.length === 0) {
-            return result || '(no facts selected this time)';
+            return '(no facts selected this time)';
         }
     }
     
-    result += active.map((f, i) => {
+    return active.map((f, i) => {
         const evidence = f.evidence?.length > 0 ? ` [evidence: "${f.evidence[0]}"]` : '';
         return `${i + 1}. ${f.text} (${f.confidence})${evidence}`;
     }).join('\n');
-    
-    return result;
 }
 
 // ==================== TRAITS STORAGE ====================
@@ -491,14 +485,8 @@ function getTraitsForDisplay() {
 function getTraitsForPrompt(filtered = false) {
     const data = getTraitsData();
     
-    let result = '';
-    
-    if (data.legacy_text) {
-        result += `[Legacy notes]: ${data.legacy_text}\n\n`;
-    }
-    
     if (data.traits.length === 0) {
-        return result || '(no personality traits recorded yet)';
+        return '(no personality traits recorded yet)';
     }
     
     let active = data.traits.filter(t => !t.superseded);
@@ -506,18 +494,15 @@ function getTraitsForPrompt(filtered = false) {
     if (filtered) {
         active = filterByChance(active, CONTEXT_FILTER_CONFIG.TRAITS_INCLUSION_CHANCE);
         if (active.length === 0) {
-            return result || '(no traits selected this time)';
+            return '(no traits selected this time)';
         }
     }
     
-    result += active.map((tr, i) => {
+    return active.map((tr, i) => {
         const evidence = tr.evidence?.length > 0 ? ` [based on: "${tr.evidence[0]}"]` : '';
         return `${i + 1}. ${tr.text} (${tr.confidence})${evidence}`;
     }).join('\n');
-    
-    return result;
 }
-
 // ==================== TIMELINE STORAGE ====================
 function getTimelineData() {
     const data = localStorage.getItem(STORAGE_KEYS.timeline);
@@ -611,19 +596,17 @@ function formatTimelineItem(item) {
 function getTimelineForPrompt() {
     const data = getTimelineData();
     
-    let result = '';
-    
-    if (data.legacy_text) {
-        result += `[Legacy notes]: ${data.legacy_text}\n\n`;
-    }
-    
     if (data.events.length === 0) {
-        return result || '(no timeline events recorded yet)';
+        return '(no timeline events recorded yet)';
     }
     
     const active = data.events.filter(e => !e.superseded);
     
-    result += active.map(e => {
+    if (active.length === 0) {
+        return '(no timeline events recorded yet)';
+    }
+    
+    return active.map(e => {
         let dateStr = '';
         if (e.date?.exact) dateStr = e.date.exact;
         else if (e.date?.description) dateStr = e.date.description;
@@ -633,10 +616,7 @@ function getTimelineForPrompt() {
         
         return `• [${dateStr}] ${e.text} (${e.confidence})`;
     }).join('\n');
-    
-    return result;
 }
-
 // ==================== HYPOTHESES STORAGE ====================
 function getHypothesesData() {
     const data = localStorage.getItem(STORAGE_KEYS.hypotheses);
