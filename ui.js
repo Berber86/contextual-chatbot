@@ -8,7 +8,7 @@ const isLocal = window.location.hostname.includes('localhost') ||
 
 const CONFIG = {
     // Модели
-    model_chat: "gemini-2.5-pro",           // Hydra модель для финального ответа
+    model_chat: "hydra-gemini-3-pro",           // Hydra модель для финального ответа
     model_analysis: "xiaomi/mimo-v2-flash:free",  // OpenRouter для анализа
     model_fallback: "xiaomi/mimo-v2-flash:free",  // Fallback если нет Hydra ключа
     
