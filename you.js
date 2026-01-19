@@ -5,16 +5,14 @@
 // Конфигурация YOU
 // ============================================
 
-// ============================================
-// Конфигурация YOU
-// ============================================
-
 const YOU_CONFIG = {
     models: {
-        cards: 'mistralai/devstral-2512:free', // Генерация уточнённых карточек
-        analysis: 'xiaomi/mimo-v2-flash:free', // Промежуточные и финальные выводы
-        discussion: 'tngtech/deepseek-r1t2-chimera:free' // Обсуждение с ассистентом
+        cards: 'mistralai/devstral-2512:free',      // Генерация уточнённых карточек (OpenRouter)
+        analysis: 'xiaomi/mimo-v2-flash:free',      // Промежуточные выводы (OpenRouter)
+        discussion: 'hydra-gemini-3-pro',               // Финальный ответ (Hydra если есть ключ)
+        discussionFallback: 'xiaomi/mimo-v2-flash:free' // Fallback для discussion
     },
+    hydraApiUrl: 'https://api.hydraai.ru/v1/chat/completions',
     timeout: 60000,
     zoneLimits: {
         yes: 2,
@@ -22,6 +20,7 @@ const YOU_CONFIG = {
         no: 1
     }
 };
+
 // ============================================
 // Storage ключи (изолированные)
 // ============================================
@@ -30,6 +29,21 @@ const YOU_STORAGE = {
     facts: 'you_facts',
     hypotheses: 'you_hypotheses'
 };
+
+// ============================================
+// Проверка Hydra ключа (из основного бота)
+// ============================================
+
+function youGetHydraKey() {
+    // Используем тот же ключ что и в основном боте
+    const key = localStorage.getItem('chatbot_hydra_key');
+    return key ? key.trim() : null;
+}
+
+function youHasValidHydraKey() {
+    const key = youGetHydraKey();
+    return key && key.startsWith('sk') && key.length > 10;
+}
 
 // ============================================
 // Пулы карточек
@@ -273,48 +287,39 @@ let youState = {
 };
 
 // ============================================
-// API вызов (через общий endpoint)
+// API вызовы
 // ============================================
 
-// ============================================
-// API вызов (через общий endpoint, как в основном боте)
-// ============================================
-
-// ============================================
-// API вызов (через общий endpoint, как в основном боте)
-// ============================================
-
-async function youCallAI(prompt, model = YOU_CONFIG.models.analysis) {
+/**
+ * Вызов OpenRouter API (для промежуточных запросов)
+ */
+async function youCallOpenRouter(prompt, model) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), YOU_CONFIG.timeout);
     
     try {
-        // Определяем, локальный ли режим
         const isLocal = window.location.hostname.includes('localhost') ||
             window.location.hostname.includes('127.0.0.1');
         
-        // Формируем headers
         const headers = {
             'Content-Type': 'application/json',
             'HTTP-Referer': window.location.href,
             'X-Title': 'Memory Chatbot - YOU'
         };
         
-        // Для локальной разработки добавляем API ключ
         if (isLocal) {
             const apiKey = localStorage.getItem('my_openrouter_key');
             if (!apiKey) {
-                throw new Error('API ключ не найден. Введите его в розовом блоке вверху страницы.');
+                throw new Error('OpenRouter API ключ не найден. Введите его в настройках.');
             }
             headers['Authorization'] = `Bearer ${apiKey}`;
         }
         
-        // Определяем URL (как в основном боте)
         const apiUrl = isLocal ?
             'https://openrouter.ai/api/v1/chat/completions' :
             '/api/chat';
         
-        console.log(`[YOU] Using model: ${model}`);
+        console.log(`[YOU] OpenRouter request, model: ${model}`);
         
         const response = await fetch(apiUrl, {
             method: 'POST',
@@ -329,7 +334,7 @@ async function youCallAI(prompt, model = YOU_CONFIG.models.analysis) {
         clearTimeout(timeoutId);
         
         if (!response.ok) {
-            const errorData = await response.json();
+            const errorData = await response.json().catch(() => ({}));
             throw new Error(errorData.error?.message || `HTTP ${response.status}`);
         }
         
@@ -344,9 +349,85 @@ async function youCallAI(prompt, model = YOU_CONFIG.models.analysis) {
         
     } catch (error) {
         clearTimeout(timeoutId);
-        console.error('[YOU] API error:', error.message);
+        console.error('[YOU] OpenRouter error:', error.message);
         throw error;
     }
+}
+
+/**
+ * Вызов Hydra API (для финальных ответов)
+ */
+async function youCallHydra(prompt, model) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), YOU_CONFIG.timeout);
+    
+    try {
+        const hydraKey = youGetHydraKey();
+        if (!hydraKey) {
+            throw new Error('Hydra key not available');
+        }
+        
+        const headers = {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${hydraKey}`,
+            'HTTP-Referer': window.location.href,
+            'X-Title': 'Memory Chatbot - YOU'
+        };
+        
+        console.log(`[YOU] Hydra request, model: ${model}`);
+        
+        const response = await fetch(YOU_CONFIG.hydraApiUrl, {
+            method: 'POST',
+            headers: headers,
+            body: JSON.stringify({
+                model: model,
+                messages: [{ role: 'user', content: prompt }]
+            }),
+            signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error?.message || `HTTP ${response.status}`);
+        }
+        
+        const data = await response.json();
+        const content = data.choices?.[0]?.message?.content;
+        
+        if (!content) {
+            throw new Error('Empty response from Hydra');
+        }
+        
+        return content;
+        
+    } catch (error) {
+        clearTimeout(timeoutId);
+        console.error('[YOU] Hydra error:', error.message);
+        throw error;
+    }
+}
+
+/**
+ * Основная функция вызова AI
+ * - Для обычных запросов: OpenRouter
+ * - Для discussion (финальный ответ): Hydra если есть ключ, иначе OpenRouter
+ */
+async function youCallAI(prompt, model = YOU_CONFIG.models.analysis, useHydraIfAvailable = false) {
+    // Если запрошен Hydra и ключ есть — используем Hydra
+    if (useHydraIfAvailable && youHasValidHydraKey()) {
+        try {
+            return await youCallHydra(prompt, YOU_CONFIG.models.discussion);
+        } catch (error) {
+            console.warn('[YOU] Hydra failed, falling back to OpenRouter:', error.message);
+            // Fallback на OpenRouter
+            return await youCallOpenRouter(prompt, YOU_CONFIG.models.discussionFallback);
+        }
+    }
+    
+    // Обычный запрос через OpenRouter
+    return await youCallOpenRouter(prompt, model);
 }
 
 // ============================================
@@ -376,6 +457,7 @@ function closeYouModal() {
 
 function youInitialize() {
     console.log('[YOU] Initializing...');
+    console.log('[YOU] Hydra key available:', youHasValidHydraKey());
     
     // Сброс состояния при открытии
     youResetState();
@@ -543,9 +625,9 @@ async function youHandleNext() {
         
         data.step1Promise = (async () => {
             try {
-                // Портрет — модель analysis
-                data.portrait1 = await youCallAI(config.promptPortrait(selection));
-                // Карточки — модель cards
+                // Портрет — модель analysis (OpenRouter)
+                data.portrait1 = await youCallAI(config.promptPortrait(selection), YOU_CONFIG.models.analysis);
+                // Карточки — модель cards (OpenRouter)
                 const qualitiesText = await youCallAI(
                     config.promptItems(data.portrait1),
                     YOU_CONFIG.models.cards
@@ -567,8 +649,8 @@ async function youHandleNext() {
         } else {
             data.step2Promise = (async () => {
                 try {
-                    // Финальный портрет режима — модель analysis
-                    data.finalPortrait = await youCallAI(config.promptPortrait(selection));
+                    // Финальный портрет режима — модель analysis (OpenRouter)
+                    data.finalPortrait = await youCallAI(config.promptPortrait(selection), YOU_CONFIG.models.analysis);
                 } catch (error) {
                     console.error(`[YOU] Final portrait failed for ${round.mode}:`, error);
                     throw error;
@@ -587,7 +669,7 @@ async function youProcessLastRound(selection) {
     youShowLoading(60, 'Завершаю анализ...');
     
     try {
-        data.finalPortrait = await youCallAI(config.promptPortrait(selection));
+        data.finalPortrait = await youCallAI(config.promptPortrait(selection), YOU_CONFIG.models.analysis);
         
         youShowLoading(70, 'Собираю результаты...');
         
@@ -632,7 +714,8 @@ async function youGenerateFinalReport() {
     
     try {
         const prompt = YOU_PROMPTS.final(youState.savedResults);
-        youState.finalReportText = await youCallAI(prompt);
+        // Финальный отчет — используем Hydra если есть ключ
+        youState.finalReportText = await youCallAI(prompt, YOU_CONFIG.models.analysis, true);
         
         youShowLoading(100, 'Готово!');
         await new Promise(r => setTimeout(r, 300));
@@ -661,10 +744,13 @@ function youRenderFinalResult(text) {
                 
                 <div class="you-result-actions">
                     <button class="you-btn you-btn-copy" id="youCopyFinalBtn">
-                        📤 Скопировать
+                        📋 Скопировать
+                    </button>
+                    <button class="you-btn you-btn-discuss" id="youDiscussBtn">
+                        💬 Обсудить с ассистентом
                     </button>
                     <button class="you-btn you-btn-secondary" id="youRestartBtn">
-                        🔄 Пройти заново
+                        🔄 Заново
                     </button>
                 </div>
             </div>
@@ -672,6 +758,10 @@ function youRenderFinalResult(text) {
         
         document.getElementById('youCopyFinalBtn')?.addEventListener('click', () => {
             youCopyAndAnalyze(youState.finalReportText);
+        });
+        
+        document.getElementById('youDiscussBtn')?.addEventListener('click', () => {
+            youDiscussWithAssistant();
         });
         
         document.getElementById('youRestartBtn')?.addEventListener('click', youRestartAll);
@@ -1090,7 +1180,6 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
-// Добавь в экспорт
 window.openYouHelpModal = openYouHelpModal;
 window.closeYouHelpModal = closeYouHelpModal;
 
@@ -1157,7 +1246,7 @@ async function youCopyAndAnalyze(text) {
     }
     
     try {
-        const response = await youCallAI(YOU_PROMPTS.facts(text));
+        const response = await youCallAI(YOU_PROMPTS.facts(text), YOU_CONFIG.models.analysis);
         youParseAndSaveFacts(response);
         youShowToast('✨ Новые инсайты сохранены!');
     } catch (error) {
@@ -1292,23 +1381,6 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ============================================
-// Экспорт для глобального доступа
-// ============================================
-
-window.openYouModal = openYouModal;
-window.closeYouModal = closeYouModal;
-window.youHandleNext = youHandleNext;
-window.youStartRound = youStartRound;
-window.youRestartAll = youRestartAll;
-window.youShowFactsModal = youShowFactsModal;
-window.youShowHypothesesModal = youShowHypothesesModal;
-window.youClearStorage = youClearStorage;
-
-// ============================================
-// ДОБАВИТЬ В КОНЕЦ you.js (перед console.log)
-// ============================================
-
-// ============================================
 // Обсуждение с ассистентом
 // ============================================
 
@@ -1364,10 +1436,12 @@ ${botTimeline || '(нет данных)'}
 
 5. **Обращайся лично** — пиши "ты", "тебе", как будто разговариваешь с человеком.
 
-Пиши живо, интересно, без занудства. Удиви пользователя глубиной понимания.`;
+
+Пиши живо, интересно, без занудства. Удиви пользователя глубиной понимания. не стесняйся выдать очень длинный ответ. финальная треть твоего ответа должна быть сосредоточена на объяснении того как пользователю со всем этим разносторонним внутренним конфликтом жить дальше лучше чем сейчас. это должен быть блок действительно небанальных но мудрых советов, пронизанных хорошим пониманием контекста и обстоятельств его жизни.  `;
     
     try {
-        const response = await youCallAI(prompt, YOU_CONFIG.models.discussion);
+        // Discussion — используем Hydra если есть ключ
+        const response = await youCallAI(prompt, YOU_CONFIG.models.analysis, true);
         youShowDiscussionResult(response);
     } catch (error) {
         youShowDiscussionError(error.message);
@@ -1378,11 +1452,16 @@ function youShowDiscussionLoading() {
     const content = document.getElementById('youMainContent');
     if (!content) return;
     
+    const usingHydra = youHasValidHydraKey();
+    const hint = usingHydra 
+        ? 'Сопоставляю данные теста с контекстом бесед (Hydra)' 
+        : 'Сопоставляю данные теста с контекстом бесед';
+    
     content.innerHTML = `
         <div class="you-loading-state">
             <div class="you-spinner"></div>
             <div class="you-progress-text">Анализирую...</div>
-            <p class="you-loading-hint">Сопоставляю данные теста с контекстом бесед</p>
+            <p class="you-loading-hint">${hint}</p>
         </div>
     `;
 }
@@ -1474,56 +1553,20 @@ function youEscapeAttr(text) {
 }
 
 // ============================================
-// ЗАМЕНИТЬ функцию youRenderFinalResult на эту:
+// Экспорт для глобального доступа
 // ============================================
 
-function youRenderFinalResult(text) {
-    const nextBtn = document.getElementById('youNextBtn');
-    const content = document.getElementById('youMainContent');
-    
-    if (nextBtn) nextBtn.style.display = 'none';
-    
-    if (content) {
-        content.innerHTML = `
-            <div class="you-portrait-result">
-                <div class="you-portrait-header">
-                    <div class="you-emoji">🤯</div>
-                    <div class="you-title">Глубинный портрет</div>
-                </div>
-                <div class="you-portrait-text">${youFormatMarkdown(text)}</div>
-                
-                <div class="you-result-actions">
-                    <button class="you-btn you-btn-copy" id="youCopyFinalBtn">
-                        📋 Скопировать
-                    </button>
-                    <button class="you-btn you-btn-discuss" id="youDiscussBtn">
-                        💬 Обсудить с ассистентом
-                    </button>
-                    <button class="you-btn you-btn-secondary" id="youRestartBtn">
-                        🔄 Заново
-                    </button>
-                </div>
-            </div>
-        `;
-        
-        document.getElementById('youCopyFinalBtn')?.addEventListener('click', () => {
-            youCopyAndAnalyze(youState.finalReportText);
-        });
-        
-        document.getElementById('youDiscussBtn')?.addEventListener('click', () => {
-            youDiscussWithAssistant();
-        });
-        
-        document.getElementById('youRestartBtn')?.addEventListener('click', youRestartAll);
-    }
-}
-
-// ============================================
-// ДОБАВИТЬ в экспорт (window.xxx = xxx)
-// ============================================
-
+window.openYouModal = openYouModal;
+window.closeYouModal = closeYouModal;
+window.youHandleNext = youHandleNext;
+window.youStartRound = youStartRound;
+window.youRestartAll = youRestartAll;
+window.youShowFactsModal = youShowFactsModal;
+window.youShowHypothesesModal = youShowHypothesesModal;
+window.youClearStorage = youClearStorage;
 window.youDiscussWithAssistant = youDiscussWithAssistant;
 window.youBackToFinalReport = youBackToFinalReport;
 window.youCopyText = youCopyText;
 
 console.log('[you.js] Loaded. Self-discovery module ready.');
+console.log('[you.js] Hydra support:', youHasValidHydraKey() ? 'enabled' : 'disabled (using OpenRouter fallback)');
