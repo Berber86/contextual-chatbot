@@ -9,8 +9,8 @@ const isLocal = window.location.hostname.includes('localhost') ||
 const CONFIG = {
     // Модели
     model_chat: "hydra-gemini-3-pro",           // Hydra модель для финального ответа
-    model_analysis: "xiaomi/mimo-v2-flash:free",  // OpenRouter для анализа
-    model_fallback: "xiaomi/mimo-v2-flash:free",  // Fallback если нет Hydra ключа
+    model_analysis: "z-ai/glm-4.5-air:free",  // OpenRouter для анализа
+    model_fallback: "z-ai/glm-4.5-air:free",  // Fallback если нет Hydra ключа
     
     // API URLs
     hydraApiUrl: "https://api.hydraai.ru/v1/chat/completions",
@@ -34,7 +34,7 @@ const CONFIG = {
 let greetingShown = false;
 
 // Cooldown для приветствий
-const GREETING_COOLDOWN_MS = 1 * 60 * 60 * 10000; // 4 часа
+const GREETING_COOLDOWN_MS = 1 * 60 * 60 * 1; // 4 часа
 const GREETING_TIMESTAMP_KEY = 'chatbot_last_greeting';
 const GREETING_HISTORY_KEY = 'chatbot_greeting_history';
 const MAX_GREETING_HISTORY = 5;

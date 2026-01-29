@@ -7,8 +7,11 @@
 
 const YOU_CONFIG = {
     models: {
-        cards: 'mistralai/devstral-2512:free',      // Генерация уточнённых карточек (OpenRouter)
-        analysis: 'xiaomi/mimo-v2-flash:free',      // Промежуточные выводы (OpenRouter)
+        
+      //  cards: 'mistralai/devstral-2512:free', 
+        
+        cards: 'z-ai/glm-4.5-air:free',      // Генерация уточнённых карточек (OpenRouter)
+        analysis: 'z-ai/glm-4.5-air:free',      // Промежуточные выводы (OpenRouter)
         discussion: 'hydra-gemini-3-pro',               // Финальный ответ (Hydra если есть ключ)
         discussionFallback: 'xiaomi/mimo-v2-flash:free' // Fallback для discussion
     },
