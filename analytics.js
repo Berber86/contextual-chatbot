@@ -105,24 +105,20 @@ Extract concrete, specific facts about the user:
 - Job, profession, workplace, position
 - Interests, hobbies, preferences
 - Important life details (family status, pets, etc.)
-- Preferences and dislikes
 
 === CRITICAL RULES ===
-1. Extract ONLY from what USER said (not assistant's assumptions or questions)
+1. Extract ONLY from what USER said (not assistant's assumptions)
 2. Each fact must have DIRECT QUOTE from USER as evidence — copy-paste exactly
-3. The quote must be the USER's actual words, not paraphrased
-4. If fact UPDATES existing one → set "updatesFactIndex" to that fact's number
-5. If fact CONTRADICTS existing one → set "supersedesFactIndex" to mark old as outdated
-6. Don't duplicate existing facts
-7. One fact = one piece of information (don't combine multiple facts)
+3. If fact UPDATES existing one → set "updatesFactIndex" to that fact's number
+4. If fact CONTRADICTS existing one → set "supersedesFactIndex" to mark old as outdated
+5. TO SAVE SPACE: You CAN combine 2-3 related minor existing facts into one broader, comprehensive fact.
+   - Set "combinesFactIndices": [1, 3] to mark those old facts as superseded.
+6. Don't duplicate existing facts.
 
 === CONFIDENCE LEVELS ===
-• "high" — explicit, clear statement ("I work as a designer", "My name is Alex")
-• "medium" — implied but fairly certain ("been coding for years" → works in tech)
+• "high" — explicit, clear statement
+• "medium" — implied but fairly certain
 • "low" — uncertain, might be misinterpreted
-
-=== IMPORTANT ===
-Evidence must be the USER's EXACT words. Not paraphrased. Not from assistant's message!
 
 === RESPONSE FORMAT ===
 Return ONLY valid JSON, no markdown:
@@ -133,7 +129,8 @@ Return ONLY valid JSON, no markdown:
             "evidence": ["exact quote from USER's message"],
             "confidence": "low|medium|high",
             "updatesFactIndex": null,
-            "supersedesFactIndex": null
+            "supersedesFactIndex": null,
+            "combinesFactIndices": null
         }
     ]
 }
@@ -168,6 +165,23 @@ function integrateFactsData(newFacts, currentData, history) {
         const validEvidence = filterUserEvidence(newFact.evidence, history);
         console.log(`[FACTS] Evidence validation: ${newFact.evidence?.length || 0} → ${validEvidence.length}`);
         
+        // Обработка combinesFactIndices (Объединение мелких фактов)
+        if (newFact.combinesFactIndices && Array.isArray(newFact.combinesFactIndices)) {
+            const activeFacts = data.facts.filter(f => !f.superseded);
+            for (const idx of newFact.combinesFactIndices) {
+                const realIdx = idx - 1;
+                if (realIdx >= 0 && realIdx < activeFacts.length) {
+                    const factToSupersede = activeFacts[realIdx];
+                    const actualIdx = data.facts.findIndex(f => f.id === factToSupersede.id);
+                    if (actualIdx !== -1) {
+                        data.facts[actualIdx].superseded = true;
+                        data.facts[actualIdx].updatedAt = messageCount;
+                        console.log('[FACTS] Combined away:', data.facts[actualIdx].text.substring(0, 30));
+                    }
+                }
+            }
+        }
+
         // Обработка supersedes
         if (newFact.supersedesFactIndex !== null && newFact.supersedesFactIndex !== undefined) {
             const idx = newFact.supersedesFactIndex - 1;
@@ -241,30 +255,47 @@ function integrateFactsData(newFacts, currentData, history) {
         console.log('[FACTS] Added:', fact.text.substring(0, 40), `(${validEvidence.length} evidence)`);
     }
     
-    if (data.facts.length > LIMITS.facts) {
-        trimFactsByImportance(data);
-    }
+    // Всегда вызываем тримминг, чтобы очищать superseded мусор
+    trimFactsByImportance(data);
     
     setFactsData(data);
-    console.log('[FACTS] Total facts:', data.facts.filter(f => !f.superseded).length);
+    console.log('[FACTS] Total facts (active):', data.facts.filter(f => !f.superseded).length);
 }
 
 function trimFactsByImportance(data) {
     const active = data.facts.filter(f => !f.superseded);
     const superseded = data.facts.filter(f => f.superseded);
     
-    const keepSuperseded = superseded.slice(-10);
+    // Оставляем только 3 последних удаленных/объединенных факта для истории, остальные стираем навсегда
+    const keepSuperseded = superseded.slice(-3);
     
-    const scored = active.map(f => ({
-        fact: f,
-        score: (CONFIDENCE_LEVELS.indexOf(f.confidence) + 1) * 10 + (f.evidence?.length || 0) * 5
-    }));
+    if (active.length <= LIMITS.facts) {
+        data.facts = [...active, ...keepSuperseded];
+        return;
+    }
+    
+    const currentMsgCount = getMessageCounter();
+    
+    const scored = active.map(f => {
+        // Базовая оценка (чем выше уверенность и больше доказательств, тем лучше)
+        const baseScore = (CONFIDENCE_LEVELS.indexOf(f.confidence) + 1) * 10 + (f.evidence?.length || 0) * 5;
+        
+        // Иммунитет для новичков (Recency Bonus)
+        const age = currentMsgCount - (f.createdAt || currentMsgCount);
+        const recencyBonus = age < 30 ? 50 : (age < 100 ? 20 : 0);
+        
+        return {
+            fact: f,
+            score: baseScore + recencyBonus
+        };
+    });
+    
     scored.sort((a, b) => b.score - a.score);
     
-    const keepActive = scored.slice(0, LIMITS.facts - keepSuperseded.length).map(s => s.fact);
+    const keepActive = scored.slice(0, LIMITS.facts).map(s => s.fact);
     
     data.facts = [...keepActive, ...keepSuperseded];
-    console.log('[FACTS] Trimmed to', data.facts.length);
+    console.log(`[FACTS] Trimmed to ${keepActive.length} active facts (kept ${keepSuperseded.length} superseded)`);
 }
 
 // ==================== TRAITS EXTRACTION & INTEGRATION ====================
@@ -304,49 +335,39 @@ ${dialogText}
 ${existingTraitsList}
 
 === YOUR TASK ===
-Extract personality characteristics based on HOW the user communicates and WHAT they reveal:
-- Thinking style (analytical, creative, practical, intuitive...)
-- Emotional patterns (optimistic, anxious, calm, passionate...)
-- Social traits (introvert, extrovert, leader, empathetic...)
-- Values and priorities (family, career, freedom, security...)
-- Communication style (direct, diplomatic, verbose, concise...)
-- Decision-making patterns
-- Coping mechanisms
+Extract personality characteristics. 
+CRITICAL REQUIREMENT FOR BREVITY: Traits MUST be extremely concise. Maximum 1 short sentence or a phrase. DO NOT write long paragraphs or stories. Long traits become obsolete too quickly.
 
 === CRITICAL RULES ===
-1. Base traits on USER'S actual behavior and words, not assumptions
-2. Each trait must have DIRECT QUOTE from USER as evidence — copy-paste exactly
-3. Look for PATTERNS, not one-off statements
-4. You CAN combine related existing traits into a more nuanced, complex one:
-   - If traits 2 and 5 together form a clearer picture → create combined trait
-   - Set "combinesTraitIndices": [2, 5] to mark old ones as superseded
-5. If new info REFINES existing trait → set "updatesTraitIndex"
+1. Base traits on USER'S actual behavior and words.
+2. Direct quote from USER is required as evidence.
+3. Keep the text SHORT, CONCISE, and TO THE POINT (e.g. "Analytical thinker", "Values honesty over comfort").
+4. You CAN combine related existing traits into a clearer one:
+   - Set "combinesTraitIndices": [2, 5] to mark old ones as superseded.
+5. If new info REFINES existing trait → set "updatesTraitIndex".
 
 === CONFIDENCE LEVELS ===
 • "high" — clear pattern visible across multiple statements
 • "medium" — reasonable inference from 1-2 observations  
 • "low" — single instance, might not be representative
 
-=== GOOD TRAIT EXAMPLES ===
-✓ "Склонен к аналитическому мышлению, но принимает финальные решения интуитивно"
-✓ "Интроверт, который раскрывается в близком кругу"
-✓ "Перфекционист в работе, но расслаблен в быту"
-✓ "Ценит честность выше комфорта в отношениях"
+=== GOOD TRAIT EXAMPLES (Short & Concise) ===
+✓ "Аналитическое мышление"
+✓ "Интроверт, раскрывается в близком кругу"
+✓ "Перфекционист в работе"
+✓ "Склонен к самоиронии"
 
-=== BAD TRAIT EXAMPLES ===
-✗ "Хороший человек" (too vague)
-✗ "Любит музыку" (this is a FACT, not a trait)
-✗ "Имеет психологические проблемы" (armchair psychology)
-
-=== IMPORTANT ===
-Evidence must be USER's EXACT words. Not paraphrased!
+=== BAD TRAIT EXAMPLES (Too long or vague) ===
+✗ "Пользователь сказал, что он работает на заводе и поэтому он очень устает по вечерам, что делает его раздражительным." (Too long, contains facts, not a pure trait)
+✗ "Хороший человек" (Too vague)
+✗ "Любит музыку" (This is a FACT, not a trait)
 
 === RESPONSE FORMAT ===
 Return ONLY valid JSON:
 {
     "traits": [
         {
-            "text": "Nuanced personality trait description",
+            "text": "Very short, nuanced personality trait",
             "evidence": ["exact quote from USER showing this trait"],
             "confidence": "low|medium|high",
             "updatesTraitIndex": null,
@@ -417,6 +438,9 @@ function integrateTraitsData(newTraits, currentData, history) {
                     if (data.traits[realIdx].evidence.length >= 2 && data.traits[realIdx].confidence === 'low') {
                         data.traits[realIdx].confidence = 'medium';
                     }
+                    if (data.traits[realIdx].evidence.length >= 3 && data.traits[realIdx].confidence === 'medium') {
+                        data.traits[realIdx].confidence = 'high';
+                    }
                     
                     console.log('[TRAITS] Updated:', data.traits[realIdx].text.substring(0, 30));
                     continue;
@@ -457,30 +481,44 @@ function integrateTraitsData(newTraits, currentData, history) {
         console.log('[TRAITS] Added:', trait.text.substring(0, 40), `(${validEvidence.length} evidence)`);
     }
     
-    if (data.traits.length > LIMITS.traits) {
-        trimTraitsByImportance(data);
-    }
+    trimTraitsByImportance(data);
     
     setTraitsData(data);
-    console.log('[TRAITS] Total traits:', data.traits.filter(t => !t.superseded).length);
+    console.log('[TRAITS] Total traits (active):', data.traits.filter(t => !t.superseded).length);
 }
 
 function trimTraitsByImportance(data) {
     const active = data.traits.filter(t => !t.superseded);
     const superseded = data.traits.filter(t => t.superseded);
     
-    const keepSuperseded = superseded.slice(-5);
+    const keepSuperseded = superseded.slice(-3); // Оставляем только 3 для истории
     
-    const scored = active.map(t => ({
-        trait: t,
-        score: (CONFIDENCE_LEVELS.indexOf(t.confidence) + 1) * 10 + (t.evidence?.length || 0) * 5
-    }));
+    if (active.length <= LIMITS.traits) {
+        data.traits = [...active, ...keepSuperseded];
+        return;
+    }
+    
+    const currentMsgCount = getMessageCounter();
+    
+    const scored = active.map(t => {
+        const baseScore = (CONFIDENCE_LEVELS.indexOf(t.confidence) + 1) * 10 + (t.evidence?.length || 0) * 5;
+        
+        // Иммунитет для новичков (Recency Bonus)
+        const age = currentMsgCount - (t.createdAt || currentMsgCount);
+        const recencyBonus = age < 30 ? 50 : (age < 100 ? 20 : 0);
+        
+        return {
+            trait: t,
+            score: baseScore + recencyBonus
+        };
+    });
+    
     scored.sort((a, b) => b.score - a.score);
     
-    const keepActive = scored.slice(0, LIMITS.traits - keepSuperseded.length).map(s => s.trait);
+    const keepActive = scored.slice(0, LIMITS.traits).map(s => s.trait);
     
     data.traits = [...keepActive, ...keepSuperseded];
-    console.log('[TRAITS] Trimmed to', data.traits.length);
+    console.log(`[TRAITS] Trimmed to ${keepActive.length} active traits (kept ${keepSuperseded.length} superseded)`);
 }
 
 // ==================== TIMELINE EXTRACTION & INTEGRATION ====================
@@ -683,33 +721,44 @@ function integrateTimelineData(newEvents, currentData, history) {
         console.log('[TIMELINE] Added:', event.text.substring(0, 40), `(${validEvidence.length} evidence)`);
     }
     
-    if (data.events.length > LIMITS.timeline) {
-        trimTimelineByImportance(data);
-    }
+    trimTimelineByImportance(data);
     
     setTimelineData(data);
-    console.log('[TIMELINE] Total events:', data.events.filter(e => !e.superseded).length);
+    console.log('[TIMELINE] Total events (active):', data.events.filter(e => !e.superseded).length);
 }
 
 function trimTimelineByImportance(data) {
     const active = data.events.filter(e => !e.superseded);
     const superseded = data.events.filter(e => e.superseded);
     
-    const keepSuperseded = superseded.slice(-5);
+    const keepSuperseded = superseded.slice(-3); // Оставляем только 3 для истории
+    
+    if (active.length <= LIMITS.timeline) {
+        data.events = [...active, ...keepSuperseded];
+        return;
+    }
+    
+    const currentMsgCount = getMessageCounter();
     
     const scored = active.map(e => {
-        let score = (CONFIDENCE_LEVELS.indexOf(e.confidence) + 1) * 10;
-        if (e.ongoing) score += 30;
-        if (e.type === 'plan') score += 20;
-        if (e.type === 'period') score += 10;
-        return { event: e, score };
+        let baseScore = (CONFIDENCE_LEVELS.indexOf(e.confidence) + 1) * 10;
+        if (e.ongoing) baseScore += 30;
+        if (e.type === 'plan') baseScore += 20;
+        if (e.type === 'period') baseScore += 10;
+        
+        // Иммунитет для новичков (Recency Bonus)
+        const age = currentMsgCount - (e.createdAt || currentMsgCount);
+        const recencyBonus = age < 30 ? 50 : (age < 100 ? 20 : 0);
+        
+        return { event: e, score: baseScore + recencyBonus };
     });
+    
     scored.sort((a, b) => b.score - a.score);
     
-    const keepActive = scored.slice(0, LIMITS.timeline - keepSuperseded.length).map(s => s.event);
+    const keepActive = scored.slice(0, LIMITS.timeline).map(s => s.event);
     
     data.events = [...keepActive, ...keepSuperseded];
-    console.log('[TIMELINE] Trimmed to', data.events.length);
+    console.log(`[TIMELINE] Trimmed to ${keepActive.length} active events (kept ${keepSuperseded.length} superseded)`);
 }
 
 // ==================== SOCIAL EXTRACTION & INTEGRATION ====================
@@ -874,11 +923,8 @@ function integrateSocialData(newContacts, history) {
         }
     }
     
-    if (data.contacts.length > SOCIAL_CONFIG.maxContacts) {
-        trimContacts(data);
-    }
-    
     checkForMerges(data);
+    trimContacts(data);
     setSocialData(data);
     
     console.log('[SOCIAL] Total contacts:', data.contacts.length);
@@ -1044,10 +1090,22 @@ function createNewContact(data, messageCount) {
 }
 
 function trimContacts(data) {
-    const scored = data.contacts.map(c => ({
-        contact: c,
-        score: (c.facts?.length || 0) + (c.traits?.length || 0) + (c.interactions?.length || 0)
-    }));
+    if (data.contacts.length <= SOCIAL_CONFIG.maxContacts) return;
+    
+    const currentMsgCount = getMessageCounter();
+    
+    const scored = data.contacts.map(c => {
+        const baseScore = (c.facts?.length || 0) + (c.traits?.length || 0) + (c.interactions?.length || 0);
+        
+        // Иммунитет для недавно упомянутых людей или только что созданных
+        const age = currentMsgCount - (c.lastMentioned || c.createdAt || currentMsgCount);
+        const recencyBonus = age < 30 ? 50 : (age < 100 ? 20 : 0);
+        
+        return {
+            contact: c,
+            score: baseScore * 10 + recencyBonus // Умножаем на 10, чтобы выровнять вес фактов и бонуса
+        };
+    });
     
     scored.sort((a, b) => b.score - a.score);
     data.contacts = scored.slice(0, SOCIAL_CONFIG.maxContacts).map(s => s.contact);
@@ -1450,7 +1508,7 @@ ${langInstruction}`;
                     data.hypotheses[idx] = {
                         ...h,
                         text: update.text || h.text,
-                        confidence: update.confidence || h.confidence,
+                        confidence: update.confidence || h.evidence ? h.confidence : h.confidence,
                         evidence: update.evidence || h.evidence,
                         category: update.category || h.category,
                         updatedAt: messageCount,
@@ -1494,7 +1552,6 @@ Generate exactly 2 NEW hypotheses about this user.
 • Base hypotheses on ACTUAL patterns visible in the data
 • If something is directly stated in facts — it's NOT a hypothesis, skip it
 • Prefer practical observations over deep psychological speculation
-• "User might prefer X because they mentioned Y" > "User has deep-seated fear of Z"
 • When evidence is weak, say so (low confidence)
 
 **GOOD HYPOTHESES:**
@@ -1505,21 +1562,8 @@ Generate exactly 2 NEW hypotheses about this user.
 
 **BAD HYPOTHESES:**
 • Wild speculation without evidence
-• Armchair psychology ("childhood trauma", "fear of abandonment", "deep insecurity")
+• Armchair psychology
 • Restating known facts as hypotheses
-• Overly dramatic interpretations
-• Generic statements that could apply to anyone
-
-=== REQUIREMENTS ===
-1. Must be distinct from existing hypotheses
-2. Must have at least some supporting evidence from context
-3. Should be useful for personalizing future conversations
-4. Confidence should reflect actual evidence strength
-
-=== CONFIDENCE GUIDE ===
-• low = single weak hint, might be wrong
-• medium = pattern from 2-3 observations
-• high = strong pattern, multiple confirmations
 
 === RESPONSE FORMAT ===
 Return ONLY valid JSON (no markdown):
@@ -1605,4 +1649,4 @@ async function runBackgroundAnalysis() {
 }
 
 // Проверка загрузки
-console.log('[analytics.js] Loaded. Full prompts restored. Evidence validation enabled.');
+console.log('[analytics.js] Loaded. Full prompts restored. Short Traits & Recency Bonus enabled.');
