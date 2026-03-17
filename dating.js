@@ -1,5 +1,5 @@
 // dating.js - модуль знакомств для Memory Chatbot
-// Генерация личностного эмбеддинга на основе 33 дихотомий
+// Генерация личностного эмбеддинга на основе 50 независимых шкал
 // + Двухуровневые описания профиля
 // + Анализатор совместимости
 
@@ -8,43 +8,83 @@ const DATING_STORAGE_KEY = 'chatbot_dating_embedding';
 const DATING_DESCRIPTIONS_KEY = 'chatbot_dating_descriptions';
 const MIN_FACTS_REQUIRED = 50;
 const EMBEDDING_PASSES = 3;
+const TOTAL_SCALES = 50;
 
-// 33 дихотомии личности
-const DICHOTOMIES = [
-    { id: 1, left: 'Воображение', right: 'Практичность' },
-    { id: 2, left: 'Эстетика', right: 'Специализация' },
-    { id: 3, left: 'Любопытство', right: 'Статус-кво' },
-    { id: 4, left: 'Эмоц. сложность', right: 'Простота' },
-    { id: 5, left: 'Дисциплина', right: 'Импульсивность' },
-    { id: 6, left: 'Организованность', right: 'Хаос' },
-    { id: 7, left: 'Надежность', right: 'Ненадежность' },
-    { id: 8, left: 'Самоконтроль', right: 'Слабоволие' },
-    { id: 9, left: 'Достижения', right: 'Комфорт' },
-    { id: 10, left: 'Энергичность', right: 'Вялость' },
-    { id: 11, left: 'Соц. смелость', right: 'Робость' },
-    { id: 12, left: 'Уверенность', right: 'Самокритика' },
-    { id: 13, left: 'Общительность', right: 'Замкнутость' },
-    { id: 14, left: 'Доверие', right: 'Подозрительность' },
-    { id: 15, left: 'Моральность', right: 'Гибкость' },
-    { id: 16, left: 'Альтруизм', right: 'Эгоцентризм' },
-    { id: 17, left: 'Сговорчивость', right: 'Конфликтность' },
-    { id: 18, left: 'Скромность', right: 'Честолюбие' },
-    { id: 19, left: 'Тревожность', right: 'Спокойствие' },
-    { id: 20, left: 'Застенчивость', right: 'Раскованность' },
-    { id: 21, left: 'Волатильность', right: 'Стабильность' },
-    { id: 22, left: 'Уязвимость', right: 'Устойчивость' },
-    { id: 23, left: 'Стресс-толерантность', right: 'Чувствительность' },
-    { id: 24, left: 'Лидерство', right: 'Исполнительность' },
-    { id: 25, left: 'Риск', right: 'Безопасность' },
-    { id: 26, left: 'Свобода', right: 'Контроль' },
-    { id: 27, left: 'Традиция', right: 'Прогресс' },
-    { id: 28, left: 'Справедливость', right: 'Милосердие' },
-    { id: 29, left: 'Лояльность', right: 'Универсализм' },
-    { id: 30, left: 'Конкуренция', right: 'Кооперация' },
-    { id: 31, left: 'Гедонизм', right: 'Аскетизм' },
-    { id: 32, left: 'Оптимизм', right: 'Пессимизм' },
-    { id: 33, left: 'Независимость', right: 'Зависимость' }
+// 50 независимых шкал личности
+// Каждая от 0 (не выражено) до 1.0 (ярко выражено)
+const SCALES = [
+    // === МЫШЛЕНИЕ И ПОЗНАНИЕ (1-8) ===
+    { id: 1,  name: 'Любопытство',        emoji: '🔍', category: 'mind',     desc: 'Тяга к новому, исследовательский интерес' },
+    { id: 2,  name: 'Аналитичность',      emoji: '🧩', category: 'mind',     desc: 'Склонность разбирать, структурировать, искать логику' },
+    { id: 3,  name: 'Креативность',        emoji: '🎨', category: 'mind',     desc: 'Воображение, нестандартное мышление, генерация идей' },
+    { id: 4,  name: 'Практичность',        emoji: '🔧', category: 'mind',     desc: 'Ориентация на результат, прикладное мышление' },
+    { id: 5,  name: 'Рефлексивность',      emoji: '🪞', category: 'mind',     desc: 'Склонность к самоанализу и осмыслению опыта' },
+    { id: 6,  name: 'Стратегичность',      emoji: '♟️', category: 'mind',     desc: 'Умение планировать вдолгую, видеть перспективу' },
+    { id: 7,  name: 'Широта кругозора',    emoji: '🌐', category: 'mind',     desc: 'Разнообразие интересов и знаний' },
+    { id: 8,  name: 'Глубина погружения',  emoji: '🔬', category: 'mind',     desc: 'Способность уходить в тему до деталей' },
+
+    // === ЭНЕРГИЯ И ДЕЙСТВИЕ (9-15) ===
+    { id: 9,  name: 'Энергичность',        emoji: '⚡', category: 'energy',   desc: 'Общий уровень жизненной энергии и активности' },
+    { id: 10, name: 'Инициативность',      emoji: '🚀', category: 'energy',   desc: 'Готовность начинать первым, не ждать' },
+    { id: 11, name: 'Настойчивость',       emoji: '🏔️', category: 'energy',   desc: 'Упорство в достижении целей несмотря на трудности' },
+    { id: 12, name: 'Амбициозность',       emoji: '🎯', category: 'energy',   desc: 'Масштаб целей и стремлений' },
+    { id: 13, name: 'Склонность к риску',  emoji: '🎲', category: 'energy',   desc: 'Готовность действовать в условиях неопределённости' },
+    { id: 14, name: 'Спонтанность',        emoji: '🌊', category: 'energy',   desc: 'Способность действовать по наитию, без плана' },
+    { id: 15, name: 'Дисциплина',          emoji: '📏', category: 'energy',   desc: 'Систематичность, следование правилам и графикам' },
+
+    // === ЭМОЦИИ И ВНУТРЕННИЙ МИР (16-24) ===
+    { id: 16, name: 'Эмоциональная глубина',      emoji: '🌊', category: 'emotion', desc: 'Интенсивность и сложность переживаний' },
+    { id: 17, name: 'Эмоциональная стабильность',  emoji: '⚓', category: 'emotion', desc: 'Устойчивость настроения, ровность' },
+    { id: 18, name: 'Оптимизм',                    emoji: '☀️', category: 'emotion', desc: 'Позитивный взгляд на будущее и ситуации' },
+    { id: 19, name: 'Тревожность',                 emoji: '😰', category: 'emotion', desc: 'Склонность к беспокойству и переживаниям' },
+    { id: 20, name: 'Стрессоустойчивость',          emoji: '🛡️', category: 'emotion', desc: 'Способность сохранять функциональность под давлением' },
+    { id: 21, name: 'Эмпатия',                     emoji: '💗', category: 'emotion', desc: 'Способность чувствовать и понимать чужие эмоции' },
+    { id: 22, name: 'Уязвимость',                  emoji: '🦋', category: 'emotion', desc: 'Открытость к ранению, незащищённость' },
+    { id: 23, name: 'Самоирония',                  emoji: '😏', category: 'emotion', desc: 'Способность смеяться над собой' },
+    { id: 24, name: 'Чувствительность к красоте',  emoji: '✨', category: 'emotion', desc: 'Эстетическое восприятие, реакция на прекрасное' },
+
+    // === СОЦИАЛЬНОЕ (25-34) ===
+    { id: 25, name: 'Общительность',            emoji: '💬', category: 'social',   desc: 'Потребность и удовольствие от общения' },
+    { id: 26, name: 'Социальная смелость',       emoji: '🎤', category: 'social',   desc: 'Уверенность в новых социальных ситуациях' },
+    { id: 27, name: 'Лидерство',                emoji: '👑', category: 'social',   desc: 'Склонность вести, организовывать, направлять' },
+    { id: 28, name: 'Командность',               emoji: '🤝', category: 'social',   desc: 'Способность и желание работать в команде' },
+    { id: 29, name: 'Доверчивость',              emoji: '🤲', category: 'social',   desc: 'Готовность доверять людям по умолчанию' },
+    { id: 30, name: 'Конфликтность',             emoji: '⚔️', category: 'social',   desc: 'Склонность к столкновениям и отстаиванию позиции' },
+    { id: 31, name: 'Дипломатичность',           emoji: '🕊️', category: 'social',   desc: 'Умение сглаживать углы, находить компромиссы' },
+    { id: 32, name: 'Потребность в одиночестве', emoji: '🏝️', category: 'social',   desc: 'Необходимость времени наедине с собой' },
+    { id: 33, name: 'Щедрость',                 emoji: '🎁', category: 'social',   desc: 'Готовность отдавать время, ресурсы, внимание' },
+    { id: 34, name: 'Чувство юмора',            emoji: '😄', category: 'social',   desc: 'Способность шутить и ценить юмор' },
+
+    // === ХАРАКТЕР И ВОЛЯ (35-42) ===
+    { id: 35, name: 'Самостоятельность',  emoji: '🦅', category: 'character', desc: 'Независимость в решениях и действиях' },
+    { id: 36, name: 'Ответственность',    emoji: '⚖️', category: 'character', desc: 'Готовность отвечать за свои решения и обязательства' },
+    { id: 37, name: 'Честность',          emoji: '💎', category: 'character', desc: 'Прямота, правдивость, нетерпимость к лжи' },
+    { id: 38, name: 'Адаптивность',       emoji: '🌿', category: 'character', desc: 'Гибкость, способность подстраиваться под обстоятельства' },
+    { id: 39, name: 'Перфекционизм',      emoji: '🎯', category: 'character', desc: 'Стремление к идеалу, внимание к деталям' },
+    { id: 40, name: 'Самоконтроль',       emoji: '🧘', category: 'character', desc: 'Управление импульсами и желаниями' },
+    { id: 41, name: 'Терпеливость',       emoji: '⏳', category: 'character', desc: 'Способность ждать и выдерживать медленный процесс' },
+    { id: 42, name: 'Решительность',      emoji: '⚡', category: 'character', desc: 'Скорость и уверенность в принятии решений' },
+
+    // === ЦЕННОСТИ И ОРИЕНТИРЫ (43-50) ===
+    { id: 43, name: 'Ценность свободы',        emoji: '🕊️', category: 'values', desc: 'Важность личной свободы и автономии' },
+    { id: 44, name: 'Ценность семьи',          emoji: '🏠', category: 'values', desc: 'Важность семейных связей и домашнего очага' },
+    { id: 45, name: 'Ценность карьеры',        emoji: '📈', category: 'values', desc: 'Важность профессиональной реализации' },
+    { id: 46, name: 'Ценность саморазвития',   emoji: '📚', category: 'values', desc: 'Стремление к росту, обучению, эволюции' },
+    { id: 47, name: 'Ценность справедливости', emoji: '⚖️', category: 'values', desc: 'Важность честности и равенства в мире' },
+    { id: 48, name: 'Ценность комфорта',       emoji: '🛋️', category: 'values', desc: 'Важность бытового и психологического комфорта' },
+    { id: 49, name: 'Ценность впечатлений',    emoji: '🎢', category: 'values', desc: 'Важность нового опыта, путешествий, ощущений' },
+    { id: 50, name: 'Духовность',              emoji: '🙏', category: 'values', desc: 'Внимание к смыслам, вера, философское мышление' }
 ];
+
+// Названия категорий
+const CATEGORY_LABELS = {
+    mind: '🧠 Мышление и познание',
+    energy: '⚡ Энергия и действие',
+    emotion: '💫 Эмоции и внутренний мир',
+    social: '👥 Социальное',
+    character: '💪 Характер и воля',
+    values: '💎 Ценности и ориентиры'
+};
 
 // ==================== СОСТОЯНИЕ ====================
 let datingState = {
@@ -54,7 +94,7 @@ let datingState = {
     finalEmbedding: null,
     isGeneratingDescription: false,
     isAnalyzing: false,
-    activeTab: 'profile' // 'profile' или 'compatibility'
+    activeTab: 'profile'
 };
 
 // ==================== UI ФУНКЦИИ ====================
@@ -85,7 +125,6 @@ function closeDatingModal() {
 function switchDatingTab(tab) {
     datingState.activeTab = tab;
     
-    // Обновляем кнопки табов
     document.querySelectorAll('.dating-tab').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.tab === tab);
     });
@@ -160,7 +199,7 @@ function renderGeneratingState() {
             <div class="dating-progress">
                 <div class="dating-progress-bar" id="generationProgress" style="width: 0%"></div>
             </div>
-            <p class="dating-hint">Анализируем ваши факты и черты личности по 33 измерениям...</p>
+            <p class="dating-hint">Анализируем ваши факты и черты по 50 измерениям...</p>
         </div>
     `;
 }
@@ -177,21 +216,47 @@ function renderSavedEmbedding(embedding) {
     const container = document.getElementById('datingContent');
     
     const topTraits = getTopTraits(embedding, 5);
+    const highTraits = topTraits.filter(t => t.pole === 'high');
+    const lowTraits = topTraits.filter(t => t.pole === 'low');
     const descriptions = getSavedDescriptions();
     
-    const createdDate = embedding.createdAt 
-        ? new Date(embedding.createdAt).toLocaleDateString('ru-RU')
-        : 'неизвестно';
+    const createdDate = embedding.createdAt ?
+        new Date(embedding.createdAt).toLocaleDateString('ru-RU') :
+        'неизвестно';
+    
+    // Строгие пороги достоверности
+    const reliableCount = embedding.vectors.filter(v => v.spread <= 0.1).length;
+    const moderateCount = embedding.vectors.filter(v => v.spread > 0.1 && v.spread <= 0.2).length;
+    const uncertainCount = embedding.vectors.filter(v => v.spread > 0.2).length;
     
     container.innerHTML = `
         <div class="dating-status dating-complete">
             <div class="dating-icon">🎯</div>
             <h3>Ваш личностный профиль</h3>
             <p class="dating-date">Создан: ${createdDate}</p>
+            <p class="dating-reliability-summary">
+                Достоверных: <strong class="text-good">${reliableCount}</strong>
+                ${moderateCount > 0 ? ` · Умеренных: <strong>${moderateCount}</strong>` : ''}
+                ${uncertainCount > 0 ? ` · Сомнительных: <strong class="text-warning">${uncertainCount}</strong>` : ''}
+                <span class="text-muted"> из ${TOTAL_SCALES}</span>
+            </p>
             
             <div class="dating-top-traits">
-                <h4>🏆 Ваши ключевые черты:</h4>
-                ${topTraits.map(trait => renderTraitBar(trait)).join('')}
+                ${highTraits.length > 0 ? `
+                    <h4>🔥 Ярко выражено:</h4>
+                    ${highTraits.map(trait => renderScaleBar(trait)).join('')}
+                ` : `
+                    <h4>🔥 Ярко выражено:</h4>
+                    <div class="no-notable-traits"><p>Нет достоверно высоких шкал (≥70% при разбросе ≤0.15)</p></div>
+                `}
+                
+                ${lowTraits.length > 0 ? `
+                    <h4>🧊 Слабо выражено:</h4>
+                    ${lowTraits.map(trait => renderScaleBar(trait)).join('')}
+                ` : `
+                    <h4>🧊 Слабо выражено:</h4>
+                    <div class="no-notable-traits"><p>Нет достоверно низких шкал (≤30% при разбросе ≤0.15)</p></div>
+                `}
             </div>
             
             <div class="dating-actions">
@@ -199,7 +264,7 @@ function renderSavedEmbedding(embedding) {
                     📋 Копировать профиль
                 </button>
                 <button class="dating-btn dating-btn-details" onclick="toggleFullEmbedding()">
-                    📊 Все 33 измерения
+                    📊 Все 50 шкал
                 </button>
                 <button class="dating-btn dating-btn-regenerate" onclick="confirmRegenerate()">
                     🔄 Пересоздать
@@ -207,27 +272,24 @@ function renderSavedEmbedding(embedding) {
             </div>
             
             <div class="dating-full-embedding" id="fullEmbeddingView" style="display: none;">
-                <h4>Полный профиль (33 дихотомии):</h4>
+                <h4>Полный профиль (50 шкал):</h4>
                 <div class="dating-all-traits">
-                    ${renderAllTraits(embedding)}
+                    ${renderAllScales(embedding)}
                 </div>
             </div>
             
-            <!-- Секция описаний -->
             <div class="dating-descriptions-section">
                 <div class="dating-descriptions-header">
                     <h4>✍️ Описания профиля</h4>
                     <div class="dating-descriptions-info">
                         <span class="info-icon" title="Как это работает?">ℹ️</span>
                         <div class="info-tooltip">
-                            <p><strong>🔒 Публичное описание</strong> — видят все пользователи. Анонимно, без личных деталей.</p>
-                            <p><strong>🔓 Описание для мэтчей</strong> — видят только те, с кем произошёл взаимный интерес.</p>
-                            <p>Вы можете редактировать оба описания и перегенерировать их сколько угодно раз.</p>
+                            <p><strong>🔒 Публичное описание</strong> — видят все. Анонимно.</p>
+                            <p><strong>🔓 Описание для мэтчей</strong> — только после взаимного интереса.</p>
                         </div>
                     </div>
                 </div>
                 
-                <!-- Публичное описание (Level 1) -->
                 <div class="dating-description-block">
                     <div class="description-label">
                         <span class="label-icon">🔒</span>
@@ -235,10 +297,8 @@ function renderSavedEmbedding(embedding) {
                         <span class="label-hint">Видят все</span>
                     </div>
                     <div class="description-content">
-                        <textarea 
-                            id="descriptionLevel1" 
-                            class="description-textarea"
-                            placeholder="Нажмите 'Сгенерировать', чтобы создать анонимное описание..."
+                        <textarea id="descriptionLevel1" class="description-textarea"
+                            placeholder="Нажмите 'Сгенерировать'..."
                             oninput="onDescriptionChange(1)"
                         >${descriptions.level1?.text || ''}</textarea>
                         <div class="description-actions">
@@ -255,7 +315,6 @@ function renderSavedEmbedding(embedding) {
                     </div>
                 </div>
                 
-                <!-- Описание для мэтчей (Level 2) -->
                 <div class="dating-description-block">
                     <div class="description-label">
                         <span class="label-icon">🔓</span>
@@ -263,10 +322,8 @@ function renderSavedEmbedding(embedding) {
                         <span class="label-hint">Видят после взаимного интереса</span>
                     </div>
                     <div class="description-content">
-                        <textarea 
-                            id="descriptionLevel2" 
-                            class="description-textarea"
-                            placeholder="Нажмите 'Сгенерировать', чтобы создать расширенное описание..."
+                        <textarea id="descriptionLevel2" class="description-textarea"
+                            placeholder="Нажмите 'Сгенерировать'..."
                             oninput="onDescriptionChange(2)"
                         >${descriptions.level2?.text || ''}</textarea>
                         <div class="description-actions">
@@ -285,11 +342,140 @@ function renderSavedEmbedding(embedding) {
                 
                 <div class="dating-prototype-note">
                     <span>🚧</span>
-                    <p>Это прототип. Логика мэтчей и показа профилей другим пользователям будет добавлена позже. Пока вы можете подготовить свои описания.</p>
+                    <p>Прототип. Мэтчи будут позже.</p>
                 </div>
             </div>
         </div>
     `;
+}
+
+// ==================== SCALE RENDERING ====================
+
+function renderScaleBar(trait) {
+    const scale = SCALES[trait.index];
+    
+    // Строгие пороги
+    let reliabilityClass = 'high'; // spread ≤ 0.1
+    if (trait.spread > 0.2) reliabilityClass = 'low';
+    else if (trait.spread > 0.1) reliabilityClass = 'medium';
+    
+    const percent = (trait.value * 100).toFixed(0);
+    const isLow = trait.pole === 'low';
+    
+    return `
+        <div class="scale-bar-container ${isLow ? 'scale-low' : 'scale-high'}">
+            <div class="scale-header">
+                <span class="scale-emoji">${scale.emoji}</span>
+                <span class="scale-name">${scale.name}</span>
+                <span class="scale-pole-badge ${isLow ? 'pole-low' : 'pole-high'}">
+                    ${isLow ? '▼ ' + percent + '%' : '▲ ' + percent + '%'}
+                </span>
+                <span class="trait-reliability reliability-${reliabilityClass}" title="Разброс: ${trait.spread.toFixed(2)}">
+                    ${reliabilityClass === 'high' ? '✓' : reliabilityClass === 'medium' ? '~' : '?'}
+                </span>
+            </div>
+            <div class="scale-bar">
+                <div class="scale-bar-fill ${isLow ? 'fill-low' : 'fill-high'}" style="width: ${percent}%"></div>
+                <div class="scale-bar-midpoint"></div>
+            </div>
+        </div>
+    `;
+}
+function renderAllScales(embedding) {
+    const categories = {};
+    
+    SCALES.forEach((scale, idx) => {
+        if (!categories[scale.category]) {
+            categories[scale.category] = [];
+        }
+        categories[scale.category].push({
+            scale,
+            index: idx,
+            value: embedding.vectors[idx]?.value || 0,
+            spread: embedding.vectors[idx]?.spread || 0
+        });
+    });
+    
+    let html = '';
+    
+    for (const [catKey, items] of Object.entries(categories)) {
+        html += `<div class="scales-category">
+            <div class="scales-category-header">${CATEGORY_LABELS[catKey] || catKey}</div>`;
+        
+        items.forEach(item => {
+            let reliabilityClass = 'high';
+            if (item.spread > 0.4) reliabilityClass = 'low';
+            else if (item.spread > 0.2) reliabilityClass = 'medium';
+            
+            const percent = (item.value * 100).toFixed(0);
+            
+            html += `
+                <div class="mini-scale">
+                    <span class="mini-scale-emoji">${item.scale.emoji}</span>
+                    <span class="mini-scale-name">${item.scale.name}</span>
+                    <div class="mini-scale-bar">
+                        <div class="mini-scale-fill" style="width: ${percent}%"></div>
+                    </div>
+                    <span class="mini-scale-value">${percent}%</span>
+                    <span class="mini-scale-spread reliability-${reliabilityClass}">(±${item.spread.toFixed(2)})</span>
+                </div>
+            `;
+        });
+        
+        html += '</div>';
+    }
+    
+    return html;
+}
+
+function toggleFullEmbedding() {
+    const view = document.getElementById('fullEmbeddingView');
+    if (view) {
+        view.style.display = view.style.display === 'none' ? 'block' : 'none';
+    }
+}
+
+function confirmRegenerate() {
+    if (confirm('Пересоздать профиль? Текущий будет заменён.')) {
+        localStorage.removeItem(DATING_STORAGE_KEY);
+        const factsData = getFactsData();
+        const factsCount = factsData.facts ? factsData.facts.filter(f => !f.superseded).length : 0;
+        renderReadyToGenerate(factsCount);
+    }
+}
+
+// ==================== TOP TRAITS (высокие и низкие) ====================
+
+// ==================== TOP TRAITS (5 высоких + 5 низких) ====================
+
+function getTopTraits(embedding, countPerPole = 5) {
+    const traits = embedding.vectors.map((vec, idx) => ({
+        index: idx,
+        value: vec.value,
+        spread: vec.spread,
+        name: SCALES[idx].name,
+        emoji: SCALES[idx].emoji,
+        category: SCALES[idx].category
+    }));
+    
+    // Только достоверные (разброс ≤ 0.15)
+    const reliable = traits.filter(t => t.spread <= 0.15);
+    
+    // Высокие: сортируем по убыванию значения
+    const highPool = reliable
+        .filter(t => t.value >= 0.7)
+        .sort((a, b) => b.value - a.value)
+        .slice(0, countPerPole)
+        .map(t => ({ ...t, pole: 'high' }));
+    
+    // Низкие: сортируем по возрастанию значения
+    const lowPool = reliable
+        .filter(t => t.value <= 0.5)
+        .sort((a, b) => a.value - b.value)
+        .slice(0, countPerPole)
+        .map(t => ({ ...t, pole: 'low' }));
+    
+    return [...highPool, ...lowPool];
 }
 
 // ==================== COMPATIBILITY TAB ====================
@@ -319,47 +505,34 @@ function renderCompatibilityTab() {
             <div class="compat-intro">
                 <div class="dating-icon">🧲</div>
                 <h3>Анализ совместимости</h3>
-                <p>Вставьте эмбеддинг другого человека, чтобы узнать вашу совместимость. Можете также добавить его описание для более глубокого анализа.</p>
+                <p>Вставьте эмбеддинг другого человека. Можете добавить его описание для более глубокого анализа.</p>
             </div>
             
-            <!-- Поле для эмбеддинга -->
             <div class="compat-input-block">
                 <label class="compat-label">
                     <span class="label-icon">🧬</span>
                     <span>Эмбеддинг кандидата</span>
                     <span class="label-required">*</span>
                 </label>
-                <input 
-                    type="text" 
-                    id="candidateEmbeddingInput" 
-                    class="compat-embedding-input"
-                    placeholder="DATING_EMBED_V1|..."
-                    oninput="validateCandidateInput()"
-                >
+                <input type="text" id="candidateEmbeddingInput" class="compat-embedding-input"
+                    placeholder="DATING_EMBED_V2|..." oninput="validateCandidateInput()">
                 <div class="compat-input-status" id="embedStatus"></div>
             </div>
             
-            <!-- Поле для описания -->
             <div class="compat-input-block">
                 <label class="compat-label">
                     <span class="label-icon">✍️</span>
                     <span>Описание кандидата</span>
                     <span class="label-optional">необязательно</span>
                 </label>
-                <textarea 
-                    id="candidateDescriptionInput" 
-                    class="compat-description-input"
-                    placeholder="Любая информация о человеке: его описание профиля, что вы знаете о нём..."
-                    rows="4"
-                ></textarea>
+                <textarea id="candidateDescriptionInput" class="compat-description-input"
+                    placeholder="Любая информация о человеке..." rows="4"></textarea>
             </div>
             
-            <!-- Кнопка анализа -->
             <button class="dating-generate-btn compat-analyze-btn" id="analyzeBtn" onclick="runCompatibilityAnalysis()" disabled>
                 🧲 Проанализировать совместимость
             </button>
             
-            <!-- Результат -->
             <div class="compat-result" id="compatResult"></div>
         </div>
     `;
@@ -385,11 +558,11 @@ function validateCandidateInput() {
     
     if (parsed) {
         const date = new Date(parsed.createdAt).toLocaleDateString('ru-RU');
-        status.innerHTML = `✅ Валидный эмбеддинг (${parsed.factsCount} фактов, создан ${date})`;
+        status.innerHTML = `✅ Валидный эмбеддинг v${parsed.version} (${parsed.factsCount} фактов, создан ${date})`;
         status.className = 'compat-input-status status-valid';
         btn.disabled = false;
     } else {
-        status.innerHTML = '❌ Неверный формат. Нужна строка вида DATING_EMBED_V1|...';
+        status.innerHTML = '❌ Неверный формат. Нужна строка DATING_EMBED_V2|...';
         status.className = 'compat-input-status status-invalid';
         btn.disabled = true;
     }
@@ -424,7 +597,6 @@ async function runCompatibilityAnalysis() {
     `;
     
     try {
-        // Собираем ПОЛНЫЙ контекст о юзере (не эмбеддинг!)
         const userFacts = getFactsForPrompt(false);
         const userTraits = getTraitsForPrompt(false);
         const userTimeline = getTimelineForPrompt();
@@ -432,48 +604,32 @@ async function runCompatibilityAnalysis() {
         const userHypotheses = getHypothesesForPrompt(false);
         const userStyle = localStorage.getItem(STORAGE_KEYS.style) || '';
         
-        // Декодируем эмбеддинг кандидата в читаемый формат
         const candidateProfile = decodeCandidateEmbedding(candidateEmbedding);
         
         const prompt = buildCompatibilityPrompt({
-            userFacts,
-            userTraits,
-            userTimeline,
-            userSocial,
-            userHypotheses,
-            userStyle,
-            candidateProfile,
-            candidateDescription
+            userFacts, userTraits, userTimeline, userSocial,
+            userHypotheses, userStyle, candidateProfile, candidateDescription
         });
         
         console.log('[Dating] Running compatibility analysis...');
         
-        // Стриминг результата
         const streamingDiv = document.createElement('div');
         streamingDiv.className = 'compat-analysis-text';
         resultContainer.innerHTML = '';
         resultContainer.appendChild(streamingDiv);
         
-        const messages = [{ role: "user", content: prompt }];
-        
         await streamResponseOpenRouter(
-            messages,
-            (partialText) => {
-                streamingDiv.innerHTML = formatMessageMarkdown(partialText);
-            },
-            (finalText) => {
-                streamingDiv.innerHTML = formatMessageMarkdown(finalText);
-            },
+            [{ role: "user", content: prompt }],
+            (partialText) => { streamingDiv.innerHTML = formatMessageMarkdown(partialText); },
+            (finalText) => { streamingDiv.innerHTML = formatMessageMarkdown(finalText); },
             { temperature: 0.7 }
         );
         
-        console.log('[Dating] Compatibility analysis complete');
-        
     } catch (error) {
-        console.error('[Dating] Compatibility analysis failed:', error);
+        console.error('[Dating] Analysis failed:', error);
         resultContainer.innerHTML = `
             <div class="compat-error">
-                <p>❌ Ошибка анализа: ${error.message}</p>
+                <p>❌ Ошибка: ${error.message}</p>
                 <button class="dating-btn" onclick="runCompatibilityAnalysis()">🔄 Попробовать снова</button>
             </div>
         `;
@@ -485,204 +641,127 @@ async function runCompatibilityAnalysis() {
 }
 
 function decodeCandidateEmbedding(embedding) {
-    const lines = embedding.vectors.map((vec, idx) => {
-        const d = DICHOTOMIES[idx];
-        const value = vec.value;
-        const spread = vec.spread;
-        
-        let dominant, intensity;
-        if (value < -0.1) {
-            dominant = d.left;
-            intensity = Math.abs(value);
-        } else if (value > 0.1) {
-            dominant = d.right;
-            intensity = value;
-        } else {
-            dominant = 'нейтрально';
-            intensity = 0;
-        }
-        
-        let reliability = 'достоверно';
-        if (spread > 0.7) reliability = 'недостоверно';
-        else if (spread > 0.5) reliability = 'сомнительно';
-        else if (spread > 0.3) reliability = 'умеренно';
-        
-        return `${d.left} / ${d.right}: ${value > 0 ? '+' : ''}${value.toFixed(2)} → ${dominant} (${reliability})`;
-    });
+    const allScales = SCALES.map((scale, idx) => ({
+        name: scale.name,
+        emoji: scale.emoji,
+        category: scale.category,
+        value: embedding.vectors[idx]?.value || 0.5,
+        spread: embedding.vectors[idx]?.spread || 0
+    }));
     
-    // Выделяем ярко выраженные черты
-    const strongTraits = embedding.vectors
-        .map((vec, idx) => ({
-            ...vec,
-            dichotomy: DICHOTOMIES[idx],
-            index: idx
-        }))
-        .filter(v => Math.abs(v.value) >= 0.3 && v.spread <= 0.5)
-        .sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
+    const strong = allScales
+        .filter(s => s.value >= 0.7 && s.spread <= 0.5)
+        .sort((a, b) => b.value - a.value);
     
-    let summary = 'ВЫРАЖЕННЫЕ ЧЕРТЫ КАНДИДАТА:\n';
-    if (strongTraits.length > 0) {
-        summary += strongTraits.map(t => {
-            const side = t.value < 0 ? t.dichotomy.left : t.dichotomy.right;
-            return `• ${side}: ${Math.abs(t.value).toFixed(2)} (разброс ${t.spread.toFixed(2)})`;
-        }).join('\n');
+    const weak = allScales
+        .filter(s => s.value <= 0.2 && s.spread <= 0.5)
+        .sort((a, b) => a.value - b.value);
+    
+    const moderate = allScales.filter(s => s.spread > 0.4);
+    
+    let summary = '🔥 ЯРКО ВЫРАЖЕНО (достоверные, ≥70%):\n';
+    if (strong.length > 0) {
+        summary += strong.map(s => `• ${s.emoji} ${s.name}: ${(s.value * 100).toFixed(0)}%`).join('\n');
     } else {
-        summary += '(нет ярко выраженных достоверных черт)';
+        summary += '(нет)\n';
     }
     
-    return `${summary}\n\nПОЛНЫЙ ПРОФИЛЬ (33 дихотомии):\n${lines.join('\n')}`;
+    summary += '\n\n🧊 СЛАБО ВЫРАЖЕНО (достоверные, ≤20%):\n';
+    if (weak.length > 0) {
+        summary += weak.map(s => `• ${s.emoji} ${s.name}: ${(s.value * 100).toFixed(0)}%`).join('\n');
+    } else {
+        summary += '(нет)\n';
+    }
+    
+    if (moderate.length > 0) {
+        summary += `\n\n⚠️ НЕДОСТОВЕРНЫЕ ОЦЕНКИ (${moderate.length} из ${TOTAL_SCALES}):\n`;
+        summary += moderate.map(s => `• ${s.name}: разброс ${s.spread.toFixed(2)}`).join('\n');
+    }
+    
+    const byCategory = {};
+    SCALES.forEach((scale, idx) => {
+        if (!byCategory[scale.category]) byCategory[scale.category] = [];
+        byCategory[scale.category].push({
+            name: scale.name,
+            value: allScales[idx].value,
+            spread: allScales[idx].spread
+        });
+    });
+    
+    summary += '\n\nПОЛНЫЙ ПРОФИЛЬ:\n';
+    for (const [catKey, items] of Object.entries(byCategory)) {
+        summary += `\n${CATEGORY_LABELS[catKey]}:\n`;
+        items.forEach(item => {
+            const rel = item.spread > 0.4 ? '⚠️' : item.spread > 0.2 ? '~' : '✓';
+            summary += `  ${rel} ${item.name}: ${(item.value * 100).toFixed(0)}%\n`;
+        });
+    }
+    
+    return summary;
 }
 
 function buildCompatibilityPrompt(data) {
     const {
-        userFacts,
-        userTraits,
-        userTimeline,
-        userSocial,
-        userHypotheses,
-        userStyle,
-        candidateProfile,
-        candidateDescription
+        userFacts, userTraits, userTimeline, userSocial,
+        userHypotheses, userStyle, candidateProfile, candidateDescription
     } = data;
     
     const langName = getLanguageName();
     
-    let candidateBlock = `=== ПСИХОЛОГИЧЕСКИЙ ПРОФИЛЬ КАНДИДАТА (из эмбеддинга) ===\n${candidateProfile}`;
+    let candidateBlock = `=== ПСИХОЛОГИЧЕСКИЙ ПРОФИЛЬ КАНДИДАТА (50 шкал) ===\n${candidateProfile}`;
     
     if (candidateDescription) {
-        candidateBlock += `\n\n=== ОПИСАНИЕ КАНДИДАТА (от него/неё самого) ===\n${candidateDescription}`;
+        candidateBlock += `\n\n=== ОПИСАНИЕ КАНДИДАТА ===\n${candidateDescription}`;
     }
     
     let styleBlock = '';
     if (userStyle && userStyle.trim()) {
-        styleBlock = `
-
-=== СТИЛЬ ОБЩЕНИЯ С ЭТИМ ПОЛЬЗОВАТЕЛЕМ ===
-Пиши анализ в стиле, подходящем ЭТОМУ КОНКРЕТНОМУ пользователю:
-${userStyle}`;
+        styleBlock = `\n\n=== СТИЛЬ ОБЩЕНИЯ С ЭТИМ ПОЛЬЗОВАТЕЛЕМ ===\nАдаптируй стиль анализа под этого пользователя:\n${userStyle}`;
     }
     
-    return `Ты — проницательный аналитик человеческих отношений. Пиши на ${langName}.
+    return `Ты — проницательный аналитик отношений. Пиши на ${langName}.
 ${styleBlock}
 
-=== ТВОЯ ЗАДАЧА ===
-Проанализируй совместимость пользователя (хозяина приложения) с кандидатом.
+=== ЗАДАЧА ===
+Проанализируй совместимость пользователя с кандидатом.
 
 ВАЖНО:
-- О пользователе ты знаешь ВСЁ — используй полный контекст ниже
-- О кандидате ты знаешь только его эмбеддинг (33 измерения) и, возможно, описание
-- Не используй эмбеддинг пользователя — он тебе не нужен, у тебя есть живые данные
-- Пиши ДЛЯ пользователя — это его анализ, его взгляд, его язык
+- О пользователе ты знаешь ВСЁ из его данных — используй их
+- О кандидате знаешь только эмбеддинг (50 шкал от 0 до 1) и возможно описание
+- Каждая шкала: 0 = не выражено, 1.0 = ярко выражено
+- Шкалы НЕЗАВИСИМЫЕ: человек может быть и креативным (0.8) и практичным (0.7)
+- И НИЗКИЕ значения важны: 0.1 тревожности = очень спокойный человек
+- НЕ используй эмбеддинг пользователя — у тебя есть живые данные о нём
+- Пиши ДЛЯ пользователя — в его стиле
 
-=== ВСЁ ЧТО ТЫ ЗНАЕШЬ О ПОЛЬЗОВАТЕЛЕ ===
+=== ВСЁ О ПОЛЬЗОВАТЕЛЕ ===
 
-**Факты:**
-${userFacts || '(нет данных)'}
-
-**Черты личности:**
-${userTraits || '(нет данных)'}
-
-**Хронология жизни:**
-${userTimeline || '(нет данных)'}
-
-**Социальные связи:**
-${userSocial || '(нет данных)'}
-
-**Гипотезы о пользователе:**
-${userHypotheses || '(нет данных)'}
+**Факты:** ${userFacts || '(нет)'}
+**Черты:** ${userTraits || '(нет)'}
+**Хронология:** ${userTimeline || '(нет)'}
+**Социальные связи:** ${userSocial || '(нет)'}
+**Гипотезы:** ${userHypotheses || '(нет)'}
 
 ${candidateBlock}
 
 === СТРУКТУРА АНАЛИЗА ===
 
-Напиши анализ совместимости в следующей структуре:
+1. **Суть** (2-3 предложения) — кто этот кандидат, первое впечатление от профиля
 
-1. **Суть** (2-3 предложения) — кто этот кандидат в двух словах, первое впечатление от профиля
+2. **Где совпадёте** (3-4 пункта) — конкретные точки. Опирайся на РЕАЛЬНЫЕ данные пользователя, не абстракции
 
-2. **Где совпадёте** (3-4 пункта) — конкретные точки совместимости. Опирайся на РЕАЛЬНЫЕ факты и черты пользователя, а не абстракции
+3. **Где будет тереть** (3-4 пункта) — потенциальные трения. Честно, но не жестоко
 
-3. **Где будет тереть** (3-4 пункта) — потенциальные трения. Будь честен, но не жесток
-
-4. **Главное** (1-2 предложения) — чёткий вывод. Не отписка, а суть
+4. **Главное** (1-2 предложения) — чёткий вывод
 
 === ПРАВИЛА ===
-- НЕ ставь числовой процент совместимости — это упрощение
-- НЕ перечисляй дихотомии и числа — пользователь их не видит
+- НЕ ставь числовой процент совместимости
+- НЕ перечисляй шкалы и числа — пользователь их не видит
 - НЕ пиши длинных абзацев — короткие ёмкие фразы
-- Используй конкретику из жизни пользователя, если она релевантна
-- Если описания кандидата нет — честно скажи, что судишь только по цифрам
-- Если у кандидата много недостоверных оценок (разброс > 0.5) — упомяни что портрет размыт
-- Пиши как умный друг, не как психолог из учебника
-- Адаптируй стиль под пользователя (если есть стиль общения)`;
-}
-
-// ==================== TRAIT RENDERING ====================
-
-function renderTraitBar(trait) {
-    const isLeftDominant = trait.value < 0;
-    const intensity = Math.abs(trait.value);
-    
-    let reliabilityClass = 'high';
-    if (trait.spread > 0.5) reliabilityClass = 'low';
-    else if (trait.spread > 0.2) reliabilityClass = 'medium';
-    
-    return `
-        <div class="trait-bar-container">
-            <div class="trait-labels">
-                <span class="trait-left ${isLeftDominant ? 'dominant' : ''}">${trait.left}</span>
-                <span class="trait-right ${!isLeftDominant ? 'dominant' : ''}">${trait.right}</span>
-            </div>
-            <div class="trait-bar">
-                <div class="trait-bar-fill ${isLeftDominant ? 'left' : 'right'}" 
-                     style="width: ${intensity * 50}%; ${isLeftDominant ? 'right: 50%' : 'left: 50%'}">
-                </div>
-                <div class="trait-bar-center"></div>
-            </div>
-            <div class="trait-meta">
-                <span class="trait-value">${trait.value > 0 ? '+' : ''}${trait.value.toFixed(2)}</span>
-                <span class="trait-reliability reliability-${reliabilityClass}" title="Разброс: ${trait.spread.toFixed(2)}">
-                    ${reliabilityClass === 'high' ? '✓' : reliabilityClass === 'medium' ? '~' : '?'}
-                </span>
-            </div>
-        </div>
-    `;
-}
-
-function renderAllTraits(embedding) {
-    return embedding.vectors.map((vec, idx) => {
-        const dich = DICHOTOMIES[idx];
-        const isLeftDominant = vec.value < 0;
-        
-        let reliabilityClass = 'high';
-        if (vec.spread > 0.5) reliabilityClass = 'low';
-        else if (vec.spread > 0.2) reliabilityClass = 'medium';
-        
-        return `
-            <div class="mini-trait">
-                <span class="mini-trait-num">${idx + 1}.</span>
-                <span class="mini-trait-left ${isLeftDominant ? 'active' : ''}">${dich.left}</span>
-                <span class="mini-trait-value">${vec.value > 0 ? '+' : ''}${vec.value.toFixed(1)}</span>
-                <span class="mini-trait-right ${!isLeftDominant ? 'active' : ''}">${dich.right}</span>
-                <span class="mini-trait-spread reliability-${reliabilityClass}">(±${vec.spread.toFixed(2)})</span>
-            </div>
-        `;
-    }).join('');
-}
-
-function toggleFullEmbedding() {
-    const view = document.getElementById('fullEmbeddingView');
-    if (view) {
-        view.style.display = view.style.display === 'none' ? 'block' : 'none';
-    }
-}
-
-function confirmRegenerate() {
-    if (confirm('Пересоздать профиль? Текущий будет заменён.')) {
-        localStorage.removeItem(DATING_STORAGE_KEY);
-        const factsData = getFactsData();
-        const factsCount = factsData.facts ? factsData.facts.filter(f => !f.superseded).length : 0;
-        renderReadyToGenerate(factsCount);
-    }
+- Используй конкретику из жизни пользователя
+- Если описания кандидата нет — скажи что судишь по цифрам
+- Если у кандидата много недостоверных оценок — упомяни что портрет размыт
+- Пиши как умный друг, адаптируй стиль под пользователя`;
 }
 
 // ==================== EMBEDDING GENERATION ====================
@@ -707,9 +786,8 @@ async function startEmbeddingGeneration() {
             
             if (embedding) {
                 datingState.passes.push(embedding);
-                console.log(`[Dating] Pass ${i} complete`);
             } else {
-                throw new Error(`Pass ${i} failed to generate valid embedding`);
+                throw new Error(`Pass ${i} failed`);
             }
             
             if (i < EMBEDDING_PASSES) {
@@ -741,7 +819,7 @@ async function generateSingleEmbedding() {
         const response = await callAPIForDating(prompt);
         const parsed = parseEmbeddingResponse(response);
         
-        if (parsed && parsed.length === 33) {
+        if (parsed && parsed.length === TOTAL_SCALES) {
             return parsed;
         } else {
             console.error('[Dating] Invalid embedding length:', parsed?.length);
@@ -754,11 +832,11 @@ async function generateSingleEmbedding() {
 }
 
 function buildEmbeddingPrompt(facts, traits) {
-    const dichotomyList = DICHOTOMIES.map(d => 
-        `${d.id}. ${d.left} / ${d.right}`
+    const scaleList = SCALES.map(s => 
+        `${s.id}. ${s.emoji} ${s.name} — ${s.desc}`
     ).join('\n');
     
-    return `Ты — психолог-аналитик. Проанализируй личность человека на основе фактов и черт характера.
+    return `Ты — психолог-аналитик. Оцени личность человека по 50 независимым шкалам.
 
 === ФАКТЫ О ЧЕЛОВЕКЕ ===
 ${facts || '(нет данных)'}
@@ -767,30 +845,32 @@ ${facts || '(нет данных)'}
 ${traits || '(нет данных)'}
 
 === ТВОЯ ЗАДАЧА ===
-Оцени человека по 33 дихотомиям личности. Для каждой дихотомии выстави балл от -1.0 до +1.0 с шагом 0.1:
-• -1.0 = крайне выражен ЛЕВЫЙ полюс
-• 0.0 = нейтрально, баланс
-• +1.0 = крайне выражен ПРАВЫЙ полюс
+Оцени человека по каждой из 50 шкал.
+Каждая шкала НЕЗАВИСИМАЯ — от 0.0 до 1.0:
+• 0.0 = совсем не выражено
+• 0.5 = умеренно / неопределённо
+• 1.0 = ярко выражено
 
-=== 33 ДИХОТОМИИ (левый полюс / правый полюс) ===
-${dichotomyList}
+ВАЖНО: Шкалы НЕ противоположны друг другу. Человек МОЖЕТ быть одновременно и креативным (0.8) и практичным (0.9). Оценивай каждую шкалу отдельно.
+
+=== 50 ШКАЛ ===
+${scaleList}
 
 === ПРАВИЛА ===
 1. Оценивай ТОЛЬКО на основе предоставленных данных
-2. Если данных недостаточно для оценки — ставь 0.0
-3. Будь консервативен: крайние значения (-1.0, +1.0) только при явных доказательствах
+2. Если данных нет — ставь 0.5 (неопределённость, не ноль!)
+3. Крайние значения (0.0–0.1 или 0.9–1.0) только при очевидных доказательствах
 4. НЕ выдумывай и не додумывай
 
 === ФОРМАТ ОТВЕТА ===
-Ответь СТРОГО в таком формате, без пояснений:
+Строго:
 
 [1]:X.X
 [2]:X.X
-[3]:X.X
 ...
-[33]:X.X
+[50]:X.X
 
-Где X.X — число от -1.0 до +1.0`;
+Где X.X — число от 0.0 до 1.0. Без пояснений.`;
 }
 
 function parseEmbeddingResponse(response) {
@@ -804,25 +884,25 @@ function parseEmbeddingResponse(response) {
         const index = parseInt(match[1]);
         const value = parseFloat(match[2]);
         
-        if (index >= 1 && index <= 33 && !isNaN(value)) {
-            found[index] = Math.max(-1, Math.min(1, value));
+        if (index >= 1 && index <= TOTAL_SCALES && !isNaN(value)) {
+            found[index] = Math.max(0, Math.min(1, value));
         }
     }
     
     const values = [];
-    for (let i = 1; i <= 33; i++) {
-        values.push(found[i] !== undefined ? found[i] : 0);
+    for (let i = 1; i <= TOTAL_SCALES; i++) {
+        values.push(found[i] !== undefined ? found[i] : 0.5);
     }
     
-    console.log(`[Dating] Parsed ${Object.keys(found).length}/33 values`);
+    console.log(`[Dating] Parsed ${Object.keys(found).length}/${TOTAL_SCALES} values`);
     
-    return values.length === 33 ? values : null;
+    return values.length === TOTAL_SCALES ? values : null;
 }
 
 function calculateFinalEmbedding(passes) {
     const vectors = [];
     
-    for (let i = 0; i < 33; i++) {
+    for (let i = 0; i < TOTAL_SCALES; i++) {
         const values = passes.map(p => p[i]);
         const avg = values.reduce((a, b) => a + b, 0) / values.length;
         const spread = Math.max(...values) - Math.min(...values);
@@ -835,27 +915,11 @@ function calculateFinalEmbedding(passes) {
     }
     
     return {
-        version: 1,
+        version: 2,
         createdAt: Date.now(),
         factsCount: getFactsData().facts?.filter(f => !f.superseded).length || 0,
         vectors: vectors
     };
-}
-
-function getTopTraits(embedding, count = 5) {
-    const traits = embedding.vectors.map((vec, idx) => ({
-        index: idx,
-        value: vec.value,
-        spread: vec.spread,
-        left: DICHOTOMIES[idx].left,
-        right: DICHOTOMIES[idx].right,
-        score: Math.abs(vec.value) * (1 - Math.min(vec.spread, 1))
-    }));
-    
-    const reliable = traits.filter(t => t.spread <= 0.7);
-    reliable.sort((a, b) => b.score - a.score);
-    
-    return reliable.slice(0, count);
 }
 
 // ==================== DESCRIPTIONS ====================
@@ -879,23 +943,18 @@ async function generateDescription(level) {
         const facts = getFactsForPrompt(false);
         const traits = getTraitsForPrompt(false);
         const embedding = getSavedEmbedding();
-        const topTraits = embedding ? getTopTraits(embedding, 5) : [];
+        const topTraits = embedding ? getTopTraits(embedding, 7) : [];
         
         const prompt = buildDescriptionPrompt(level, facts, traits, topTraits);
-        
-        console.log(`[Dating] Generating description level ${level}...`);
-        
         const response = await callAPIForDating(prompt);
         const description = (response.content || response).trim();
         
         textarea.value = description;
         saveDescription(level, description);
         
-        console.log(`[Dating] Description level ${level} generated`);
-        
     } catch (error) {
-        console.error(`[Dating] Description generation failed:`, error);
-        alert('Ошибка генерации описания. Попробуйте ещё раз.');
+        console.error(`[Dating] Description failed:`, error);
+        alert('Ошибка генерации. Попробуйте ещё раз.');
     } finally {
         btn.innerHTML = originalText;
         btn.disabled = false;
@@ -905,42 +964,46 @@ async function generateDescription(level) {
 }
 
 function buildDescriptionPrompt(level, facts, traits, topTraits) {
-    const topTraitsText = topTraits.map(t => {
-        const dominant = t.value < 0 ? t.left : t.right;
-        const intensity = Math.abs(t.value);
-        return `- ${dominant} (выраженность: ${(intensity * 100).toFixed(0)}%)`;
-    }).join('\n');
+    const highTraits = topTraits.filter(t => t.pole === 'high');
+    const lowTraits = topTraits.filter(t => t.pole === 'low');
+    
+    let traitsText = '';
+    if (highTraits.length > 0) {
+        traitsText += 'Ярко выражено:\n' + highTraits.map(t => `- ${t.emoji} ${t.name}: ${(t.value * 100).toFixed(0)}%`).join('\n');
+    }
+    if (lowTraits.length > 0) {
+        traitsText += '\nСлабо выражено:\n' + lowTraits.map(t => `- ${t.emoji} ${t.name}: ${(t.value * 100).toFixed(0)}%`).join('\n');
+    }
     
     if (level === 1) {
-        return `Ты — талантливый копирайтер для сервиса знакомств. Напиши интригующее ПОЛНОСТЬЮ АНОНИМНОЕ описание человека.
+        return `Напиши интригующее АНОНИМНОЕ описание человека для сервиса знакомств.
 
-=== ДАННЫЕ ===
-**Черты личности:** ${traits || '(нет)'}
-**Ключевые характеристики:** ${topTraitsText || '(нет)'}
+**Черты:** ${traits || '(нет)'}
+**Ключевые шкалы:**
+${traitsText || '(нет)'}
 
-=== ТРЕБОВАНИЯ ===
-1. СТРОГАЯ АНОНИМНОСТЬ: только пол + художественно описанный возраст ("в расцвете сил", "на пороге новых открытий")
-2. НЕ упоминай: профессию, город, имена, конкретные хобби, семейное положение
-3. Пиши от третьего лица как нетворкер, представляющий человека
-4. 3-5 предложений, с интригой и "изюминкой"
+Требования:
+- Только пол + художественный возраст
+- НЕ упоминай профессию, город, имена, семью
+- От третьего лица, как нетворкер
+- 3-5 предложений, с изюминкой
 
-Напиши ТОЛЬКО описание.`;
-        
+Только текст описания.`;
     } else {
-        return `Ты — талантливый копирайтер для сервиса знакомств. Напиши подробное описание для тех, с кем произошёл взаимный интерес.
+        return `Напиши описание человека для тех, с кем произошёл взаимный интерес.
 
-=== ДАННЫЕ ===
 **Факты:** ${facts || '(нет)'}
-**Черты личности:** ${traits || '(нет)'}
-**Ключевые характеристики:** ${topTraitsText || '(нет)'}
+**Черты:** ${traits || '(нет)'}
+**Ключевые шкалы:**
+${traitsText || '(нет)'}
 
-=== ТРЕБОВАНИЯ ===
-1. Можно: сферу деятельности, интересы, ценности
-2. НЕ упоминай: точный возраст, адреса, финансы, здоровье, конфликты
-3. Пиши от третьего лица как нетворкер
-4. 5-8 предложений, покажи глубину и уникальность
+Требования:
+- Можно: сферу деятельности, интересы, ценности
+- НЕ упоминай: адреса, финансы, здоровье, конфликты
+- От третьего лица, как нетворкер
+- 5-8 предложений
 
-Напиши ТОЛЬКО описание.`;
+Только текст описания.`;
     }
 }
 
@@ -948,87 +1011,56 @@ function buildDescriptionPrompt(level, facts, traits, topTraits) {
 
 function getSavedDescriptions() {
     const data = localStorage.getItem(DATING_DESCRIPTIONS_KEY);
-    if (!data) {
-        return {
-            level1: { text: '', enabled: false },
-            level2: { text: '', enabled: false }
-        };
-    }
-    try {
-        return JSON.parse(data);
-    } catch (e) {
-        return {
-            level1: { text: '', enabled: false },
-            level2: { text: '', enabled: false }
-        };
-    }
+    if (!data) return { level1: { text: '', enabled: false }, level2: { text: '', enabled: false } };
+    try { return JSON.parse(data); }
+    catch (e) { return { level1: { text: '', enabled: false }, level2: { text: '', enabled: false } }; }
 }
 
 function saveDescription(level, text) {
-    const descriptions = getSavedDescriptions();
-    descriptions[`level${level}`] = {
-        text: text,
-        enabled: descriptions[`level${level}`]?.enabled || false,
-        updatedAt: Date.now()
-    };
-    localStorage.setItem(DATING_DESCRIPTIONS_KEY, JSON.stringify(descriptions));
+    const d = getSavedDescriptions();
+    d[`level${level}`] = { text, enabled: d[`level${level}`]?.enabled || false, updatedAt: Date.now() };
+    localStorage.setItem(DATING_DESCRIPTIONS_KEY, JSON.stringify(d));
 }
 
 function toggleDescriptionEnabled(level) {
-    const checkbox = document.getElementById(`enableLevel${level}`);
-    if (!checkbox) return;
-    
-    const descriptions = getSavedDescriptions();
-    descriptions[`level${level}`] = {
-        ...descriptions[`level${level}`],
-        enabled: checkbox.checked,
-        updatedAt: Date.now()
-    };
-    localStorage.setItem(DATING_DESCRIPTIONS_KEY, JSON.stringify(descriptions));
+    const cb = document.getElementById(`enableLevel${level}`);
+    if (!cb) return;
+    const d = getSavedDescriptions();
+    d[`level${level}`] = { ...d[`level${level}`], enabled: cb.checked, updatedAt: Date.now() };
+    localStorage.setItem(DATING_DESCRIPTIONS_KEY, JSON.stringify(d));
 }
 
 function onDescriptionChange(level) {
-    const textarea = document.getElementById(`descriptionLevel${level}`);
-    if (!textarea) return;
-    
+    const ta = document.getElementById(`descriptionLevel${level}`);
+    if (!ta) return;
     clearTimeout(window[`descSaveTimeout${level}`]);
-    window[`descSaveTimeout${level}`] = setTimeout(() => {
-        saveDescription(level, textarea.value);
-    }, 1000);
+    window[`descSaveTimeout${level}`] = setTimeout(() => saveDescription(level, ta.value), 1000);
 }
 
 function saveEmbedding(embedding) {
     localStorage.setItem(DATING_STORAGE_KEY, JSON.stringify(embedding));
-    console.log('[Dating] Embedding saved');
+    console.log('[Dating] Embedding saved (v2, 50 scales)');
 }
 
 function getSavedEmbedding() {
     const data = localStorage.getItem(DATING_STORAGE_KEY);
     if (!data) return null;
-    try {
-        return JSON.parse(data);
-    } catch (e) {
-        return null;
-    }
+    try { return JSON.parse(data); }
+    catch (e) { return null; }
 }
 
 // ==================== EXPORT/IMPORT ====================
 
 function copyEmbeddingToClipboard() {
     const embedding = getSavedEmbedding();
-    if (!embedding) {
-        alert('Нет сохранённого профиля');
-        return;
-    }
+    if (!embedding) { alert('Нет профиля'); return; }
     
-    const exportString = formatEmbeddingForExport(embedding);
-    
-    navigator.clipboard.writeText(exportString).then(() => {
+    navigator.clipboard.writeText(formatEmbeddingForExport(embedding)).then(() => {
         const btn = document.querySelector('.dating-btn-copy');
         if (btn) {
-            const originalText = btn.innerHTML;
+            const orig = btn.innerHTML;
             btn.innerHTML = '✅ Скопировано!';
-            setTimeout(() => { btn.innerHTML = originalText; }, 2000);
+            setTimeout(() => { btn.innerHTML = orig; }, 2000);
         }
     }).catch(err => {
         console.error('[Dating] Copy failed:', err);
@@ -1036,11 +1068,11 @@ function copyEmbeddingToClipboard() {
 }
 
 function formatEmbeddingForExport(embedding) {
-    const vectorsStr = embedding.vectors.map(v => 
+    const vectorsStr = embedding.vectors.map(v =>
         `${v.value.toFixed(2)},${v.spread.toFixed(2)}`
     ).join(';');
     
-    return `DATING_EMBED_V1|${embedding.createdAt}|${embedding.factsCount}|${vectorsStr}`;
+    return `DATING_EMBED_V2|${embedding.createdAt}|${embedding.factsCount}|${vectorsStr}`;
 }
 
 function parseEmbeddingFromExport(str) {
@@ -1048,39 +1080,37 @@ function parseEmbeddingFromExport(str) {
     
     const parts = str.trim().split('|');
     
-    if (parts[0] !== 'DATING_EMBED_V1' || parts.length !== 4) {
+    if ((parts[0] !== 'DATING_EMBED_V1' && parts[0] !== 'DATING_EMBED_V2') || parts.length !== 4) {
         return null;
     }
     
+    const version = parts[0] === 'DATING_EMBED_V2' ? 2 : 1;
     const createdAt = parseInt(parts[1]);
     const factsCount = parseInt(parts[2]);
-    const vectorsStr = parts[3];
     
     if (isNaN(createdAt) || isNaN(factsCount)) return null;
     
-    const vectors = vectorsStr.split(';').map(pair => {
+    const vectors = parts[3].split(';').map(pair => {
         const [value, spread] = pair.split(',').map(parseFloat);
         if (isNaN(value) || isNaN(spread)) return null;
         return { value, spread };
     });
     
-    if (vectors.length !== 33 || vectors.some(v => v === null)) {
-        return null;
-    }
+    if (vectors.some(v => v === null)) return null;
     
-    return { version: 1, createdAt, factsCount, vectors };
+    const expectedLength = version === 2 ? 50 : 33;
+    if (vectors.length !== expectedLength) return null;
+    
+    return { version, createdAt, factsCount, vectors };
 }
 
 // ==================== API ====================
 
 async function callAPIForDating(prompt) {
-    const messages = [{ role: "user", content: prompt }];
-    
     if (typeof callAPIOpenRouter === 'function') {
-        return await callAPIOpenRouter(messages, true);
+        return await callAPIOpenRouter([{ role: "user", content: prompt }], true);
     }
-    
-    throw new Error('API function not available');
+    throw new Error('API not available');
 }
 
 // ==================== ERRORS ====================
@@ -1090,13 +1120,13 @@ function renderGenerationError(message) {
     container.innerHTML = `
         <div class="dating-status dating-error">
             <div class="dating-icon">❌</div>
-            <h3>Ошибка генерации</h3>
+            <h3>Ошибка</h3>
             <p>${message}</p>
-            <button class="dating-btn" onclick="checkDatingEligibility()">
-                🔄 Попробовать снова
-            </button>
+            <button class="dating-btn" onclick="checkDatingEligibility()">🔄 Снова</button>
         </div>
     `;
 }
 
-console.log('[dating.js] Loaded. Embedding + Descriptions + Compatibility analysis.');
+// ==================== INIT ====================
+
+console.log('[dating.js] v2 loaded. 50 independent scales. Embedding + Descriptions + Compatibility.');

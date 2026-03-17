@@ -4948,3 +4948,222 @@ body.server-mode .input-form {
         font-size: 11px;
     }
 }
+
+/* ==================== SCALE BARS (replacing trait bars) ==================== */
+
+.scale-bar-container {
+    margin-bottom: 16px;
+}
+
+.scale-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.scale-emoji {
+    font-size: 16px;
+    width: 22px;
+    text-align: center;
+}
+
+.scale-name {
+    font-size: 14px;
+    color: #e0e0f0;
+    flex: 1;
+}
+
+.scale-value {
+    font-family: monospace;
+    font-size: 13px;
+    color: #a0a0c0;
+    min-width: 36px;
+    text-align: right;
+}
+
+.scale-bar {
+    height: 6px;
+    background: #2a2a4a;
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.scale-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #6366f1, #e94560);
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+
+/* ==================== ALL SCALES VIEW (by category) ==================== */
+
+.scales-category {
+    margin-bottom: 20px;
+}
+
+.scales-category-header {
+    font-size: 13px;
+    font-weight: 600;
+    color: #e94560;
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #3a3a5a;
+}
+
+.mini-scale {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    font-size: 13px;
+}
+
+.mini-scale-emoji {
+    width: 20px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.mini-scale-name {
+    color: #c0c0d0;
+    min-width: 160px;
+    flex-shrink: 0;
+}
+
+.mini-scale-bar {
+    flex: 1;
+    height: 4px;
+    background: #2a2a4a;
+    border-radius: 2px;
+    overflow: hidden;
+    min-width: 60px;
+}
+
+.mini-scale-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #6366f1, #e94560);
+    border-radius: 2px;
+}
+
+.mini-scale-value {
+    font-family: monospace;
+    color: #a0a0c0;
+    min-width: 32px;
+    text-align: right;
+    flex-shrink: 0;
+}
+
+.mini-scale-spread {
+    font-size: 11px;
+    min-width: 50px;
+    text-align: right;
+    flex-shrink: 0;
+}
+
+/* ==================== RESPONSIVE ==================== */
+
+@media (max-width: 600px) {
+    .mini-scale {
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+    
+    .mini-scale-name {
+        min-width: 120px;
+        font-size: 12px;
+    }
+    
+    .mini-scale-bar {
+        min-width: 40px;
+    }
+    
+    .scale-header {
+        flex-wrap: wrap;
+    }
+}
+
+/* ==================== SCALE POLES ==================== */
+
+.scale-pole-badge {
+    font-family: monospace;
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    min-width: 56px;
+    text-align: center;
+}
+
+.pole-high {
+    background: #1a2a1a;
+    color: #4CAF50;
+}
+
+.pole-low {
+    background: #2a1a2a;
+    color: #a78bfa;
+}
+
+/* Scale bar fill colors */
+.scale-bar-fill.fill-high {
+    background: linear-gradient(90deg, #4CAF50, #66bb6a);
+}
+
+.scale-bar-fill.fill-low {
+    background: linear-gradient(90deg, #7c3aed, #a78bfa);
+}
+
+/* Midpoint marker */
+.scale-bar-midpoint {
+    position: absolute;
+    left: 50%;
+    top: -1px;
+    width: 1px;
+    height: 8px;
+    background: #4a4a6a;
+    transform: translateX(-50%);
+}
+
+.scale-bar {
+    position: relative;
+    height: 6px;
+    background: #2a2a4a;
+    border-radius: 3px;
+    overflow: visible;
+}
+
+/* Section headers */
+.dating-top-traits h4 {
+    margin: 20px 0 12px 0;
+    font-size: 15px;
+    color: #fff;
+}
+
+.dating-top-traits h4:first-child {
+    margin-top: 0;
+}
+
+/* Reliability summary */
+.dating-reliability-summary {
+    font-size: 13px;
+    color: #8a8aaa;
+    margin-top: 4px;
+}
+
+.text-warning {
+    color: #f59e0b;
+}
+
+/* No notable traits */
+.no-notable-traits {
+    text-align: center;
+    padding: 20px;
+    background: #252540;
+    border-radius: 8px;
+    color: #6a6a8a;
+}
+
+.no-notable-traits p {
+    margin: 0;
+    font-size: 14px;
+}
