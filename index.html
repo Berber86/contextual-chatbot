@@ -33,6 +33,11 @@
             🔮
         </button>
 
+        <!-- Кнопка знакомств (магнит) -->
+        <button class="header-btn dating-btn" onclick="openDatingModal()" title="Dating Profile">
+            🧲
+        </button>
+
         <!-- Кнопка помощи -->
         <button class="header-btn help-btn" onclick="openHelpModal()" title="Help">
             ?
@@ -149,6 +154,11 @@
             </section>
 
             <section class="help-section">
+                <h2>🧲 Профиль для знакомств</h2>
+                <p>Когда накопится достаточно данных (50+ фактов), вы сможете создать свой личностный профиль из 33 измерений. Профиль можно скопировать и использовать для подбора совместимых людей.</p>
+            </section>
+
+            <section class="help-section">
                 <h2>🔒 Приватность</h2>
                 <p><strong>Все данные хранятся только на вашем устройстве.</strong></p>
                 <p>Мы технически не можем прочитать вашу переписку — она не отправляется на наши серверы.</p>
@@ -175,7 +185,7 @@
             </section>
 
             <div class="help-footer">
-                <p>Версия 1.1 · 2025</p>
+                <p>Версия 1.2 · 2025</p>
             </div>
         </div>
     </div>
@@ -376,10 +386,27 @@
         </div>
     </div>
 
+    <!-- Dating Modal (Знакомства) -->
+    <div class="dating-modal-overlay" id="datingModal">
+        <div class="dating-modal">
+            <div class="dating-header">
+                <h2>🧲 Профиль для знакомств</h2>
+                <button class="dating-close-btn" onclick="closeDatingModal()">✕</button>
+            </div>
+            <div class="dating-content" id="datingContent">
+                <div class="dating-loading">
+                    <div class="dating-spinner"></div>
+                    <p>Загрузка...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- ВАЖНО: правильный порядок загрузки скриптов -->
     <script src="app.js"></script>        <!-- 1. Базовые функции и конфигурация -->
     <script src="analytics.js"></script>  <!-- 2. Аналитические функции -->
     <script src="ui.js"></script>         <!-- 3. UI и взаимодействие -->
     <script src="you.js"></script>        <!-- 4. Модуль самопознания YOU -->
+    <script src="dating.js"></script>     <!-- 5. Модуль знакомств -->
 </body>
 </html>

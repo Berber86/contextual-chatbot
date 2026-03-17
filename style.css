@@ -4031,3 +4031,688 @@ body.server-mode .input-form {
     from { opacity: 0.7; }
     to { opacity: 1; }
 }
+
+/* ==================== DATING MODULE ==================== */
+
+/* Header button */
+.header-btn.dating-btn {
+    margin-right: 10px;
+}
+
+/* Modal overlay */
+.dating-modal-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.85);
+    z-index: 1000;
+    overflow-y: auto;
+    padding: 20px;
+}
+
+.dating-modal-overlay.active {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+}
+
+.dating-modal {
+    background: #1e1e2e;
+    border-radius: 16px;
+    max-width: 600px;
+    width: 100%;
+    margin: 40px 0;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    border: 1px solid #3a3a5a;
+}
+
+.dating-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 1px solid #3a3a5a;
+}
+
+.dating-header h2 {
+    margin: 0;
+    font-size: 20px;
+    color: #fff;
+}
+
+.dating-close-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: #3a3a5a;
+    color: #fff;
+    border: none;
+    font-size: 18px;
+    cursor: pointer;
+    transition: background 0.3s ease;
+}
+
+.dating-close-btn:hover {
+    background: #e94560;
+}
+
+.dating-content {
+    padding: 24px;
+}
+
+/* Status screens */
+.dating-status {
+    text-align: center;
+    padding: 20px 0;
+}
+
+.dating-icon {
+    font-size: 64px;
+    margin-bottom: 20px;
+}
+
+.dating-status h3 {
+    margin: 0 0 16px 0;
+    font-size: 24px;
+    color: #fff;
+}
+
+.dating-status p {
+    margin: 0 0 12px 0;
+    color: #a0a0c0;
+    line-height: 1.6;
+}
+
+.dating-hint {
+    font-size: 13px;
+    color: #6a6a8a;
+    font-style: italic;
+}
+
+.dating-info {
+    background: #2a2a4a;
+    padding: 12px 16px;
+    border-radius: 8px;
+    margin: 16px 0;
+}
+
+.dating-date {
+    font-size: 13px;
+    color: #6a6a8a;
+}
+
+/* Progress bar */
+.dating-progress {
+    width: 100%;
+    height: 8px;
+    background: #2a2a4a;
+    border-radius: 4px;
+    margin: 16px 0;
+    overflow: hidden;
+}
+
+.dating-progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #e94560, #ff6b8a);
+    border-radius: 4px;
+    transition: width 0.5s ease;
+}
+
+.dating-progress-text {
+    font-size: 14px;
+    color: #e94560;
+    font-weight: bold;
+}
+
+/* Spinner */
+.dating-spinner {
+    width: 48px;
+    height: 48px;
+    border: 4px solid #3a3a5a;
+    border-top-color: #e94560;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 20px;
+}
+
+.dating-pass-info {
+    font-size: 16px;
+    color: #e94560;
+    font-weight: bold;
+}
+
+/* Buttons */
+.dating-generate-btn {
+    background: linear-gradient(135deg, #e94560, #ff6b8a);
+    color: white;
+    border: none;
+    padding: 16px 32px;
+    font-size: 18px;
+    border-radius: 12px;
+    cursor: pointer;
+    margin-top: 20px;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.dating-generate-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(233, 69, 96, 0.4);
+}
+
+.dating-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    margin-top: 24px;
+    flex-wrap: wrap;
+}
+
+.dating-btn {
+    padding: 12px 20px;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.2s;
+}
+
+.dating-btn-copy {
+    background: #4CAF50;
+    color: white;
+}
+
+.dating-btn-copy:hover {
+    background: #45a049;
+}
+
+.dating-btn-details {
+    background: #3a3a5a;
+    color: #fff;
+}
+
+.dating-btn-details:hover {
+    background: #4a4a6a;
+}
+
+.dating-btn-regenerate {
+    background: transparent;
+    color: #6a6a8a;
+    border: 1px solid #3a3a5a;
+}
+
+.dating-btn-regenerate:hover {
+    background: #2a2a4a;
+    color: #fff;
+}
+
+/* Top traits */
+.dating-top-traits {
+    margin-top: 24px;
+    text-align: left;
+}
+
+.dating-top-traits h4 {
+    margin: 0 0 16px 0;
+    color: #fff;
+    font-size: 16px;
+}
+
+/* Trait bar */
+.trait-bar-container {
+    margin-bottom: 20px;
+}
+
+.trait-labels {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 6px;
+    font-size: 13px;
+}
+
+.trait-left {
+    color: #6a6a8a;
+}
+
+.trait-right {
+    color: #6a6a8a;
+}
+
+.trait-left.dominant,
+.trait-right.dominant {
+    color: #e94560;
+    font-weight: bold;
+}
+
+.trait-bar {
+    position: relative;
+    height: 8px;
+    background: #2a2a4a;
+    border-radius: 4px;
+}
+
+.trait-bar-fill {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    background: linear-gradient(90deg, #e94560, #ff6b8a);
+    border-radius: 4px;
+}
+
+.trait-bar-fill.left {
+    background: linear-gradient(270deg, #e94560, #ff6b8a);
+}
+
+.trait-bar-center {
+    position: absolute;
+    left: 50%;
+    top: -2px;
+    width: 2px;
+    height: 12px;
+    background: #6a6a8a;
+    transform: translateX(-50%);
+}
+
+.trait-meta {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 4px;
+    font-size: 12px;
+}
+
+.trait-value {
+    color: #a0a0c0;
+    font-family: monospace;
+}
+
+.trait-reliability {
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+}
+
+.reliability-high {
+    background: #1a3a1a;
+    color: #4CAF50;
+}
+
+.reliability-medium {
+    background: #3a3a1a;
+    color: #f59e0b;
+}
+
+.reliability-low {
+    background: #3a1a1a;
+    color: #e94560;
+}
+
+/* Full embedding view */
+.dating-full-embedding {
+    margin-top: 24px;
+    padding-top: 24px;
+    border-top: 1px solid #3a3a5a;
+    text-align: left;
+}
+
+.dating-full-embedding h4 {
+    margin: 0 0 16px 0;
+    color: #fff;
+    font-size: 14px;
+}
+
+.dating-all-traits {
+    max-height: 400px;
+    overflow-y: auto;
+    padding-right: 8px;
+}
+
+.mini-trait {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 0;
+    border-bottom: 1px solid #2a2a4a;
+    font-size: 13px;
+}
+
+.mini-trait-num {
+    color: #6a6a8a;
+    width: 24px;
+}
+
+.mini-trait-left,
+.mini-trait-right {
+    color: #6a6a8a;
+    flex: 1;
+}
+
+.mini-trait-left.active,
+.mini-trait-right.active {
+    color: #e94560;
+    font-weight: bold;
+}
+
+.mini-trait-value {
+    font-family: monospace;
+    color: #a0a0c0;
+    width: 50px;
+    text-align: center;
+}
+
+.mini-trait-spread {
+    font-size: 11px;
+    width: 60px;
+    text-align: right;
+}
+
+/* Error state */
+.dating-error .dating-icon {
+    font-size: 48px;
+}
+
+/* Loading state */
+.dating-loading {
+    text-align: center;
+    padding: 40px 0;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+    .dating-modal {
+        margin: 20px 0;
+        border-radius: 12px;
+    }
+    
+    .dating-header {
+        padding: 16px 20px;
+    }
+    
+    .dating-content {
+        padding: 20px;
+    }
+    
+    .dating-icon {
+        font-size: 48px;
+    }
+    
+    .dating-actions {
+        flex-direction: column;
+    }
+    
+    .dating-btn {
+        width: 100%;
+    }
+    
+    .mini-trait {
+        flex-wrap: wrap;
+    }
+}
+
+/* ==================== DATING DESCRIPTIONS ==================== */
+
+.dating-descriptions-section {
+    margin-top: 32px;
+    padding-top: 24px;
+    border-top: 1px solid #3a3a5a;
+}
+
+.dating-descriptions-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.dating-descriptions-header h4 {
+    margin: 0;
+    font-size: 18px;
+    color: #fff;
+}
+
+.dating-descriptions-info {
+    position: relative;
+}
+
+.dating-descriptions-info .info-icon {
+    cursor: help;
+    font-size: 16px;
+    opacity: 0.7;
+    transition: opacity 0.2s;
+}
+
+.dating-descriptions-info:hover .info-icon {
+    opacity: 1;
+}
+
+.dating-descriptions-info .info-tooltip {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-top: 8px;
+    padding: 16px;
+    background: #2a2a4a;
+    border: 1px solid #4a4a6a;
+    border-radius: 12px;
+    width: 300px;
+    z-index: 100;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.dating-descriptions-info:hover .info-tooltip {
+    display: block;
+}
+
+.info-tooltip p {
+    margin: 0 0 12px 0;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #c0c0d0;
+}
+
+.info-tooltip p:last-child {
+    margin-bottom: 0;
+}
+
+.info-tooltip strong {
+    color: #e94560;
+}
+
+/* Description blocks */
+.dating-description-block {
+    background: #252540;
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 16px;
+}
+
+.description-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.label-icon {
+    font-size: 18px;
+}
+
+.label-text {
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+}
+
+.label-hint {
+    font-size: 12px;
+    color: #6a6a8a;
+    margin-left: auto;
+}
+
+.description-content {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.description-textarea {
+    width: 100%;
+    min-height: 120px;
+    padding: 12px 16px;
+    background: #1a1a2e;
+    border: 1px solid #3a3a5a;
+    border-radius: 8px;
+    color: #e0e0f0;
+    font-size: 14px;
+    line-height: 1.6;
+    resize: vertical;
+    font-family: inherit;
+    transition: border-color 0.2s, background 0.2s;
+}
+
+.description-textarea:focus {
+    outline: none;
+    border-color: #e94560;
+    background: #151528;
+}
+
+.description-textarea:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.description-textarea::placeholder {
+    color: #5a5a7a;
+}
+
+.description-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+/* Description buttons */
+.desc-btn {
+    padding: 10px 20px;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.desc-btn-generate {
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: white;
+}
+
+.desc-btn-generate:hover:not(:disabled) {
+    background: linear-gradient(135deg, #5355e8, #7c4deb);
+    transform: translateY(-1px);
+}
+
+.desc-btn-generate:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* Button spinner */
+.btn-spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+/* Checkbox */
+.desc-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    color: #a0a0c0;
+    user-select: none;
+}
+
+.desc-checkbox input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    accent-color: #4CAF50;
+}
+
+.desc-checkbox span {
+    transition: color 0.2s;
+}
+
+.desc-checkbox:hover span {
+    color: #fff;
+}
+
+.desc-checkbox input:checked + span {
+    color: #4CAF50;
+    font-weight: 500;
+}
+
+/* Prototype note */
+.dating-prototype-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin-top: 20px;
+    padding: 16px;
+    background: #1a2a3a;
+    border: 1px solid #2a4a6a;
+    border-radius: 12px;
+    border-left: 4px solid #f59e0b;
+}
+
+.dating-prototype-note span {
+    font-size: 20px;
+    flex-shrink: 0;
+}
+
+.dating-prototype-note p {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #a0b0c0;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+    .description-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .desc-btn {
+        justify-content: center;
+    }
+    
+    .desc-checkbox {
+        justify-content: center;
+        padding: 8px 0;
+    }
+    
+    .dating-descriptions-info .info-tooltip {
+        width: 250px;
+        left: auto;
+        right: -20px;
+        transform: none;
+    }
+}
+
