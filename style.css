@@ -4716,3 +4716,235 @@ body.server-mode .input-form {
     }
 }
 
+/* ==================== DATING TABS ==================== */
+
+.dating-tabs {
+    display: flex;
+    border-bottom: 1px solid #3a3a5a;
+    background: #252540;
+}
+
+.dating-tab {
+    flex: 1;
+    padding: 14px 20px;
+    background: none;
+    border: none;
+    color: #6a6a8a;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    border-bottom: 3px solid transparent;
+}
+
+.dating-tab:hover {
+    color: #a0a0c0;
+    background: #2a2a4a;
+}
+
+.dating-tab.active {
+    color: #e94560;
+    border-bottom-color: #e94560;
+    background: #1e1e2e;
+}
+
+/* ==================== COMPATIBILITY TAB ==================== */
+
+.compat-container {
+    padding: 8px 0;
+}
+
+.compat-intro {
+    text-align: center;
+    margin-bottom: 24px;
+}
+
+.compat-intro .dating-icon {
+    font-size: 48px;
+    margin-bottom: 12px;
+}
+
+.compat-intro h3 {
+    margin: 0 0 8px 0;
+    font-size: 20px;
+    color: #fff;
+}
+
+.compat-intro p {
+    margin: 0;
+    color: #8a8aaa;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+/* Input blocks */
+.compat-input-block {
+    margin-bottom: 20px;
+}
+
+.compat-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    font-size: 14px;
+    color: #c0c0d0;
+}
+
+.label-required {
+    color: #e94560;
+    font-weight: bold;
+}
+
+.label-optional {
+    color: #5a5a7a;
+    font-size: 12px;
+    margin-left: auto;
+}
+
+.compat-embedding-input {
+    width: 100%;
+    padding: 12px 16px;
+    background: #1a1a2e;
+    border: 1px solid #3a3a5a;
+    border-radius: 8px;
+    color: #e0e0f0;
+    font-size: 13px;
+    font-family: 'Monaco', 'Menlo', monospace;
+    transition: border-color 0.2s;
+    box-sizing: border-box;
+}
+
+.compat-embedding-input:focus {
+    outline: none;
+    border-color: #e94560;
+}
+
+.compat-description-input {
+    width: 100%;
+    padding: 12px 16px;
+    background: #1a1a2e;
+    border: 1px solid #3a3a5a;
+    border-radius: 8px;
+    color: #e0e0f0;
+    font-size: 14px;
+    line-height: 1.5;
+    resize: vertical;
+    font-family: inherit;
+    transition: border-color 0.2s;
+    box-sizing: border-box;
+}
+
+.compat-description-input:focus {
+    outline: none;
+    border-color: #6366f1;
+}
+
+/* Input status */
+.compat-input-status {
+    margin-top: 6px;
+    font-size: 12px;
+    min-height: 18px;
+}
+
+.status-valid {
+    color: #4CAF50;
+}
+
+.status-invalid {
+    color: #e94560;
+}
+
+/* Analyze button */
+.compat-analyze-btn {
+    width: 100%;
+    margin-top: 8px;
+    margin-bottom: 24px;
+}
+
+.compat-analyze-btn:disabled {
+    background: #3a3a5a;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+/* Result */
+.compat-result {
+    min-height: 0;
+}
+
+.compat-loading {
+    text-align: center;
+    padding: 32px 0;
+}
+
+.compat-loading p {
+    margin: 16px 0 0 0;
+    color: #8a8aaa;
+}
+
+.compat-analysis-text {
+    background: #1a1a2e;
+    border: 1px solid #3a3a5a;
+    border-radius: 12px;
+    padding: 24px;
+    line-height: 1.7;
+    color: #d0d0e0;
+    font-size: 15px;
+}
+
+.compat-analysis-text h1,
+.compat-analysis-text h2,
+.compat-analysis-text h3 {
+    color: #fff;
+    margin-top: 20px;
+    margin-bottom: 8px;
+}
+
+.compat-analysis-text h2:first-child,
+.compat-analysis-text h3:first-child {
+    margin-top: 0;
+}
+
+.compat-analysis-text strong {
+    color: #e94560;
+}
+
+.compat-analysis-text em {
+    color: #a0b0ff;
+}
+
+.compat-error {
+    text-align: center;
+    padding: 24px;
+    background: #2a1a1a;
+    border-radius: 12px;
+    border: 1px solid #5a2a2a;
+}
+
+.compat-error p {
+    color: #e94560;
+    margin: 0 0 16px 0;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+    .dating-tabs {
+        flex-direction: column;
+    }
+    
+    .dating-tab {
+        border-bottom: none;
+        border-left: 3px solid transparent;
+    }
+    
+    .dating-tab.active {
+        border-left-color: #e94560;
+        border-bottom: none;
+    }
+    
+    .compat-embedding-input {
+        font-size: 11px;
+    }
+}

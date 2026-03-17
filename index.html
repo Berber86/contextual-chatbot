@@ -386,21 +386,32 @@
         </div>
     </div>
 
-    <!-- Dating Modal (Знакомства) -->
-    <div class="dating-modal-overlay" id="datingModal">
-        <div class="dating-modal">
-            <div class="dating-header">
-                <h2>🧲 Профиль для знакомств</h2>
-                <button class="dating-close-btn" onclick="closeDatingModal()">✕</button>
-            </div>
-            <div class="dating-content" id="datingContent">
-                <div class="dating-loading">
-                    <div class="dating-spinner"></div>
-                    <p>Загрузка...</p>
-                </div>
+<!-- Dating Modal (Знакомства) -->
+<div class="dating-modal-overlay" id="datingModal">
+    <div class="dating-modal">
+        <div class="dating-header">
+            <h2>🧲 Знакомства</h2>
+            <button class="dating-close-btn" onclick="closeDatingModal()">✕</button>
+        </div>
+        
+        <!-- Табы -->
+        <div class="dating-tabs">
+            <button class="dating-tab active" data-tab="profile" onclick="switchDatingTab('profile')">
+                🎯 Мой профиль
+            </button>
+            <button class="dating-tab" data-tab="compatibility" onclick="switchDatingTab('compatibility')">
+                🧲 Совместимость
+            </button>
+        </div>
+        
+        <div class="dating-content" id="datingContent">
+            <div class="dating-loading">
+                <div class="dating-spinner"></div>
+                <p>Загрузка...</p>
             </div>
         </div>
     </div>
+</div>
 
     <!-- ВАЖНО: правильный порядок загрузки скриптов -->
     <script src="app.js"></script>        <!-- 1. Базовые функции и конфигурация -->

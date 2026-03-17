@@ -1,6 +1,7 @@
 // dating.js - модуль знакомств для Memory Chatbot
 // Генерация личностного эмбеддинга на основе 33 дихотомий
 // + Двухуровневые описания профиля
+// + Анализатор совместимости
 
 // ==================== КОНСТАНТЫ ====================
 const DATING_STORAGE_KEY = 'chatbot_dating_embedding';
@@ -51,7 +52,9 @@ let datingState = {
     currentPass: 0,
     passes: [],
     finalEmbedding: null,
-    isGeneratingDescription: false
+    isGeneratingDescription: false,
+    isAnalyzing: false,
+    activeTab: 'profile' // 'profile' или 'compatibility'
 };
 
 // ==================== UI ФУНКЦИИ ====================
@@ -61,7 +64,7 @@ function openDatingModal() {
     if (modal) {
         modal.classList.add('active');
         document.body.classList.add('modal-open');
-        checkDatingEligibility();
+        switchDatingTab(datingState.activeTab);
     }
 }
 
@@ -72,13 +75,29 @@ function closeDatingModal() {
         document.body.classList.remove('modal-open');
     }
     
-    // Сбрасываем состояние если генерация не завершена
     if (datingState.isGenerating) {
         datingState.isGenerating = false;
         datingState.currentPass = 0;
         datingState.passes = [];
     }
 }
+
+function switchDatingTab(tab) {
+    datingState.activeTab = tab;
+    
+    // Обновляем кнопки табов
+    document.querySelectorAll('.dating-tab').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === tab);
+    });
+    
+    if (tab === 'profile') {
+        checkDatingEligibility();
+    } else if (tab === 'compatibility') {
+        renderCompatibilityTab();
+    }
+}
+
+// ==================== PROFILE TAB ====================
 
 function checkDatingEligibility() {
     const container = document.getElementById('datingContent');
@@ -89,7 +108,6 @@ function checkDatingEligibility() {
     
     console.log(`[Dating] Facts count: ${factsCount}/${MIN_FACTS_REQUIRED}`);
     
-    // Проверяем, есть ли уже сохранённый эмбеддинг
     const savedEmbedding = getSavedEmbedding();
     
     if (savedEmbedding) {
@@ -158,10 +176,7 @@ function updateGenerationProgress(pass) {
 function renderSavedEmbedding(embedding) {
     const container = document.getElementById('datingContent');
     
-    // Получаем топ-5 самых выраженных и достоверных полюсов
     const topTraits = getTopTraits(embedding, 5);
-    
-    // Получаем сохранённые описания
     const descriptions = getSavedDescriptions();
     
     const createdDate = embedding.createdAt 
@@ -268,7 +283,6 @@ function renderSavedEmbedding(embedding) {
                     </div>
                 </div>
                 
-                <!-- Примечание о прототипе -->
                 <div class="dating-prototype-note">
                     <span>🚧</span>
                     <p>Это прототип. Логика мэтчей и показа профилей другим пользователям будет добавлена позже. Пока вы можете подготовить свои описания.</p>
@@ -278,13 +292,336 @@ function renderSavedEmbedding(embedding) {
     `;
 }
 
+// ==================== COMPATIBILITY TAB ====================
+
+function renderCompatibilityTab() {
+    const container = document.getElementById('datingContent');
+    if (!container) return;
+    
+    const savedEmbedding = getSavedEmbedding();
+    
+    if (!savedEmbedding) {
+        container.innerHTML = `
+            <div class="dating-status dating-not-ready">
+                <div class="dating-icon">🔒</div>
+                <h3>Сначала создайте свой профиль</h3>
+                <p>Перейдите во вкладку "Мой профиль" и создайте личностный эмбеддинг.</p>
+                <button class="dating-btn dating-btn-details" onclick="switchDatingTab('profile')">
+                    ← Мой профиль
+                </button>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = `
+        <div class="compat-container">
+            <div class="compat-intro">
+                <div class="dating-icon">🧲</div>
+                <h3>Анализ совместимости</h3>
+                <p>Вставьте эмбеддинг другого человека, чтобы узнать вашу совместимость. Можете также добавить его описание для более глубокого анализа.</p>
+            </div>
+            
+            <!-- Поле для эмбеддинга -->
+            <div class="compat-input-block">
+                <label class="compat-label">
+                    <span class="label-icon">🧬</span>
+                    <span>Эмбеддинг кандидата</span>
+                    <span class="label-required">*</span>
+                </label>
+                <input 
+                    type="text" 
+                    id="candidateEmbeddingInput" 
+                    class="compat-embedding-input"
+                    placeholder="DATING_EMBED_V1|..."
+                    oninput="validateCandidateInput()"
+                >
+                <div class="compat-input-status" id="embedStatus"></div>
+            </div>
+            
+            <!-- Поле для описания -->
+            <div class="compat-input-block">
+                <label class="compat-label">
+                    <span class="label-icon">✍️</span>
+                    <span>Описание кандидата</span>
+                    <span class="label-optional">необязательно</span>
+                </label>
+                <textarea 
+                    id="candidateDescriptionInput" 
+                    class="compat-description-input"
+                    placeholder="Любая информация о человеке: его описание профиля, что вы знаете о нём..."
+                    rows="4"
+                ></textarea>
+            </div>
+            
+            <!-- Кнопка анализа -->
+            <button class="dating-generate-btn compat-analyze-btn" id="analyzeBtn" onclick="runCompatibilityAnalysis()" disabled>
+                🧲 Проанализировать совместимость
+            </button>
+            
+            <!-- Результат -->
+            <div class="compat-result" id="compatResult"></div>
+        </div>
+    `;
+}
+
+function validateCandidateInput() {
+    const input = document.getElementById('candidateEmbeddingInput');
+    const status = document.getElementById('embedStatus');
+    const btn = document.getElementById('analyzeBtn');
+    
+    if (!input || !status || !btn) return;
+    
+    const value = input.value.trim();
+    
+    if (!value) {
+        status.innerHTML = '';
+        status.className = 'compat-input-status';
+        btn.disabled = true;
+        return;
+    }
+    
+    const parsed = parseEmbeddingFromExport(value);
+    
+    if (parsed) {
+        const date = new Date(parsed.createdAt).toLocaleDateString('ru-RU');
+        status.innerHTML = `✅ Валидный эмбеддинг (${parsed.factsCount} фактов, создан ${date})`;
+        status.className = 'compat-input-status status-valid';
+        btn.disabled = false;
+    } else {
+        status.innerHTML = '❌ Неверный формат. Нужна строка вида DATING_EMBED_V1|...';
+        status.className = 'compat-input-status status-invalid';
+        btn.disabled = true;
+    }
+}
+
+// ==================== COMPATIBILITY ANALYSIS ====================
+
+async function runCompatibilityAnalysis() {
+    if (datingState.isAnalyzing) return;
+    
+    const embedInput = document.getElementById('candidateEmbeddingInput');
+    const descInput = document.getElementById('candidateDescriptionInput');
+    const resultContainer = document.getElementById('compatResult');
+    const btn = document.getElementById('analyzeBtn');
+    
+    if (!embedInput || !resultContainer || !btn) return;
+    
+    const candidateEmbedding = parseEmbeddingFromExport(embedInput.value.trim());
+    if (!candidateEmbedding) return;
+    
+    const candidateDescription = descInput?.value?.trim() || '';
+    
+    datingState.isAnalyzing = true;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-spinner"></span> Анализирую...';
+    
+    resultContainer.innerHTML = `
+        <div class="compat-loading">
+            <div class="dating-spinner"></div>
+            <p>Изучаю кандидата и вашу совместимость...</p>
+        </div>
+    `;
+    
+    try {
+        // Собираем ПОЛНЫЙ контекст о юзере (не эмбеддинг!)
+        const userFacts = getFactsForPrompt(false);
+        const userTraits = getTraitsForPrompt(false);
+        const userTimeline = getTimelineForPrompt();
+        const userSocial = getSocialForPrompt();
+        const userHypotheses = getHypothesesForPrompt(false);
+        const userStyle = localStorage.getItem(STORAGE_KEYS.style) || '';
+        
+        // Декодируем эмбеддинг кандидата в читаемый формат
+        const candidateProfile = decodeCandidateEmbedding(candidateEmbedding);
+        
+        const prompt = buildCompatibilityPrompt({
+            userFacts,
+            userTraits,
+            userTimeline,
+            userSocial,
+            userHypotheses,
+            userStyle,
+            candidateProfile,
+            candidateDescription
+        });
+        
+        console.log('[Dating] Running compatibility analysis...');
+        
+        // Стриминг результата
+        const streamingDiv = document.createElement('div');
+        streamingDiv.className = 'compat-analysis-text';
+        resultContainer.innerHTML = '';
+        resultContainer.appendChild(streamingDiv);
+        
+        const messages = [{ role: "user", content: prompt }];
+        
+        await streamResponseOpenRouter(
+            messages,
+            (partialText) => {
+                streamingDiv.innerHTML = formatMessageMarkdown(partialText);
+            },
+            (finalText) => {
+                streamingDiv.innerHTML = formatMessageMarkdown(finalText);
+            },
+            { temperature: 0.7 }
+        );
+        
+        console.log('[Dating] Compatibility analysis complete');
+        
+    } catch (error) {
+        console.error('[Dating] Compatibility analysis failed:', error);
+        resultContainer.innerHTML = `
+            <div class="compat-error">
+                <p>❌ Ошибка анализа: ${error.message}</p>
+                <button class="dating-btn" onclick="runCompatibilityAnalysis()">🔄 Попробовать снова</button>
+            </div>
+        `;
+    } finally {
+        datingState.isAnalyzing = false;
+        btn.disabled = false;
+        btn.innerHTML = '🧲 Проанализировать совместимость';
+    }
+}
+
+function decodeCandidateEmbedding(embedding) {
+    const lines = embedding.vectors.map((vec, idx) => {
+        const d = DICHOTOMIES[idx];
+        const value = vec.value;
+        const spread = vec.spread;
+        
+        let dominant, intensity;
+        if (value < -0.1) {
+            dominant = d.left;
+            intensity = Math.abs(value);
+        } else if (value > 0.1) {
+            dominant = d.right;
+            intensity = value;
+        } else {
+            dominant = 'нейтрально';
+            intensity = 0;
+        }
+        
+        let reliability = 'достоверно';
+        if (spread > 0.7) reliability = 'недостоверно';
+        else if (spread > 0.5) reliability = 'сомнительно';
+        else if (spread > 0.3) reliability = 'умеренно';
+        
+        return `${d.left} / ${d.right}: ${value > 0 ? '+' : ''}${value.toFixed(2)} → ${dominant} (${reliability})`;
+    });
+    
+    // Выделяем ярко выраженные черты
+    const strongTraits = embedding.vectors
+        .map((vec, idx) => ({
+            ...vec,
+            dichotomy: DICHOTOMIES[idx],
+            index: idx
+        }))
+        .filter(v => Math.abs(v.value) >= 0.3 && v.spread <= 0.5)
+        .sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
+    
+    let summary = 'ВЫРАЖЕННЫЕ ЧЕРТЫ КАНДИДАТА:\n';
+    if (strongTraits.length > 0) {
+        summary += strongTraits.map(t => {
+            const side = t.value < 0 ? t.dichotomy.left : t.dichotomy.right;
+            return `• ${side}: ${Math.abs(t.value).toFixed(2)} (разброс ${t.spread.toFixed(2)})`;
+        }).join('\n');
+    } else {
+        summary += '(нет ярко выраженных достоверных черт)';
+    }
+    
+    return `${summary}\n\nПОЛНЫЙ ПРОФИЛЬ (33 дихотомии):\n${lines.join('\n')}`;
+}
+
+function buildCompatibilityPrompt(data) {
+    const {
+        userFacts,
+        userTraits,
+        userTimeline,
+        userSocial,
+        userHypotheses,
+        userStyle,
+        candidateProfile,
+        candidateDescription
+    } = data;
+    
+    const langName = getLanguageName();
+    
+    let candidateBlock = `=== ПСИХОЛОГИЧЕСКИЙ ПРОФИЛЬ КАНДИДАТА (из эмбеддинга) ===\n${candidateProfile}`;
+    
+    if (candidateDescription) {
+        candidateBlock += `\n\n=== ОПИСАНИЕ КАНДИДАТА (от него/неё самого) ===\n${candidateDescription}`;
+    }
+    
+    let styleBlock = '';
+    if (userStyle && userStyle.trim()) {
+        styleBlock = `
+
+=== СТИЛЬ ОБЩЕНИЯ С ЭТИМ ПОЛЬЗОВАТЕЛЕМ ===
+Пиши анализ в стиле, подходящем ЭТОМУ КОНКРЕТНОМУ пользователю:
+${userStyle}`;
+    }
+    
+    return `Ты — проницательный аналитик человеческих отношений. Пиши на ${langName}.
+${styleBlock}
+
+=== ТВОЯ ЗАДАЧА ===
+Проанализируй совместимость пользователя (хозяина приложения) с кандидатом.
+
+ВАЖНО:
+- О пользователе ты знаешь ВСЁ — используй полный контекст ниже
+- О кандидате ты знаешь только его эмбеддинг (33 измерения) и, возможно, описание
+- Не используй эмбеддинг пользователя — он тебе не нужен, у тебя есть живые данные
+- Пиши ДЛЯ пользователя — это его анализ, его взгляд, его язык
+
+=== ВСЁ ЧТО ТЫ ЗНАЕШЬ О ПОЛЬЗОВАТЕЛЕ ===
+
+**Факты:**
+${userFacts || '(нет данных)'}
+
+**Черты личности:**
+${userTraits || '(нет данных)'}
+
+**Хронология жизни:**
+${userTimeline || '(нет данных)'}
+
+**Социальные связи:**
+${userSocial || '(нет данных)'}
+
+**Гипотезы о пользователе:**
+${userHypotheses || '(нет данных)'}
+
+${candidateBlock}
+
+=== СТРУКТУРА АНАЛИЗА ===
+
+Напиши анализ совместимости в следующей структуре:
+
+1. **Суть** (2-3 предложения) — кто этот кандидат в двух словах, первое впечатление от профиля
+
+2. **Где совпадёте** (3-4 пункта) — конкретные точки совместимости. Опирайся на РЕАЛЬНЫЕ факты и черты пользователя, а не абстракции
+
+3. **Где будет тереть** (3-4 пункта) — потенциальные трения. Будь честен, но не жесток
+
+4. **Главное** (1-2 предложения) — чёткий вывод. Не отписка, а суть
+
+=== ПРАВИЛА ===
+- НЕ ставь числовой процент совместимости — это упрощение
+- НЕ перечисляй дихотомии и числа — пользователь их не видит
+- НЕ пиши длинных абзацев — короткие ёмкие фразы
+- Используй конкретику из жизни пользователя, если она релевантна
+- Если описания кандидата нет — честно скажи, что судишь только по цифрам
+- Если у кандидата много недостоверных оценок (разброс > 0.5) — упомяни что портрет размыт
+- Пиши как умный друг, не как психолог из учебника
+- Адаптируй стиль под пользователя (если есть стиль общения)`;
+}
+
+// ==================== TRAIT RENDERING ====================
+
 function renderTraitBar(trait) {
-    const percentage = ((trait.value + 1) / 2) * 100; // Конвертируем -1..1 в 0..100
     const isLeftDominant = trait.value < 0;
-    const dominantSide = isLeftDominant ? trait.left : trait.right;
     const intensity = Math.abs(trait.value);
     
-    // Определяем цвет по достоверности
     let reliabilityClass = 'high';
     if (trait.spread > 0.5) reliabilityClass = 'low';
     else if (trait.spread > 0.2) reliabilityClass = 'medium';
@@ -315,7 +652,6 @@ function renderAllTraits(embedding) {
     return embedding.vectors.map((vec, idx) => {
         const dich = DICHOTOMIES[idx];
         const isLeftDominant = vec.value < 0;
-        const intensity = Math.abs(vec.value);
         
         let reliabilityClass = 'high';
         if (vec.spread > 0.5) reliabilityClass = 'low';
@@ -349,7 +685,7 @@ function confirmRegenerate() {
     }
 }
 
-// ==================== ГЕНЕРАЦИЯ ЭМБЕДДИНГА ====================
+// ==================== EMBEDDING GENERATION ====================
 
 async function startEmbeddingGeneration() {
     if (datingState.isGenerating) return;
@@ -361,7 +697,6 @@ async function startEmbeddingGeneration() {
     renderGeneratingState();
     
     try {
-        // Выполняем 3 независимых прохода
         for (let i = 1; i <= EMBEDDING_PASSES; i++) {
             datingState.currentPass = i;
             updateGenerationProgress(i);
@@ -372,24 +707,18 @@ async function startEmbeddingGeneration() {
             
             if (embedding) {
                 datingState.passes.push(embedding);
-                console.log(`[Dating] Pass ${i} complete:`, embedding.slice(0, 3));
+                console.log(`[Dating] Pass ${i} complete`);
             } else {
                 throw new Error(`Pass ${i} failed to generate valid embedding`);
             }
             
-            // Небольшая пауза между запросами
             if (i < EMBEDDING_PASSES) {
                 await new Promise(resolve => setTimeout(resolve, 1000));
             }
         }
         
-        // Вычисляем финальный эмбеддинг
         const finalEmbedding = calculateFinalEmbedding(datingState.passes);
-        
-        // Сохраняем
         saveEmbedding(finalEmbedding);
-        
-        // Отображаем результат
         renderSavedEmbedding(finalEmbedding);
         
         console.log('[Dating] Embedding generation complete!');
@@ -466,9 +795,7 @@ ${dichotomyList}
 
 function parseEmbeddingResponse(response) {
     const text = response.content || response;
-    const values = [];
     
-    // Паттерн: [номер]:значение или [номер]: значение
     const pattern = /\[(\d+)\]\s*:\s*([-+]?\d+\.?\d*)/g;
     let match;
     
@@ -478,19 +805,13 @@ function parseEmbeddingResponse(response) {
         const value = parseFloat(match[2]);
         
         if (index >= 1 && index <= 33 && !isNaN(value)) {
-            // Ограничиваем значение диапазоном [-1, 1]
             found[index] = Math.max(-1, Math.min(1, value));
         }
     }
     
-    // Собираем в массив по порядку
+    const values = [];
     for (let i = 1; i <= 33; i++) {
-        if (found[i] !== undefined) {
-            values.push(found[i]);
-        } else {
-            console.warn(`[Dating] Missing value for dichotomy ${i}`);
-            values.push(0); // Дефолт если не найдено
-        }
+        values.push(found[i] !== undefined ? found[i] : 0);
     }
     
     console.log(`[Dating] Parsed ${Object.keys(found).length}/33 values`);
@@ -503,15 +824,11 @@ function calculateFinalEmbedding(passes) {
     
     for (let i = 0; i < 33; i++) {
         const values = passes.map(p => p[i]);
-        
-        // Среднее значение
         const avg = values.reduce((a, b) => a + b, 0) / values.length;
-        
-        // Разброс (макс - мин)
         const spread = Math.max(...values) - Math.min(...values);
         
         vectors.push({
-            value: Math.round(avg * 100) / 100, // Округляем до 2 знаков
+            value: Math.round(avg * 100) / 100,
             spread: Math.round(spread * 100) / 100,
             raw: values
         });
@@ -532,20 +849,16 @@ function getTopTraits(embedding, count = 5) {
         spread: vec.spread,
         left: DICHOTOMIES[idx].left,
         right: DICHOTOMIES[idx].right,
-        // Оценка: выраженность × достоверность
         score: Math.abs(vec.value) * (1 - Math.min(vec.spread, 1))
     }));
     
-    // Фильтруем недостоверные (spread > 0.7)
     const reliable = traits.filter(t => t.spread <= 0.7);
-    
-    // Сортируем по score
     reliable.sort((a, b) => b.score - a.score);
     
     return reliable.slice(0, count);
 }
 
-// ==================== ГЕНЕРАЦИЯ ОПИСАНИЙ ====================
+// ==================== DESCRIPTIONS ====================
 
 async function generateDescription(level) {
     if (datingState.isGeneratingDescription) return;
@@ -557,7 +870,6 @@ async function generateDescription(level) {
     
     datingState.isGeneratingDescription = true;
     
-    // UI feedback
     const originalText = btn.innerHTML;
     btn.innerHTML = '<span class="btn-spinner"></span> Генерация...';
     btn.disabled = true;
@@ -576,10 +888,7 @@ async function generateDescription(level) {
         const response = await callAPIForDating(prompt);
         const description = (response.content || response).trim();
         
-        // Обновляем textarea
         textarea.value = description;
-        
-        // Сохраняем
         saveDescription(level, description);
         
         console.log(`[Dating] Description level ${level} generated`);
@@ -596,7 +905,6 @@ async function generateDescription(level) {
 }
 
 function buildDescriptionPrompt(level, facts, traits, topTraits) {
-    // Форматируем топ черты для промпта
     const topTraitsText = topTraits.map(t => {
         const dominant = t.value < 0 ? t.left : t.right;
         const intensity = Math.abs(t.value);
@@ -604,89 +912,39 @@ function buildDescriptionPrompt(level, facts, traits, topTraits) {
     }).join('\n');
     
     if (level === 1) {
-        // Публичное анонимное описание
-        return `Ты — талантливый копирайтер для сервиса знакомств. Твоя задача — написать интригующее, но ПОЛНОСТЬЮ АНОНИМНОЕ описание человека.
+        return `Ты — талантливый копирайтер для сервиса знакомств. Напиши интригующее ПОЛНОСТЬЮ АНОНИМНОЕ описание человека.
 
-=== ДАННЫЕ О ЧЕЛОВЕКЕ ===
+=== ДАННЫЕ ===
+**Черты личности:** ${traits || '(нет)'}
+**Ключевые характеристики:** ${topTraitsText || '(нет)'}
 
-**Черты личности:**
-${traits || '(нет данных)'}
+=== ТРЕБОВАНИЯ ===
+1. СТРОГАЯ АНОНИМНОСТЬ: только пол + художественно описанный возраст ("в расцвете сил", "на пороге новых открытий")
+2. НЕ упоминай: профессию, город, имена, конкретные хобби, семейное положение
+3. Пиши от третьего лица как нетворкер, представляющий человека
+4. 3-5 предложений, с интригой и "изюминкой"
 
-**Ключевые характеристики (из психологического профиля):**
-${topTraitsText || '(нет данных)'}
-
-=== ТРЕБОВАНИЯ К ОПИСАНИЮ ===
-
-1. **СТРОГАЯ АНОНИМНОСТЬ:**
-   - Укажи только пол (если понятен из данных) и ХУДОЖЕСТВЕННО описанный примерный возраст (не цифрами! например: "в расцвете сил", "на пороге новых открытий", "с мудростью прожитых лет")
-   - НЕ упоминай: профессию, место работы, город, имена, конкретные хобби, которые могут идентифицировать
-   - НЕ упоминай: семейное положение, детей, конкретные события из жизни
-
-2. **СТИЛЬ:**
-   - Пиши от третьего лица, как будто ты нетворкер, представляющий интересного человека
-   - Создай интригу и "изюминку" — что-то, что зацепит
-   - Используй метафоры и образы вместо конкретики
-   - Тон: тёплый, заинтересованный, с лёгкой загадочностью
-
-3. **СТРУКТУРА:**
-   - 3-5 предложений
-   - Начни с "крючка" — интригующей характеристики
-   - Закончи чем-то, что вызывает желание узнать больше
-
-4. **ПРИМЕРЫ ХОРОШЕГО ОПИСАНИЯ:**
-   - "Человек, который умеет находить красоту в повседневности и превращать рутину в приключение..."
-   - "Редкое сочетание внутренней силы и искренней открытости миру..."
-
-=== ФОРМАТ ОТВЕТА ===
-Напиши ТОЛЬКО само описание, без заголовков и пояснений. 3-5 предложений.`;
+Напиши ТОЛЬКО описание.`;
         
     } else {
-        // Описание для мэтчей (более открытое)
-        return `Ты — талантливый копирайтер для сервиса знакомств. Твоя задача — написать более подробное описание человека, которое увидят только те, с кем произошёл взаимный интерес.
+        return `Ты — талантливый копирайтер для сервиса знакомств. Напиши подробное описание для тех, с кем произошёл взаимный интерес.
 
-=== ДАННЫЕ О ЧЕЛОВЕКЕ ===
+=== ДАННЫЕ ===
+**Факты:** ${facts || '(нет)'}
+**Черты личности:** ${traits || '(нет)'}
+**Ключевые характеристики:** ${topTraitsText || '(нет)'}
 
-**Факты:**
-${facts || '(нет данных)'}
+=== ТРЕБОВАНИЯ ===
+1. Можно: сферу деятельности, интересы, ценности
+2. НЕ упоминай: точный возраст, адреса, финансы, здоровье, конфликты
+3. Пиши от третьего лица как нетворкер
+4. 5-8 предложений, покажи глубину и уникальность
 
-**Черты личности:**
-${traits || '(нет данных)'}
-
-**Ключевые характеристики (из психологического профиля):**
-${topTraitsText || '(нет данных)'}
-
-=== ТРЕБОВАНИЯ К ОПИСАНИЮ ===
-
-1. **УРОВЕНЬ ОТКРЫТОСТИ:**
-   - Можно упомянуть сферу деятельности (но не конкретное место работы)
-   - Можно упомянуть основные интересы и хобби
-   - Можно намекнуть на жизненные ценности и приоритеты
-   - НЕ упоминай: точный возраст, адреса, полные имена других людей, компрометирующую информацию
-
-2. **БЕЗОПАСНОСТЬ:**
-   - Не включай ничего, что может навредить человеку
-   - Не упоминай финансовое положение напрямую
-   - Не упоминай проблемы со здоровьем
-   - Не упоминай конфликты и негативный опыт
-
-3. **СТИЛЬ:**
-   - Пиши от третьего лица, как нетворкер
-   - Покажи человека с лучшей стороны, но честно
-   - Подчеркни уникальность и глубину личности
-   - Тон: тёплый, уважительный, с энтузиазмом
-
-4. **СТРУКТУРА:**
-   - 5-8 предложений
-   - Раскрой 2-3 грани личности
-   - Покажи, что делает этого человека интересным собеседником/партнёром
-   - Закончи позитивной нотой
-
-=== ФОРМАТ ОТВЕТА ===
-Напиши ТОЛЬКО само описание, без заголовков и пояснений. 5-8 предложений.`;
+Напиши ТОЛЬКО описание.`;
     }
 }
 
-// ==================== ХРАНЕНИЕ ОПИСАНИЙ ====================
+// ==================== STORAGE ====================
 
 function getSavedDescriptions() {
     const data = localStorage.getItem(DATING_DESCRIPTIONS_KEY);
@@ -696,11 +954,9 @@ function getSavedDescriptions() {
             level2: { text: '', enabled: false }
         };
     }
-    
     try {
         return JSON.parse(data);
     } catch (e) {
-        console.error('[Dating] Failed to parse descriptions:', e);
         return {
             level1: { text: '', enabled: false },
             level2: { text: '', enabled: false }
@@ -729,23 +985,17 @@ function toggleDescriptionEnabled(level) {
         updatedAt: Date.now()
     };
     localStorage.setItem(DATING_DESCRIPTIONS_KEY, JSON.stringify(descriptions));
-    
-    console.log(`[Dating] Description level ${level} enabled: ${checkbox.checked}`);
 }
 
 function onDescriptionChange(level) {
     const textarea = document.getElementById(`descriptionLevel${level}`);
     if (!textarea) return;
     
-    // Автосохранение с debounce
     clearTimeout(window[`descSaveTimeout${level}`]);
     window[`descSaveTimeout${level}`] = setTimeout(() => {
         saveDescription(level, textarea.value);
-        console.log(`[Dating] Description level ${level} auto-saved`);
     }, 1000);
 }
-
-// ==================== ХРАНЕНИЕ ЭМБЕДДИНГА ====================
 
 function saveEmbedding(embedding) {
     localStorage.setItem(DATING_STORAGE_KEY, JSON.stringify(embedding));
@@ -755,16 +1005,14 @@ function saveEmbedding(embedding) {
 function getSavedEmbedding() {
     const data = localStorage.getItem(DATING_STORAGE_KEY);
     if (!data) return null;
-    
     try {
         return JSON.parse(data);
     } catch (e) {
-        console.error('[Dating] Failed to parse saved embedding:', e);
         return null;
     }
 }
 
-// ==================== КОПИРОВАНИЕ ====================
+// ==================== EXPORT/IMPORT ====================
 
 function copyEmbeddingToClipboard() {
     const embedding = getSavedEmbedding();
@@ -773,27 +1021,21 @@ function copyEmbeddingToClipboard() {
         return;
     }
     
-    // Формируем строку для копирования
     const exportString = formatEmbeddingForExport(embedding);
     
     navigator.clipboard.writeText(exportString).then(() => {
-        // Показываем уведомление
         const btn = document.querySelector('.dating-btn-copy');
         if (btn) {
             const originalText = btn.innerHTML;
             btn.innerHTML = '✅ Скопировано!';
-            setTimeout(() => {
-                btn.innerHTML = originalText;
-            }, 2000);
+            setTimeout(() => { btn.innerHTML = originalText; }, 2000);
         }
     }).catch(err => {
         console.error('[Dating] Copy failed:', err);
-        alert('Не удалось скопировать. Попробуйте ещё раз.');
     });
 }
 
 function formatEmbeddingForExport(embedding) {
-    // Формат: DATING_EMBED_V1|timestamp|factsCount|v1,s1;v2,s2;...;v33,s33
     const vectorsStr = embedding.vectors.map(v => 
         `${v.value.toFixed(2)},${v.spread.toFixed(2)}`
     ).join(';');
@@ -802,8 +1044,9 @@ function formatEmbeddingForExport(embedding) {
 }
 
 function parseEmbeddingFromExport(str) {
-    // Парсинг строки экспорта
-    const parts = str.split('|');
+    if (!str || typeof str !== 'string') return null;
+    
+    const parts = str.trim().split('|');
     
     if (parts[0] !== 'DATING_EMBED_V1' || parts.length !== 4) {
         return null;
@@ -813,39 +1056,34 @@ function parseEmbeddingFromExport(str) {
     const factsCount = parseInt(parts[2]);
     const vectorsStr = parts[3];
     
+    if (isNaN(createdAt) || isNaN(factsCount)) return null;
+    
     const vectors = vectorsStr.split(';').map(pair => {
         const [value, spread] = pair.split(',').map(parseFloat);
+        if (isNaN(value) || isNaN(spread)) return null;
         return { value, spread };
     });
     
-    if (vectors.length !== 33) {
+    if (vectors.length !== 33 || vectors.some(v => v === null)) {
         return null;
     }
     
-    return {
-        version: 1,
-        createdAt,
-        factsCount,
-        vectors
-    };
+    return { version: 1, createdAt, factsCount, vectors };
 }
 
-// ==================== API ВЫЗОВ ====================
+// ==================== API ====================
 
 async function callAPIForDating(prompt) {
-    // Используем OpenRouter для анализа (как в ui.js)
     const messages = [{ role: "user", content: prompt }];
     
-    // Вызываем через существующую функцию
     if (typeof callAPIOpenRouter === 'function') {
-        return await callAPIOpenRouter(messages, true); // useAnalysisModel = true
+        return await callAPIOpenRouter(messages, true);
     }
     
-    // Fallback если функция недоступна
     throw new Error('API function not available');
 }
 
-// ==================== ОШИБКИ ====================
+// ==================== ERRORS ====================
 
 function renderGenerationError(message) {
     const container = document.getElementById('datingContent');
@@ -861,6 +1099,4 @@ function renderGenerationError(message) {
     `;
 }
 
-// ==================== ИНИЦИАЛИЗАЦИЯ ====================
-
-console.log('[dating.js] Loaded. Personality embedding + descriptions module ready.');
+console.log('[dating.js] Loaded. Embedding + Descriptions + Compatibility analysis.');
