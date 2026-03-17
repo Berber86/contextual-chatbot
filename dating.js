@@ -354,8 +354,13 @@ function renderSavedEmbedding(embedding) {
 function renderScaleBar(trait) {
     const scale = SCALES[trait.index];
     
-    // Строгие пороги
-    let reliabilityClass = 'high'; // spread ≤ 0.1
+    // Защита от невалидного индекса
+    if (!scale) {
+        console.error('[Dating] Invalid scale index:', trait.index);
+        return '';
+    }
+    
+    let reliabilityClass = 'high';
     if (trait.spread > 0.2) reliabilityClass = 'low';
     else if (trait.spread > 0.1) reliabilityClass = 'medium';
     
@@ -381,18 +386,21 @@ function renderScaleBar(trait) {
         </div>
     `;
 }
+
 function renderAllScales(embedding) {
     const categories = {};
     
     SCALES.forEach((scale, idx) => {
+        if (!scale || idx >= embedding.vectors.length) return;
+        
         if (!categories[scale.category]) {
             categories[scale.category] = [];
         }
         categories[scale.category].push({
             scale,
             index: idx,
-            value: embedding.vectors[idx]?.value || 0,
-            spread: embedding.vectors[idx]?.spread || 0
+            value: embedding.vectors[idx]?.value ?? 0.5,
+            spread: embedding.vectors[idx]?.spread ?? 0
         });
     });
     
@@ -404,8 +412,8 @@ function renderAllScales(embedding) {
         
         items.forEach(item => {
             let reliabilityClass = 'high';
-            if (item.spread > 0.4) reliabilityClass = 'low';
-            else if (item.spread > 0.2) reliabilityClass = 'medium';
+            if (item.spread > 0.2) reliabilityClass = 'low';
+            else if (item.spread > 0.1) reliabilityClass = 'medium';
             
             const percent = (item.value * 100).toFixed(0);
             
@@ -728,11 +736,11 @@ ${styleBlock}
 ВАЖНО:
 - О пользователе ты знаешь ВСЁ из его данных — используй их
 - О кандидате знаешь только эмбеддинг (50 шкал от 0 до 1) и возможно описание
-- Каждая шкала: 0 = не выражено, 1.0 = ярко выражено
-- Шкалы НЕЗАВИСИМЫЕ: человек может быть и креативным (0.8) и практичным (0.7)
-- И НИЗКИЕ значения важны: 0.1 тревожности = очень спокойный человек
+- Каждая шкала: 0 = абсолютно не выражено, 1.0 = крайне ярко выражено
+
+- И НИЗКИЕ значения важны: 0.4 тревожности = весьма спокойный человек
 - НЕ используй эмбеддинг пользователя — у тебя есть живые данные о нём
-- Пиши ДЛЯ пользователя — в его стиле
+- Пиши ДЛЯ пользователя — соблюдай поавила стиля оьщения с ним. 
 
 === ВСЁ О ПОЛЬЗОВАТЕЛЕ ===
 
@@ -746,19 +754,19 @@ ${candidateBlock}
 
 === СТРУКТУРА АНАЛИЗА ===
 
-1. **Суть** (2-3 предложения) — кто этот кандидат, первое впечатление от профиля
+1. **Суть** (2-3 предложения) — кто этот кандидат, первое впечатление от профиля через призму мира и личности пользователя.
 
-2. **Где совпадёте** (3-4 пункта) — конкретные точки. Опирайся на РЕАЛЬНЫЕ данные пользователя, не абстракции
+2. **Где совпадёте** (3-4 пункта)
 
 3. **Где будет тереть** (3-4 пункта) — потенциальные трения. Честно, но не жестоко
+
+3.5 интересные многомерные комбинации шкал и неочевидные наблюдения.
 
 4. **Главное** (1-2 предложения) — чёткий вывод
 
 === ПРАВИЛА ===
-- НЕ ставь числовой процент совместимости
-- НЕ перечисляй шкалы и числа — пользователь их не видит
-- НЕ пиши длинных абзацев — короткие ёмкие фразы
-- Используй конкретику из жизни пользователя
+
+- Используй валидную конкретику из жизни пользователя
 - Если описания кандидата нет — скажи что судишь по цифрам
 - Если у кандидата много недостоверных оценок — упомяни что портрет размыт
 - Пиши как умный друг, адаптируй стиль под пользователя`;
