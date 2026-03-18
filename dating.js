@@ -336,24 +336,57 @@ function getTopTraits(embedding, countPerPole = 5) {
 function renderCompatibilityTab() {
     const container = document.getElementById('datingContent');
     if (!container) return;
+    
     const savedEmbedding = getSavedEmbedding();
+    
     if (!savedEmbedding) {
         container.innerHTML = `<div class="dating-status dating-not-ready"><div class="dating-icon">🔒</div><h3>Сначала создайте свой профиль</h3><p>Перейдите во вкладку "Мой профиль" и создайте личностный эмбеддинг.</p><button class="dating-btn dating-btn-details" onclick="switchDatingTab('profile')">← Мой профиль</button></div>`;
         return;
     }
+    
+    const savedIdeal = getSavedIdeal();
+    const hasIdeal = savedIdeal && savedIdeal.searchScales;
+    
     container.innerHTML = `
         <div class="compat-container">
-            <div class="compat-intro"><div class="dating-icon">🧲</div><h3>Анализ совместимости</h3><p>Вставьте эмбеддинг другого человека. Можете добавить его описание для более глубокого анализа.</p></div>
+            <div class="compat-intro">
+                <div class="dating-icon">🧲</div>
+                <h3>Анализ совместимости</h3>
+                <p>Вставьте эмбеддинг другого человека. Можете добавить его описание для более глубокого анализа.</p>
+            </div>
+            
             <div class="compat-input-block">
-                <label class="compat-label"><span class="label-icon">🧬</span><span>Эмбеддинг кандидата</span><span class="label-required">*</span></label>
-                <input type="text" id="candidateEmbeddingInput" class="compat-embedding-input" placeholder="DATING_EMBED_V2|..." oninput="validateCandidateInput()">
+                <label class="compat-label">
+                    <span class="label-icon">🧬</span>
+                    <span>Эмбеддинг кандидата</span>
+                    <span class="label-required">*</span>
+                </label>
+                <input type="text" id="candidateEmbeddingInput" class="compat-embedding-input"
+                    placeholder="DATING_EMBED_V2|..." oninput="validateCandidateInput()">
                 <div class="compat-input-status" id="embedStatus"></div>
             </div>
+            
             <div class="compat-input-block">
-                <label class="compat-label"><span class="label-icon">✍️</span><span>Описание кандидата</span><span class="label-optional">необязательно</span></label>
-                <textarea id="candidateDescriptionInput" class="compat-description-input" placeholder="Любая информация о человеке..." rows="4"></textarea>
+                <label class="compat-label">
+                    <span class="label-icon">✍️</span>
+                    <span>Описание кандидата</span>
+                    <span class="label-optional">необязательно</span>
+                </label>
+                <textarea id="candidateDescriptionInput" class="compat-description-input"
+                    placeholder="Любая информация о человеке..." rows="4"></textarea>
             </div>
-            <button class="dating-generate-btn compat-analyze-btn" id="analyzeBtn" onclick="runCompatibilityAnalysis()" disabled>🧲 Проанализировать совместимость</button>
+            
+            <!-- Две кнопки анализа -->
+            <div class="compat-buttons">
+                <button class="dating-generate-btn compat-analyze-btn" id="analyzeBtn" onclick="runCompatibilityAnalysis()" disabled>
+                    🧲 Глубокий анализ
+                </button>
+                <button class="dating-generate-btn compat-analyze-btn compat-light-btn" id="analyzeLightBtn" onclick="runLightCompatibilityAnalysis()" disabled ${!hasIdeal ? 'title="Сначала определите идеал во вкладке 💫"' : ''}>
+                    ⚡ Быстрый анализ
+                </button>
+            </div>
+            ${!hasIdeal ? '<p class="compat-light-hint">⚡ Быстрый анализ доступен после заполнения вкладки "💫 Кто мне нужен?"</p>' : ''}
+            
             <div class="compat-result" id="compatResult"></div>
         </div>`;
 }
@@ -362,19 +395,36 @@ function validateCandidateInput() {
     const input = document.getElementById('candidateEmbeddingInput');
     const status = document.getElementById('embedStatus');
     const btn = document.getElementById('analyzeBtn');
+    const btnLight = document.getElementById('analyzeLightBtn');
+    
     if (!input || !status || !btn) return;
+    
     const value = input.value.trim();
-    if (!value) { status.innerHTML = ''; status.className = 'compat-input-status'; btn.disabled = true; return; }
+    
+    if (!value) {
+        status.innerHTML = '';
+        status.className = 'compat-input-status';
+        btn.disabled = true;
+        if (btnLight) btnLight.disabled = true;
+        return;
+    }
+    
     const parsed = parseEmbeddingFromExport(value);
+    
     if (parsed) {
         const date = new Date(parsed.createdAt).toLocaleDateString('ru-RU');
         status.innerHTML = `✅ Валидный эмбеддинг v${parsed.version} (${parsed.factsCount} фактов, создан ${date})`;
         status.className = 'compat-input-status status-valid';
         btn.disabled = false;
+        
+        // Быстрый анализ доступен только если есть идеал
+        const hasIdeal = getSavedIdeal()?.searchScales;
+        if (btnLight) btnLight.disabled = !hasIdeal;
     } else {
         status.innerHTML = '❌ Неверный формат. Нужна строка DATING_EMBED_V2|...';
         status.className = 'compat-input-status status-invalid';
         btn.disabled = true;
+        if (btnLight) btnLight.disabled = true;
     }
 }
 
@@ -418,6 +468,289 @@ async function runCompatibilityAnalysis() {
         btn.disabled = false;
         btn.innerHTML = '🧲 Проанализировать совместимость';
     }
+}
+
+async function runLightCompatibilityAnalysis() {
+    if (datingState.isAnalyzing) return;
+    
+    const embedInput = document.getElementById('candidateEmbeddingInput');
+    const descInput = document.getElementById('candidateDescriptionInput');
+    const resultContainer = document.getElementById('compatResult');
+    const btn = document.getElementById('analyzeLightBtn');
+    
+    if (!embedInput || !resultContainer || !btn) return;
+    
+    const candidateEmbedding = parseEmbeddingFromExport(embedInput.value.trim());
+    if (!candidateEmbedding) return;
+    
+    const userEmbedding = getSavedEmbedding();
+    if (!userEmbedding) return;
+    
+    const ideal = getSavedIdeal();
+    if (!ideal || !ideal.searchScales) return;
+    
+    const candidateDescription = descInput?.value?.trim() || '';
+    
+    datingState.isAnalyzing = true;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-spinner"></span> Анализирую...';
+    
+    resultContainer.innerHTML = `
+        <div class="compat-loading">
+            <div class="dating-spinner"></div>
+            <p>Быстрый анализ по шкалам...</p>
+        </div>`;
+    
+    try {
+        // Собираем матч-репорт: что совпало, что нет
+        const matchReport = buildMatchReport(userEmbedding, candidateEmbedding, ideal);
+        
+        const prompt = buildLightCompatibilityPrompt(matchReport, candidateDescription, ideal.expectations);
+        
+        console.log('[Dating] Running light compatibility analysis...');
+        
+        const streamingDiv = document.createElement('div');
+        streamingDiv.className = 'compat-analysis-text';
+        resultContainer.innerHTML = '';
+        resultContainer.appendChild(streamingDiv);
+        
+        await streamResponseOpenRouter(
+            [{ role: "user", content: prompt }],
+            (partialText) => { streamingDiv.innerHTML = formatMessageMarkdown(partialText); },
+            (finalText) => { streamingDiv.innerHTML = formatMessageMarkdown(finalText); },
+            { temperature: 0.7 }
+        );
+        
+    } catch (error) {
+        console.error('[Dating] Light analysis failed:', error);
+        resultContainer.innerHTML = `
+            <div class="compat-error">
+                <p>❌ Ошибка: ${error.message}</p>
+                <button class="dating-btn" onclick="runLightCompatibilityAnalysis()">🔄 Попробовать снова</button>
+            </div>`;
+    } finally {
+        datingState.isAnalyzing = false;
+        btn.disabled = false;
+        btn.innerHTML = '⚡ Быстрый анализ';
+    }
+}
+
+function buildMatchReport(userEmbed, candidateEmbed, ideal) {
+    const report = {
+        matchedHigh: [],    // Ожидали высокое — и оно высокое
+        failedHigh: [],     // Ожидали высокое — а оно низкое/среднее
+        matchedLow: [],     // Ожидали низкое — и оно низкое
+        failedLow: [],      // Ожидали низкое — а оно высокое
+        surprises: [],      // Неожиданно яркие или низкие шкалы вне ожиданий
+        userHighlights: [], // Яркие черты юзера для контекста
+        userLowlights: []   // Низкие черты юзера для контекста
+    };
+    
+    // Проверяем HIGH ожидания (должно быть ≥ 0.7)
+    for (const scaleId of ideal.searchScales.high) {
+        const idx = scaleId - 1;
+        const scale = SCALES[idx];
+        if (!scale) continue;
+        
+        const candValue = candidateEmbed.vectors[idx]?.value ?? 0.5;
+        const candSpread = candidateEmbed.vectors[idx]?.spread ?? 0;
+        const reliable = candSpread <= 0.3;
+        
+        const entry = {
+            id: scaleId,
+            name: scale.name,
+            emoji: scale.emoji,
+            expected: '≥ 70%',
+            actual: candValue,
+            actualPercent: (candValue * 100).toFixed(0) + '%',
+            reliable,
+            spread: candSpread
+        };
+        
+        if (candValue >= 0.7) {
+            report.matchedHigh.push(entry);
+        } else {
+            entry.deficit = ((0.7 - candValue) * 100).toFixed(0) + '%';
+            report.failedHigh.push(entry);
+        }
+    }
+    
+    // Проверяем LOW ожидания (должно быть ≤ 0.5)
+    for (const scaleId of ideal.searchScales.low) {
+        const idx = scaleId - 1;
+        const scale = SCALES[idx];
+        if (!scale) continue;
+        
+        const candValue = candidateEmbed.vectors[idx]?.value ?? 0.5;
+        const candSpread = candidateEmbed.vectors[idx]?.spread ?? 0;
+        const reliable = candSpread <= 0.3;
+        
+        const entry = {
+            id: scaleId,
+            name: scale.name,
+            emoji: scale.emoji,
+            expected: '≤ 50%',
+            actual: candValue,
+            actualPercent: (candValue * 100).toFixed(0) + '%',
+            reliable,
+            spread: candSpread
+        };
+        
+        if (candValue <= 0.5) {
+            report.matchedLow.push(entry);
+        } else {
+            entry.excess = ((candValue - 0.5) * 100).toFixed(0) + '%';
+            report.failedLow.push(entry);
+        }
+    }
+    
+    // Сюрпризы: яркие черты кандидата которые не в ожиданиях
+    const expectedIds = [...ideal.searchScales.high, ...ideal.searchScales.low];
+    for (let idx = 0; idx < TOTAL_SCALES; idx++) {
+        const scaleId = idx + 1;
+        if (expectedIds.includes(scaleId)) continue;
+        
+        const candValue = candidateEmbed.vectors[idx]?.value ?? 0.5;
+        const candSpread = candidateEmbed.vectors[idx]?.spread ?? 0;
+        
+        if (candSpread > 0.3) continue; // Только достоверные
+        
+        if (candValue >= 0.8 || candValue <= 0.15) {
+            report.surprises.push({
+                id: scaleId,
+                name: SCALES[idx].name,
+                emoji: SCALES[idx].emoji,
+                value: candValue,
+                percent: (candValue * 100).toFixed(0) + '%',
+                pole: candValue >= 0.8 ? 'high' : 'low'
+            });
+        }
+    }
+    
+    // Яркие черты юзера для контекста
+    for (let idx = 0; idx < TOTAL_SCALES; idx++) {
+        const userValue = userEmbed.vectors[idx]?.value ?? 0.5;
+        const userSpread = userEmbed.vectors[idx]?.spread ?? 0;
+        
+        if (userSpread > 0.15) continue;
+        
+        if (userValue >= 0.75) {
+            report.userHighlights.push({ name: SCALES[idx].name, emoji: SCALES[idx].emoji, percent: (userValue * 100).toFixed(0) + '%' });
+        } else if (userValue <= 0.25) {
+            report.userLowlights.push({ name: SCALES[idx].name, emoji: SCALES[idx].emoji, percent: (userValue * 100).toFixed(0) + '%' });
+        }
+    }
+    
+    return report;
+}
+
+function buildLightCompatibilityPrompt(report, candidateDescription, expectations) {
+    const langName = getLanguageName();
+    const userStyle = localStorage.getItem(STORAGE_KEYS.style) || '';
+    
+    let styleBlock = '';
+    if (userStyle && userStyle.trim()) {
+        styleBlock = `\n=== СТИЛЬ ОБЩЕНИЯ ===\nАдаптируй стиль под пользователя:\n${userStyle}\n`;
+    }
+    
+    // Форматируем отчёт
+    let matchSection = '';
+    
+    // Совпавшие HIGH
+    if (report.matchedHigh.length > 0) {
+        matchSection += '✅ СОВПАЛО (ожидали высокое — оно высокое):\n';
+        matchSection += report.matchedHigh.map(e => 
+            `• ${e.emoji} ${e.name}: ${e.actualPercent}${!e.reliable ? ' ⚠️ недостоверно' : ''}`
+        ).join('\n');
+    }
+    
+    // Не совпавшие HIGH
+    if (report.failedHigh.length > 0) {
+        matchSection += '\n\n❌ НЕ СОВПАЛО (ожидали высокое ≥70% — а оно ниже):\n';
+        matchSection += report.failedHigh.map(e => 
+            `• ${e.emoji} ${e.name}: ${e.actualPercent} (не хватает ${e.deficit})${!e.reliable ? ' ⚠️ недостоверно' : ''}`
+        ).join('\n');
+    }
+    
+    // Совпавшие LOW
+    if (report.matchedLow.length > 0) {
+        matchSection += '\n\n✅ СОВПАЛО (ожидали низкое — оно низкое):\n';
+        matchSection += report.matchedLow.map(e => 
+            `• ${e.emoji} ${e.name}: ${e.actualPercent}${!e.reliable ? ' ⚠️ недостоверно' : ''}`
+        ).join('\n');
+    }
+    
+    // Не совпавшие LOW
+    if (report.failedLow.length > 0) {
+        matchSection += '\n\n❌ НЕ СОВПАЛО (ожидали низкое ≤50% — а оно выше):\n';
+        matchSection += report.failedLow.map(e => 
+            `• ${e.emoji} ${e.name}: ${e.actualPercent} (превышение на ${e.excess})${!e.reliable ? ' ⚠️ недостоверно' : ''}`
+        ).join('\n');
+    }
+    
+    // Сюрпризы
+    if (report.surprises.length > 0) {
+        matchSection += '\n\n🎲 НЕОЖИДАННОСТИ (яркие черты вне ожиданий):\n';
+        matchSection += report.surprises.map(e => 
+            `• ${e.emoji} ${e.name}: ${e.percent} (${e.pole === 'high' ? 'очень высокое' : 'очень низкое'})`
+        ).join('\n');
+    }
+    
+    // Контекст юзера
+    let userContext = '';
+    if (report.userHighlights.length > 0 || report.userLowlights.length > 0) {
+        userContext = '\n=== КЛЮЧЕВЫЕ ЧЕРТЫ ПОЛЬЗОВАТЕЛЯ (для контекста) ===\n';
+        if (report.userHighlights.length > 0) {
+            userContext += '🔥 Высокие: ' + report.userHighlights.map(e => `${e.emoji} ${e.name} ${e.percent}`).join(', ') + '\n';
+        }
+        if (report.userLowlights.length > 0) {
+            userContext += '🧊 Низкие: ' + report.userLowlights.map(e => `${e.emoji} ${e.name} ${e.percent}`).join(', ') + '\n';
+        }
+    }
+    
+    // Описание кандидата
+    let descBlock = '';
+    if (candidateDescription) {
+        descBlock = `\n=== ОПИСАНИЕ КАНДИДАТА ===\n${candidateDescription}\n`;
+    }
+    
+    // Статистика
+    const totalExpected = report.matchedHigh.length + report.failedHigh.length + report.matchedLow.length + report.failedLow.length;
+    const totalMatched = report.matchedHigh.length + report.matchedLow.length;
+    
+    return `Ты — аналитик совместимости. Пиши на ${langName}. 
+=== ЗАДАЧА ===
+анализ совместимости на основе числовых данных.
+У тебя есть: ожидания пользователя от партнёра, и результат проверки кандидата по этим ожиданиям.
+
+=== ОЖИДАНИЯ ПОЛЬЗОВАТЕЛЯ ОТ ПАРТНЁРА ===
+${expectations}
+=== РЕЗУЛЬТАТ ПРОВЕРКИ КАНДИДАТА ===
+
+Совпало: ${totalMatched} из ${totalExpected} ожиданий
+
+${matchSection}
+${descBlock}
+=== СТРУКТУРА ОТВЕТА ===
+
+1. **Счёт** — одна строка: сколько совпало из скольки, общее впечатление
+
+2. **Где повезло** — что совпало и почему это хорошо для пользователя (учитывай его черты)
+
+3. **Цена компромисса** — что НЕ совпало и чем конкретно это грозит в повседневной жизни. Не абстрактно, а практически: «это значит что...»
+
+4. **Сюрпризы** — если есть неожиданные черты вне ожиданий, как они могут повлиять (и хорошо и плохо)
+
+5. **Вердикт** — одно-два предложения. Стоит ли идти на этот компромисс?
+
+=== ПРАВИЛА ===
+- будь мета аналитичным. сравнивай не одно с другим, а связку одного со связкой другого.
+- одидания юзера воспринимай не буквально, а векторно. не столько упоминац конкретные мелочи из ожиданий сколько их цельные смысловые сути
+- Пиши коротко. Это БЫСТРЫЙ анализ, не эссе
+- Не перечисляй шкалы и проценты — пользователь их не видит
+- Называй черты человеческим языком
+- Если много недостоверных оценок — скажи что портрет размыт
+- Будь честен про компромиссы, но не жесток`;
 }
 
 function decodeCandidateEmbedding(embedding) {

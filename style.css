@@ -5167,3 +5167,44 @@ body.server-mode .input-form {
     margin: 0;
     font-size: 14px;
 }
+
+/* ==================== COMPAT BUTTONS ==================== */
+
+.compat-buttons {
+    display: flex;
+    gap: 12px;
+    margin-top: 8px;
+    margin-bottom: 24px;
+}
+
+.compat-buttons .compat-analyze-btn {
+    flex: 1;
+    margin: 0;
+}
+
+.compat-light-btn {
+    background: linear-gradient(135deg, #6366f1, #8b5cf6) !important;
+}
+
+.compat-light-btn:hover:not(:disabled) {
+    background: linear-gradient(135deg, #5355e8, #7c4deb) !important;
+}
+
+.compat-light-btn:disabled {
+    background: #3a3a5a !important;
+    opacity: 0.5;
+}
+
+.compat-light-hint {
+    text-align: center;
+    font-size: 12px;
+    color: #6a6a8a;
+    margin: -16px 0 20px 0;
+    font-style: italic;
+}
+
+@media (max-width: 600px) {
+    .compat-buttons {
+        flex-direction: column;
+    }
+}
