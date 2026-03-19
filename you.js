@@ -10,10 +10,10 @@ const YOU_CONFIG = {
         
       //  cards: 'mistralai/devstral-2512:free', 
         
-        cards: 'openrouter/hunter-alpha',      // Генерация уточнённых карточек (OpenRouter)
-        analysis: 'openrouter/hunter-alpha',      // Промежуточные выводы (OpenRouter)
+        cards: 'openrouter/free',      // Генерация уточнённых карточек (OpenRouter)
+        analysis: 'openrouter/free',      // Промежуточные выводы (OpenRouter)
         discussion: 'hydra-gemini-3-pro',               // Финальный ответ (Hydra если есть ключ)
-        discussionFallback: 'openrouter/hunter-alpha' // Fallback для discussion
+        discussionFallback: 'openrouter/free' // Fallback для discussion
     },
     hydraApiUrl: 'https://api.hydraai.ru/v1/chat/completions',
     timeout: 60000,

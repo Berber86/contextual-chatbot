@@ -37,6 +37,121 @@
         <button class="header-btn dating-btn" onclick="openDatingModal()" title="Dating Profile">
             🧲
         </button>
+        
+        <!-- В header-bar после dating-btn и перед help-btn -->
+<button class="header-btn reports-btn" onclick="openReportsModal()" title="Reports">
+    📊
+</button>
+
+<!-- Reports Modal (добавить перед закрывающим </body>) -->
+<div class="reports-modal-overlay" id="reportsModal">
+    <div class="reports-modal">
+        <div class="reports-header">
+            <h2>📊 Генератор отчётов</h2>
+            <button class="reports-close-btn" onclick="closeReportsModal()">✕</button>
+        </div>
+        
+        <!-- Контекст -->
+        <div class="reports-context-section">
+            <div class="reports-section-title">📎 Присоединить к промпту:</div>
+            <div class="reports-context-grid">
+                <label class="reports-context-item">
+                    <input type="checkbox" id="ctx_facts" checked>
+                    <span class="ctx-icon">📋</span>
+                    <span class="ctx-name">Факты</span>
+                    <span class="ctx-count" id="ctx_facts_count">0</span>
+                </label>
+                <label class="reports-context-item">
+                    <input type="checkbox" id="ctx_traits">
+                    <span class="ctx-icon">🧠</span>
+                    <span class="ctx-name">Черты характера</span>
+                    <span class="ctx-count" id="ctx_traits_count">0</span>
+                </label>
+                <label class="reports-context-item">
+                    <input type="checkbox" id="ctx_timeline">
+                    <span class="ctx-icon">📅</span>
+                    <span class="ctx-name">Хронология</span>
+                    <span class="ctx-count" id="ctx_timeline_count">0</span>
+                </label>
+                <label class="reports-context-item">
+                    <input type="checkbox" id="ctx_hypotheses">
+                    <span class="ctx-icon">💡</span>
+                    <span class="ctx-name">Гипотезы</span>
+                    <span class="ctx-count" id="ctx_hypotheses_count">0</span>
+                </label>
+                <label class="reports-context-item">
+                    <input type="checkbox" id="ctx_social">
+                    <span class="ctx-icon">👥</span>
+                    <span class="ctx-name">Социалка</span>
+                    <span class="ctx-count" id="ctx_social_count">0</span>
+                </label>
+                <label class="reports-context-item">
+                    <input type="checkbox" id="ctx_style">
+                    <span class="ctx-icon">🎭</span>
+                    <span class="ctx-name">Стиль общения</span>
+                    <span class="ctx-count" id="ctx_style_count">—</span>
+                </label>
+                <label class="reports-context-item">
+                    <input type="checkbox" id="ctx_embedding">
+                    <span class="ctx-icon">🧬</span>
+                    <span class="ctx-name">Мой эмбеддинг</span>
+                    <span class="ctx-count" id="ctx_embedding_count">—</span>
+                </label>
+                <label class="reports-context-item">
+                    <input type="checkbox" id="ctx_ideal">
+                    <span class="ctx-icon">💫</span>
+                    <span class="ctx-name">Идеальный партнёр</span>
+                    <span class="ctx-count" id="ctx_ideal_count">—</span>
+                </label>
+                <label class="reports-context-item">
+                    <input type="checkbox" id="ctx_expectations">
+                    <span class="ctx-icon">🎯</span>
+                    <span class="ctx-name">Ожидания от партнёра</span>
+                    <span class="ctx-count" id="ctx_expectations_count">—</span>
+                </label>
+            </div>
+        </div>
+        
+        <!-- Промпт -->
+        <div class="reports-prompt-section">
+            <div class="reports-section-title">✍️ Промпт:</div>
+            <textarea id="reportsPrompt" class="reports-prompt-input" 
+                placeholder="Напиши анализ моей личности на основе предоставленных данных..."
+                rows="5"></textarea>
+        </div>
+        
+        <!-- Параметры LLM -->
+        <div class="reports-params-section">
+            <div class="reports-param">
+                <label for="reportsMaxTokens">📏 Max tokens:</label>
+                <input type="number" id="reportsMaxTokens" value="2000" min="100" max="16000" step="100">
+            </div>
+            <div class="reports-param">
+                <label for="reportsTemperature">🌡️ Temperature:</label>
+                <input type="range" id="reportsTemperature" min="0" max="2" step="0.1" value="0.7">
+                <span id="reportsTempValue">0.7</span>
+            </div>
+        </div>
+        
+        <!-- Кнопка генерации -->
+        <div class="reports-actions">
+            <button class="reports-generate-btn" id="reportsGenerateBtn" onclick="generateReport()">
+                🚀 Сгенерировать отчёт
+            </button>
+        </div>
+        
+        <!-- Результат -->
+        <div class="reports-result-section" id="reportsResultSection" style="display: none;">
+            <div class="reports-section-title">📄 Результат:</div>
+            <div class="reports-result" id="reportsResult"></div>
+            <div class="reports-result-actions">
+                <button class="reports-btn" onclick="copyReportToClipboard()">📋 Копировать</button>
+                <button class="reports-btn reports-btn-secondary" onclick="clearReportResult()">🗑️ Очистить</button>
+            </div>
+        </div>
+    </div>
+</div>
+        
 
         <!-- Кнопка помощи -->
         <button class="header-btn help-btn" onclick="openHelpModal()" title="Help">
@@ -422,5 +537,6 @@
     <script src="ui.js"></script>         <!-- 3. UI и взаимодействие -->
     <script src="you.js"></script>        <!-- 4. Модуль самопознания YOU -->
     <script src="dating.js"></script>     <!-- 5. Модуль знакомств -->
+    <script src="reports.js"></script>  <!-- 6. Модуль отчётов -->
 </body>
 </html>

@@ -9,8 +9,8 @@ const isLocal = window.location.hostname.includes('localhost') ||
 const CONFIG = {
     // Модели
     model_chat: "hydra-gemini-3-pro",           // Hydra модель для финального ответа
-    model_analysis: "openrouter/hunter-alpha",  // OpenRouter для анализа
-    model_fallback: "openrouter/hunter-alpha",  // Fallback если нет Hydra ключа
+    model_analysis: "openrouter/free",  // OpenRouter для анализа
+    model_fallback: "openrouter/free",  // Fallback если нет Hydra ключа
     
     // API URLs
     hydraApiUrl: "https://api.hydraai.ru/v1/chat/completions",
