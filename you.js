@@ -10,8 +10,8 @@ const YOU_CONFIG = {
         
       //  cards: 'mistralai/devstral-2512:free', 
         
-        cards: 'openrouter/free',      // Генерация уточнённых карточек (OpenRouter)
-        analysis: 'openrouter/free',      // Промежуточные выводы (OpenRouter)
+        cards: 'nvidia/nemotron-3-super-120b-a12b:free',      // Генерация уточнённых карточек (OpenRouter)
+        analysis: 'nvidia/nemotron-3-super-120b-a12b:free',      // Промежуточные выводы (OpenRouter)
         discussion: 'hydra-gemini-3-pro',               // Финальный ответ (Hydra если есть ключ)
         discussionFallback: 'openrouter/free' // Fallback для discussion
     },
