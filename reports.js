@@ -11,13 +11,101 @@ const PRESET_REPORTS = [
         id: 'lower_expectations',
         title: 'Кто подходит для жизни, а не для «вау»?',
         icon: '🏡',
-        description: 'Анализ того, какие качества партнёра принесут достаточное тихое счастье, а не яркую влюблённость',
+        description: 'Анализ того, какие качества партнёра принесут реальное счастье в долгосрочной перспективе, а не яркую влюблённость',
         requiredContext: ['ctx_embedding', 'ctx_ideal', 'ctx_expectations'],
         prompt: `Найди три места где пользователь может обманывать сам себя в отношении качеств идеального партнёра. Но не пиши об этом, а сразу начни с того что предоставь три другие возможно даже прямо противоположные от ожиданий конкретных качества действительно нужного ему партнёра. Ответь простым понятным языком без каких либо цифр и процентов.`,
         maxTokens: 5000,
-        temperature: 0.2
+        temperature: 0.6
+    },
+    {
+        id: 'shadow_self',
+        title: 'Моя тёмная сторона',
+        icon: '🌑',
+        description: 'Честный анализ ваших противоречий, слепых зон и того, что вы предпочитаете не замечать в себе',
+        requiredContext: ['ctx_facts', 'ctx_traits', 'ctx_hypotheses'],
+        prompt: `На основе накопленных данных о пользователе, определи 3-5 его теневых качеств — тех черт и паттернов, которые он сам скорее всего не осознаёт или не хочет признавать. Это могут быть:
+- Противоречия между словами и действиями
+- Защитные механизмы и самообман
+- Подавленные желания или страхи
+- Повторяющиеся деструктивные паттерны
+
+Пиши максимально честно, но с эмпатией. Не обвиняй — помогай увидеть. Каждую теневую черту сопровождай конкретным примером из его данных и объяснением, почему это важно осознать. Используй простой язык без психологического жаргона.`,
+        maxTokens: 4000,
+        temperature: 0.7
+    },
+    {
+        id: 'life_decisions_decoder',
+        title: 'Дешифратор моих решений',
+        icon: '🔐',
+        description: 'Раскрывает скрытые мотивы и истинные причины ваших жизненных выборов',
+        requiredContext: ['ctx_facts', 'ctx_traits', 'ctx_timeline', 'ctx_hypotheses'],
+        prompt: `Проанализируй хронологию жизни пользователя вместе с его чертами характера и гипотезами. Найди паттерн принятия решений:
+
+1. Какими НАСТОЯЩИМИ ценностями (а не декларируемыми) он руководствуется при выборе?
+2. Какие страхи или убеждения влияют на его решения незаметно для него самого?
+3. Есть ли повторяющийся сценарий в его ключевых жизненных поворотах?
+
+Приведи 2-3 конкретных примера из его хронологии и покажи, как его черты проявились в этих решениях. Помоги ему увидеть невидимый алгоритм своей жизни. Пиши как мудрый друг, а не как учебник психологии.`,
+        maxTokens: 5000,
+        temperature: 0.65
+    },
+    {
+        id: 'energy_vampires',
+        title: 'Кто крадёт мою энергию?',
+        icon: '🧛',
+        description: 'Анализ социальных связей: какие люди и ситуации истощают вас, а какие наполняют',
+        requiredContext: ['ctx_social', 'ctx_traits', 'ctx_facts'],
+        prompt: `На основе социальных связей пользователя и его черт характера, определи:
+
+1. **Энергетические вампиры** — какие люди или типы отношений истощают его? Почему именно его личность уязвима перед ними?
+
+2. **Источники энергии** — с кем или в каких ситуациях он подзаряжается? Что в этих отношениях резонирует с его сутью?
+
+3. **Невидимые ловушки** — какие социальные роли он играет из чувства долга, вопреки своей природе?
+
+Будь конкретен: называй типы людей из его окружения (не по именам, а по ролям и качествам). Дай практический совет, как защитить границы или перестроить отношения. Говори прямо, но заботливо.`,
+        maxTokens: 4500,
+        temperature: 0.7
+    },
+    {
+        id: 'conflict_manual',
+        title: 'Инструкция по мне для конфликтов',
+        icon: '⚔️',
+        description: 'Руководство для близких: как с вами ссориться, мириться и решать проблемы',
+        requiredContext: ['ctx_traits', 'ctx_social', 'ctx_style'],
+        prompt: `Представь, что пишешь инструкцию для близкого человека пользователя: "Как обращаться с этим человеком в конфликте".
+
+На основе черт характера, стиля общения и социальных взаимодействий опиши:
+
+1. **Что его триггерит** — какие слова, тон или поведение мгновенно закрывают его или вызывают агрессию
+2. **Как он ведёт себя в ссоре** — уходит в глухую оборону? Нападает? Замолкает? Что это значит?
+3. **Что ему РЕАЛЬНО нужно** для примирения — не общие советы, а конкретно для его типа личности
+4. **Чего делать нельзя** — какие попытки помирить только усугубят
+
+Пиши во втором лице ("Когда ты злишься, ты..."), как будто обращаешься к самому пользователю, помогая ему увидеть себя со стороны. Тон: честный друг, который не боится правды.`,
+        maxTokens: 4000,
+        temperature: 0.65
+    },
+    {
+        id: 'burnout_predictor',
+        title: 'Карта моего выгорания',
+        icon: '🔥',
+        description: 'Персональный прогноз выгорания: ваши триггеры, ранние признаки и способы восстановления',
+        requiredContext: ['ctx_traits', 'ctx_facts', 'ctx_timeline', 'ctx_hypotheses'],
+        prompt: `На основе личности пользователя, его образа жизни и истории создай персональную карту выгорания:
+
+1. **Профиль риска** — какие именно его черты делают его уязвимым к выгоранию? (Например: перфекционизм + низкие границы = работа до упора)
+
+2. **Ранние симптомы** — как выгорание будет проявляться КОНКРЕТНО у него, учитывая его тип личности? (У одних — раздражительность, у других — апатия, у третьих — бегство в работу ещё глубже)
+
+3. **Триггеры** — какие ситуации из его жизни запускают выгорание быстрее всего?
+
+4. **Персональная аптечка** — что поможет восстановиться ИМЕННО ему? (Учитывай интроверсию/экстраверсию, потребность в контроле, способы обработки эмоций)
+
+Не давай общих советов в стиле "высыпайтесь и гуляйте". Используй его реальные данные. Пиши как врач, который знает историю болезни конкретного пациента.`,
+        maxTokens: 5000,
+        temperature: 0.6
     }
-    // Здесь будут добавляться другие пресеты
 ];
 
 // ==================== СОСТОЯНИЕ ====================
@@ -70,9 +158,18 @@ function renderReportsInterface() {
 // ==================== ПОЛЬЗОВАТЕЛЬСКИЙ РЕЖИМ ====================
 
 function renderUserMode(container) {
-    const hasEmbedding = !!getSavedEmbedding();
-    const hasIdeal = !!(getSavedIdeal()?.searchScales);
-    const hasExpectations = !!(getSavedIdeal()?.expectations);
+    // Собираем ВСЕ доступные регистры
+    const availability = {
+        hasEmbedding: !!getSavedEmbedding(),
+        hasIdeal: !!(getSavedIdeal()?.searchScales),
+        hasExpectations: !!(getSavedIdeal()?.expectations),
+        hasFacts: (getFactsData().facts?.filter(f => !f.superseded).length || 0) > 0,
+        hasTraits: (getTraitsData().traits?.filter(t => !t.superseded).length || 0) > 0,
+        hasTimeline: (getTimelineData().events?.filter(e => !e.superseded).length || 0) > 0,
+        hasHypotheses: (getHypothesesData().hypotheses?.length || 0) > 0,
+        hasSocial: (getSocialData().contacts?.length || 0) > 0,
+        hasStyle: !!(localStorage.getItem(STORAGE_KEYS.style)?.trim())
+    };
     
     container.innerHTML = `
         <div class="reports-header">
@@ -86,7 +183,7 @@ function renderUserMode(container) {
         </div>
         
         <div class="reports-user-content">
-            ${PRESET_REPORTS.map(preset => renderPresetCard(preset, {hasEmbedding, hasIdeal, hasExpectations})).join('')}
+            ${PRESET_REPORTS.map(preset => renderPresetCard(preset, availability)).join('')}
         </div>
         
         <!-- Результат (общий для обоих режимов) -->
@@ -102,24 +199,33 @@ function renderUserMode(container) {
 }
 
 function renderPresetCard(preset, availability) {
-    const canGenerate = preset.requiredContext.every(ctx => {
-        if (ctx === 'ctx_embedding') return availability.hasEmbedding;
-        if (ctx === 'ctx_ideal') return availability.hasIdeal;
-        if (ctx === 'ctx_expectations') return availability.hasExpectations;
-        return false;
-    });
+    // Маппинг контекстов на availability
+    const contextMap = {
+        'ctx_embedding': availability.hasEmbedding,
+        'ctx_ideal': availability.hasIdeal,
+        'ctx_expectations': availability.hasExpectations,
+        'ctx_facts': availability.hasFacts,
+        'ctx_traits': availability.hasTraits,
+        'ctx_timeline': availability.hasTimeline,
+        'ctx_hypotheses': availability.hasHypotheses,
+        'ctx_social': availability.hasSocial,
+        'ctx_style': availability.hasStyle
+    };
     
-    const missingData = preset.requiredContext.filter(ctx => {
-        if (ctx === 'ctx_embedding') return !availability.hasEmbedding;
-        if (ctx === 'ctx_ideal') return !availability.hasIdeal;
-        if (ctx === 'ctx_expectations') return !availability.hasExpectations;
-        return false;
-    });
+    const canGenerate = preset.requiredContext.every(ctx => contextMap[ctx]);
+    
+    const missingData = preset.requiredContext.filter(ctx => !contextMap[ctx]);
     
     const missingHints = {
         'ctx_embedding': 'Создайте эмбеддинг во вкладке "🎯 Мой профиль"',
         'ctx_ideal': 'Заполните "💫 Кто мне нужен?"',
-        'ctx_expectations': 'Заполните "💫 Кто мне нужен?"'
+        'ctx_expectations': 'Заполните "💫 Кто мне нужен?"',
+        'ctx_facts': 'Пообщайтесь с ботом, накопите факты о себе',
+        'ctx_traits': 'Расскажите боту о себе, чтобы он понял ваш характер',
+        'ctx_timeline': 'Упомяните события из вашей жизни',
+        'ctx_hypotheses': 'Нужно минимум 16 сообщений для генерации гипотез',
+        'ctx_social': 'Расскажите о людях в вашей жизни',
+        'ctx_style': 'Нужно минимум 10 сообщений для определения стиля'
     };
     
     return `
@@ -153,12 +259,73 @@ async function generatePresetReport(presetId) {
     // Собираем нужный контекст
     const context = [];
     
+    if (preset.requiredContext.includes('ctx_facts')) {
+        const facts = getFactsForPrompt(false);
+        if (facts && !facts.includes('(no ')) {
+            context.push({
+                title: '📋 ФАКТЫ О ПОЛЬЗОВАТЕЛЕ',
+                content: facts
+            });
+        }
+    }
+    
+    if (preset.requiredContext.includes('ctx_traits')) {
+        const traits = getTraitsForPrompt(false);
+        if (traits && !traits.includes('(no ')) {
+            context.push({
+                title: '🧠 ЧЕРТЫ ХАРАКТЕРА',
+                content: traits
+            });
+        }
+    }
+    
+    if (preset.requiredContext.includes('ctx_timeline')) {
+        const timeline = getTimelineForPrompt();
+        if (timeline && !timeline.includes('(no ')) {
+            context.push({
+                title: '📅 ХРОНОЛОГИЯ ЖИЗНИ',
+                content: timeline
+            });
+        }
+    }
+    
+    if (preset.requiredContext.includes('ctx_hypotheses')) {
+        const hypotheses = getHypothesesForPrompt(false);
+        if (hypotheses && !hypotheses.includes('(no ')) {
+            context.push({
+                title: '💡 ГИПОТЕЗЫ И ИНСАЙТЫ',
+                content: hypotheses
+            });
+        }
+    }
+    
+    if (preset.requiredContext.includes('ctx_social')) {
+        const social = getSocialForPrompt();
+        if (social && !social.includes('(no ')) {
+            context.push({
+                title: '👥 СОЦИАЛЬНЫЕ СВЯЗИ',
+                content: social
+            });
+        }
+    }
+    
+    if (preset.requiredContext.includes('ctx_style')) {
+        const style = localStorage.getItem(STORAGE_KEYS.style);
+        if (style && style.trim()) {
+            context.push({
+                title: '🎭 СТИЛЬ ОБЩЕНИЯ',
+                content: style
+            });
+        }
+    }
+    
     if (preset.requiredContext.includes('ctx_embedding')) {
         const embedding = getSavedEmbedding();
         if (embedding) {
+            const formattedEmbedding = formatEmbeddingForReport(embedding);
             context.push({
                 title: '🧬 ЛИЧНОСТНЫЙ ЭМБЕДДИНГ (50 ШКАЛ)',
-                content: formatEmbeddingForReport(embedding)
+                content: formattedEmbedding
             });
         }
     }
@@ -166,9 +333,10 @@ async function generatePresetReport(presetId) {
     if (preset.requiredContext.includes('ctx_ideal')) {
         const ideal = getSavedIdeal();
         if (ideal?.searchScales) {
+            const formattedIdeal = formatIdealScalesForReport(ideal.searchScales);
             context.push({
                 title: '💫 ШКАЛЫ ИДЕАЛЬНОГО ПАРТНЁРА',
-                content: formatIdealScalesForReport(ideal.searchScales)
+                content: formattedIdeal
             });
         }
     }
@@ -182,6 +350,8 @@ async function generatePresetReport(presetId) {
             });
         }
     }
+    
+    console.log(`[Reports] Preset "${preset.id}" context blocks:`, context.length);
     
     // Генерируем отчёт
     await generateReportWithContext(context, preset.prompt, preset.maxTokens, preset.temperature);
