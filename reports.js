@@ -1,12 +1,29 @@
 // reports.js - модуль генерации отчётов
-// Позволяет создавать кастомные отчёты с выбором контекста из localStorage
+// Двухрежимный: пользовательский (preset) и тестовый (custom)
 
 // ==================== КОНСТАНТЫ ====================
 const REPORTS_STORAGE_KEY = 'chatbot_reports_history';
+const REPORTS_MODE_KEY = 'chatbot_reports_mode'; // 'user' или 'test'
+
+// Предустановленные отчёты
+const PRESET_REPORTS = [
+    {
+        id: 'lower_expectations',
+        title: 'Кто подходит для жизни, а не для «вау»?',
+        icon: '🏡',
+        description: 'Анализ того, какие качества партнёра принесут достаточное тихое счастье, а не яркую влюблённость',
+        requiredContext: ['ctx_embedding', 'ctx_ideal', 'ctx_expectations'],
+        prompt: `Найди три места где пользователь может обманывать сам себя в отношении качеств идеального партнёра. Но не пиши об этом, а сразу начни с того что предоставь три другие возможно даже прямо противоположные от ожиданий конкретных качества действительно нужного ему партнёра. Ответь простым понятным языком без каких либо цифр и процентов.`,
+        maxTokens: 5000,
+        temperature: 0.2
+    }
+    // Здесь будут добавляться другие пресеты
+];
 
 // ==================== СОСТОЯНИЕ ====================
 let reportsState = {
-    isGenerating: false
+    isGenerating: false,
+    mode: 'user' // 'user' или 'test'
 };
 
 // ==================== UI ФУНКЦИИ ====================
@@ -16,8 +33,12 @@ function openReportsModal() {
     if (modal) {
         modal.classList.add('active');
         document.body.classList.add('modal-open');
-        updateContextCounts();
-        initTemperatureSlider();
+        
+        // Загружаем режим
+        const savedMode = localStorage.getItem(REPORTS_MODE_KEY) || 'user';
+        reportsState.mode = savedMode;
+        
+        renderReportsInterface();
     }
 }
 
@@ -27,6 +48,262 @@ function closeReportsModal() {
         modal.classList.remove('active');
         document.body.classList.remove('modal-open');
     }
+}
+
+function switchReportsMode(mode) {
+    reportsState.mode = mode;
+    localStorage.setItem(REPORTS_MODE_KEY, mode);
+    renderReportsInterface();
+}
+
+function renderReportsInterface() {
+    const container = document.querySelector('.reports-modal');
+    if (!container) return;
+    
+    if (reportsState.mode === 'user') {
+        renderUserMode(container);
+    } else {
+        renderTestMode(container);
+    }
+}
+
+// ==================== ПОЛЬЗОВАТЕЛЬСКИЙ РЕЖИМ ====================
+
+function renderUserMode(container) {
+    const hasEmbedding = !!getSavedEmbedding();
+    const hasIdeal = !!(getSavedIdeal()?.searchScales);
+    const hasExpectations = !!(getSavedIdeal()?.expectations);
+    
+    container.innerHTML = `
+        <div class="reports-header">
+            <h2>📊 Готовые отчёты</h2>
+            <div class="reports-header-actions">
+                <button class="reports-mode-toggle" onclick="switchReportsMode('test')" title="Режим разработчика">
+                    🔧
+                </button>
+                <button class="reports-close-btn" onclick="closeReportsModal()">✕</button>
+            </div>
+        </div>
+        
+        <div class="reports-user-content">
+            ${PRESET_REPORTS.map(preset => renderPresetCard(preset, {hasEmbedding, hasIdeal, hasExpectations})).join('')}
+        </div>
+        
+        <!-- Результат (общий для обоих режимов) -->
+        <div class="reports-result-section" id="reportsResultSection" style="display: none;">
+            <div class="reports-section-title">📄 Результат:</div>
+            <div class="reports-result" id="reportsResult"></div>
+            <div class="reports-result-actions">
+                <button class="reports-btn" onclick="copyReportToClipboard()">📋 Копировать</button>
+                <button class="reports-btn reports-btn-secondary" onclick="clearReportResult()">🗑️ Очистить</button>
+            </div>
+        </div>
+    `;
+}
+
+function renderPresetCard(preset, availability) {
+    const canGenerate = preset.requiredContext.every(ctx => {
+        if (ctx === 'ctx_embedding') return availability.hasEmbedding;
+        if (ctx === 'ctx_ideal') return availability.hasIdeal;
+        if (ctx === 'ctx_expectations') return availability.hasExpectations;
+        return false;
+    });
+    
+    const missingData = preset.requiredContext.filter(ctx => {
+        if (ctx === 'ctx_embedding') return !availability.hasEmbedding;
+        if (ctx === 'ctx_ideal') return !availability.hasIdeal;
+        if (ctx === 'ctx_expectations') return !availability.hasExpectations;
+        return false;
+    });
+    
+    const missingHints = {
+        'ctx_embedding': 'Создайте эмбеддинг во вкладке "🎯 Мой профиль"',
+        'ctx_ideal': 'Заполните "💫 Кто мне нужен?"',
+        'ctx_expectations': 'Заполните "💫 Кто мне нужен?"'
+    };
+    
+    return `
+        <div class="preset-card ${canGenerate ? '' : 'preset-disabled'}">
+            <div class="preset-icon">${preset.icon}</div>
+            <div class="preset-info">
+                <h3 class="preset-title">${preset.title}</h3>
+                <p class="preset-description">${preset.description}</p>
+                ${!canGenerate ? `
+                    <div class="preset-requirements">
+                        <span class="req-label">⚠️ Требуется:</span>
+                        ${missingData.map(ctx => `<span class="req-hint">${missingHints[ctx]}</span>`).join('')}
+                    </div>
+                ` : ''}
+            </div>
+            <button 
+                class="preset-generate-btn" 
+                ${canGenerate ? '' : 'disabled'} 
+                onclick="generatePresetReport('${preset.id}')"
+            >
+                ${canGenerate ? '🚀 Сгенерировать' : '🔒 Недоступно'}
+            </button>
+        </div>
+    `;
+}
+
+async function generatePresetReport(presetId) {
+    const preset = PRESET_REPORTS.find(p => p.id === presetId);
+    if (!preset) return;
+    
+    // Собираем нужный контекст
+    const context = [];
+    
+    if (preset.requiredContext.includes('ctx_embedding')) {
+        const embedding = getSavedEmbedding();
+        if (embedding) {
+            context.push({
+                title: '🧬 ЛИЧНОСТНЫЙ ЭМБЕДДИНГ (50 ШКАЛ)',
+                content: formatEmbeddingForReport(embedding)
+            });
+        }
+    }
+    
+    if (preset.requiredContext.includes('ctx_ideal')) {
+        const ideal = getSavedIdeal();
+        if (ideal?.searchScales) {
+            context.push({
+                title: '💫 ШКАЛЫ ИДЕАЛЬНОГО ПАРТНЁРА',
+                content: formatIdealScalesForReport(ideal.searchScales)
+            });
+        }
+    }
+    
+    if (preset.requiredContext.includes('ctx_expectations')) {
+        const ideal = getSavedIdeal();
+        if (ideal?.expectations) {
+            context.push({
+                title: '🎯 ОЖИДАНИЯ ОТ ПАРТНЁРА',
+                content: ideal.expectations
+            });
+        }
+    }
+    
+    // Генерируем отчёт
+    await generateReportWithContext(context, preset.prompt, preset.maxTokens, preset.temperature);
+}
+
+// ==================== ТЕСТОВЫЙ РЕЖИМ ====================
+
+function renderTestMode(container) {
+    container.innerHTML = `
+        <div class="reports-header">
+            <h2>🔧 Конструктор отчётов</h2>
+            <div class="reports-header-actions">
+                <button class="reports-mode-toggle" onclick="switchReportsMode('user')" title="Пользовательский режим">
+                    👤
+                </button>
+                <button class="reports-close-btn" onclick="closeReportsModal()">✕</button>
+            </div>
+        </div>
+        
+        <!-- Контекст -->
+        <div class="reports-context-section">
+            <div class="reports-section-title">📎 Присоединить к промпту:</div>
+            <div class="reports-context-grid">
+                <label class="reports-context-item">
+                    <input type="checkbox" id="ctx_facts" checked>
+                    <span class="ctx-icon">📋</span>
+                    <span class="ctx-name">Факты</span>
+                    <span class="ctx-count" id="ctx_facts_count">0</span>
+                </label>
+                <label class="reports-context-item">
+                    <input type="checkbox" id="ctx_traits">
+                    <span class="ctx-icon">🧠</span>
+                    <span class="ctx-name">Черты характера</span>
+                    <span class="ctx-count" id="ctx_traits_count">0</span>
+                </label>
+                <label class="reports-context-item">
+                    <input type="checkbox" id="ctx_timeline">
+                    <span class="ctx-icon">📅</span>
+                    <span class="ctx-name">Хронология</span>
+                    <span class="ctx-count" id="ctx_timeline_count">0</span>
+                </label>
+                <label class="reports-context-item">
+                    <input type="checkbox" id="ctx_hypotheses">
+                    <span class="ctx-icon">💡</span>
+                    <span class="ctx-name">Гипотезы</span>
+                    <span class="ctx-count" id="ctx_hypotheses_count">0</span>
+                </label>
+                <label class="reports-context-item">
+                    <input type="checkbox" id="ctx_social">
+                    <span class="ctx-icon">👥</span>
+                    <span class="ctx-name">Социалка</span>
+                    <span class="ctx-count" id="ctx_social_count">0</span>
+                </label>
+                <label class="reports-context-item">
+                    <input type="checkbox" id="ctx_style">
+                    <span class="ctx-icon">🎭</span>
+                    <span class="ctx-name">Стиль общения</span>
+                    <span class="ctx-count" id="ctx_style_count">—</span>
+                </label>
+                <label class="reports-context-item">
+                    <input type="checkbox" id="ctx_embedding">
+                    <span class="ctx-icon">🧬</span>
+                    <span class="ctx-name">Мой эмбеддинг</span>
+                    <span class="ctx-count" id="ctx_embedding_count">—</span>
+                </label>
+                <label class="reports-context-item">
+                    <input type="checkbox" id="ctx_ideal">
+                    <span class="ctx-icon">💫</span>
+                    <span class="ctx-name">Идеальный партнёр</span>
+                    <span class="ctx-count" id="ctx_ideal_count">—</span>
+                </label>
+                <label class="reports-context-item">
+                    <input type="checkbox" id="ctx_expectations">
+                    <span class="ctx-icon">🎯</span>
+                    <span class="ctx-name">Ожидания от партнёра</span>
+                    <span class="ctx-count" id="ctx_expectations_count">—</span>
+                </label>
+            </div>
+        </div>
+        
+        <!-- Промпт -->
+        <div class="reports-prompt-section">
+            <div class="reports-section-title">✍️ Промпт:</div>
+            <textarea id="reportsPrompt" class="reports-prompt-input" 
+                placeholder="Напиши анализ моей личности на основе предоставленных данных..."
+                rows="5"></textarea>
+        </div>
+        
+        <!-- Параметры LLM -->
+        <div class="reports-params-section">
+            <div class="reports-param">
+                <label for="reportsMaxTokens">📏 Max tokens:</label>
+                <input type="number" id="reportsMaxTokens" value="2000" min="100" max="16000" step="100">
+            </div>
+            <div class="reports-param">
+                <label for="reportsTemperature">🌡️ Temperature:</label>
+                <input type="range" id="reportsTemperature" min="0" max="2" step="0.1" value="0.7">
+                <span id="reportsTempValue">0.7</span>
+            </div>
+        </div>
+        
+        <!-- Кнопка генерации -->
+        <div class="reports-actions">
+            <button class="reports-generate-btn" id="reportsGenerateBtn" onclick="generateCustomReport()">
+                🚀 Сгенерировать отчёт
+            </button>
+        </div>
+        
+        <!-- Результат -->
+        <div class="reports-result-section" id="reportsResultSection" style="display: none;">
+            <div class="reports-section-title">📄 Результат:</div>
+            <div class="reports-result" id="reportsResult"></div>
+            <div class="reports-result-actions">
+                <button class="reports-btn" onclick="copyReportToClipboard()">📋 Копировать</button>
+                <button class="reports-btn reports-btn-secondary" onclick="clearReportResult()">🗑️ Очистить</button>
+            </div>
+        </div>
+    `;
+    
+    // Инициализация
+    updateContextCounts();
+    initTemperatureSlider();
 }
 
 function initTemperatureSlider() {
@@ -43,45 +320,36 @@ function initTemperatureSlider() {
 // ==================== ПОДСЧЁТ ДАННЫХ ====================
 
 function updateContextCounts() {
-    // Факты
     const factsData = getFactsData();
     const factsCount = factsData.facts ? factsData.facts.filter(f => !f.superseded).length : 0;
     setCountBadge('ctx_facts_count', factsCount);
     
-    // Черты
     const traitsData = getTraitsData();
     const traitsCount = traitsData.traits ? traitsData.traits.filter(t => !t.superseded).length : 0;
     setCountBadge('ctx_traits_count', traitsCount);
     
-    // Хронология
     const timelineData = getTimelineData();
     const timelineCount = timelineData.events ? timelineData.events.filter(e => !e.superseded).length : 0;
     setCountBadge('ctx_timeline_count', timelineCount);
     
-    // Гипотезы
     const hypothesesData = getHypothesesData();
     const hypothesesCount = hypothesesData.hypotheses ? hypothesesData.hypotheses.length : 0;
     setCountBadge('ctx_hypotheses_count', hypothesesCount);
     
-    // Социалка
     const socialData = getSocialData();
     const socialCount = socialData.contacts ? socialData.contacts.length : 0;
     setCountBadge('ctx_social_count', socialCount);
     
-    // Стиль общения
     const style = localStorage.getItem(STORAGE_KEYS.style);
     setCountBadge('ctx_style_count', style && style.trim() ? '✓' : '—');
     
-    // Мой эмбеддинг
     const embedding = getSavedEmbedding();
     setCountBadge('ctx_embedding_count', embedding ? '✓' : '—');
     
-    // Идеальный партнёр (шкалы)
     const ideal = getSavedIdeal();
     const hasIdealScales = ideal && ideal.searchScales;
     setCountBadge('ctx_ideal_count', hasIdealScales ? '✓' : '—');
     
-    // Ожидания от партнёра (текст)
     const hasExpectations = ideal && ideal.expectations;
     setCountBadge('ctx_expectations_count', hasExpectations ? '✓' : '—');
 }
@@ -99,7 +367,6 @@ function setCountBadge(elementId, value) {
 function collectSelectedContext() {
     const context = [];
     
-    // Факты
     if (document.getElementById('ctx_facts')?.checked) {
         const facts = getFactsForPrompt(false);
         if (facts && !facts.includes('(no ')) {
@@ -110,7 +377,6 @@ function collectSelectedContext() {
         }
     }
     
-    // Черты характера
     if (document.getElementById('ctx_traits')?.checked) {
         const traits = getTraitsForPrompt(false);
         if (traits && !traits.includes('(no ')) {
@@ -121,7 +387,6 @@ function collectSelectedContext() {
         }
     }
     
-    // Хронология
     if (document.getElementById('ctx_timeline')?.checked) {
         const timeline = getTimelineForPrompt();
         if (timeline && !timeline.includes('(no ')) {
@@ -132,7 +397,6 @@ function collectSelectedContext() {
         }
     }
     
-    // Гипотезы
     if (document.getElementById('ctx_hypotheses')?.checked) {
         const hypotheses = getHypothesesForPrompt(false);
         if (hypotheses && !hypotheses.includes('(no ')) {
@@ -143,7 +407,6 @@ function collectSelectedContext() {
         }
     }
     
-    // Социалка
     if (document.getElementById('ctx_social')?.checked) {
         const social = getSocialForPrompt();
         if (social && !social.includes('(no ')) {
@@ -154,7 +417,6 @@ function collectSelectedContext() {
         }
     }
     
-    // Стиль общения
     if (document.getElementById('ctx_style')?.checked) {
         const style = localStorage.getItem(STORAGE_KEYS.style);
         if (style && style.trim()) {
@@ -165,7 +427,6 @@ function collectSelectedContext() {
         }
     }
     
-    // Мой эмбеддинг
     if (document.getElementById('ctx_embedding')?.checked) {
         const embedding = getSavedEmbedding();
         if (embedding) {
@@ -177,7 +438,6 @@ function collectSelectedContext() {
         }
     }
     
-    // Идеальный партнёр (шкалы)
     if (document.getElementById('ctx_ideal')?.checked) {
         const ideal = getSavedIdeal();
         if (ideal && ideal.searchScales) {
@@ -189,7 +449,6 @@ function collectSelectedContext() {
         }
     }
     
-    // Ожидания от партнёра
     if (document.getElementById('ctx_expectations')?.checked) {
         const ideal = getSavedIdeal();
         if (ideal && ideal.expectations) {
@@ -203,7 +462,7 @@ function collectSelectedContext() {
     return context;
 }
 
-// ==================== ФОРМАТИРОВАНИЕ ЭМБЕДДИНГОВ ====================
+// ==================== ФОРМАТИРОВАНИЕ ====================
 
 function formatEmbeddingForReport(embedding) {
     let result = `Версия: ${embedding.version}\n`;
@@ -212,7 +471,6 @@ function formatEmbeddingForReport(embedding) {
     
     result += '=== СПИСОК ШКАЛ (50 штук) ===\n\n';
     
-    // Группируем по категориям
     const categories = {};
     SCALES.forEach((scale, idx) => {
         if (!categories[scale.category]) {
@@ -238,7 +496,6 @@ function formatEmbeddingForReport(embedding) {
         });
     }
     
-    // Выделяем яркие и слабые
     const high = embedding.vectors
         .map((v, i) => ({ idx: i, ...v }))
         .filter(v => v.value >= 0.7 && v.spread <= 0.15)
@@ -273,7 +530,6 @@ function formatEmbeddingForReport(embedding) {
 function formatIdealScalesForReport(searchScales) {
     let result = '=== СПИСОК ШКАЛ (50 штук) ===\n\n';
     
-    // Сначала перечислим все шкалы с пометками
     SCALES.forEach(scale => {
         let marker = '  ';
         if (searchScales.high.includes(scale.id)) {
@@ -305,11 +561,9 @@ function formatIdealScalesForReport(searchScales) {
     return result;
 }
 
-// ==================== ГЕНЕРАЦИЯ ОТЧЁТА ====================
+// ==================== ГЕНЕРАЦИЯ ОТЧЁТОВ ====================
 
-async function generateReport() {
-    if (reportsState.isGenerating) return;
-    
+async function generateCustomReport() {
     const promptInput = document.getElementById('reportsPrompt');
     const userPrompt = promptInput?.value?.trim();
     
@@ -325,24 +579,29 @@ async function generateReport() {
         return;
     }
     
-    // Параметры
     const maxTokens = parseInt(document.getElementById('reportsMaxTokens')?.value) || 2000;
     const temperature = parseFloat(document.getElementById('reportsTemperature')?.value) || 0.7;
     
-    // UI
+    await generateReportWithContext(context, userPrompt, maxTokens, temperature);
+}
+
+async function generateReportWithContext(context, userPrompt, maxTokens, temperature) {
+    if (reportsState.isGenerating) return;
+    
     const btn = document.getElementById('reportsGenerateBtn');
     const resultSection = document.getElementById('reportsResultSection');
     const resultDiv = document.getElementById('reportsResult');
     
     reportsState.isGenerating = true;
-    btn.disabled = true;
-    btn.innerHTML = '<span class="btn-spinner"></span> Генерирую...';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="btn-spinner"></span> Генерирую...';
+    }
     
     resultSection.style.display = 'block';
     resultDiv.innerHTML = '<div class="reports-loading"><div class="reports-spinner"></div><p>Генерирую отчёт...</p></div>';
     
     try {
-        // Формируем полный промпт
         let fullPrompt = '=== КОНТЕКСТ ===\n\n';
         
         context.forEach(ctx => {
@@ -355,7 +614,6 @@ async function generateReport() {
         console.log('[Reports] Full prompt length:', fullPrompt.length);
         console.log('[Reports] Params: maxTokens=', maxTokens, 'temperature=', temperature);
         
-        // Стриминг
         const streamingDiv = document.createElement('div');
         streamingDiv.className = 'reports-streaming-text';
         resultDiv.innerHTML = '';
@@ -382,13 +640,15 @@ async function generateReport() {
         resultDiv.innerHTML = `
             <div class="reports-error">
                 <p>❌ Ошибка: ${error.message}</p>
-                <button class="reports-btn" onclick="generateReport()">🔄 Попробовать снова</button>
+                <button class="reports-btn" onclick="${reportsState.mode === 'user' ? 'generatePresetReport' : 'generateCustomReport'}()">🔄 Попробовать снова</button>
             </div>
         `;
     } finally {
         reportsState.isGenerating = false;
-        btn.disabled = false;
-        btn.innerHTML = '🚀 Сгенерировать отчёт';
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '🚀 Сгенерировать отчёт';
+        }
     }
 }
 
@@ -398,14 +658,12 @@ function copyReportToClipboard() {
     const resultDiv = document.getElementById('reportsResult');
     if (!resultDiv) return;
     
-    // Получаем текст без HTML
     const text = resultDiv.innerText || resultDiv.textContent;
     
     navigator.clipboard.writeText(text).then(() => {
         showReportsToast('✅ Скопировано!');
     }).catch(err => {
         console.error('[Reports] Copy failed:', err);
-        // Fallback
         const textarea = document.createElement('textarea');
         textarea.value = text;
         textarea.style.position = 'fixed';
@@ -445,8 +703,10 @@ function showReportsToast(message) {
 
 window.openReportsModal = openReportsModal;
 window.closeReportsModal = closeReportsModal;
-window.generateReport = generateReport;
+window.switchReportsMode = switchReportsMode;
+window.generateCustomReport = generateCustomReport;
+window.generatePresetReport = generatePresetReport;
 window.copyReportToClipboard = copyReportToClipboard;
 window.clearReportResult = clearReportResult;
 
-console.log('[reports.js] Loaded. Custom report generator ready.');
+console.log('[reports.js] Loaded. Dual-mode report generator ready.');

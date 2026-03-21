@@ -538,5 +538,61 @@
     <script src="you.js"></script>        <!-- 4. Модуль самопознания YOU -->
     <script src="dating.js"></script>     <!-- 5. Модуль знакомств -->
     <script src="reports.js"></script>  <!-- 6. Модуль отчётов -->
+    
+    
+    <!-- Privacy Disclaimer Modal -->
+<div class="privacy-disclaimer-overlay" id="privacyDisclaimer">
+    <div class="privacy-disclaimer-modal">
+        <div class="privacy-header">
+            <span class="privacy-icon">🛡️</span>
+            <h2>Как это работает и что передаётся</h2>
+        </div>
+        
+        <div class="privacy-body">
+            <div class="privacy-principle">
+                <div class="principle-icon">🔐</div>
+                <div class="principle-text">
+                    <strong>Ваши данные остаются у вас</strong>
+                    <p>Всё, что вы рассказали боту — имена, истории, переживания — хранится <em>только на вашем устройстве</em>. Никуда не отправляется. Никогда.</p>
+                </div>
+            </div>
+            
+            <div class="privacy-principle">
+                <div class="principle-icon">🧬</div>
+                <div class="principle-text">
+                    <strong>Что видит другой человек?</strong>
+                    <p>Только <em>числа</em>: 50 шкал от 0 до 1 и их точность. Ни имён, ни фактов, ни цитат. Даже пол и возраст — только если вы сами добавите их в описание.</p>
+                </div>
+            </div>
+            
+            <div class="privacy-principle">
+                <div class="principle-icon">🎭</div>
+                <div class="principle-text">
+                    <strong>Глубина без деанонимизации</strong>
+                    <p>В этом суть проекта: система знает о вас <em>всё</em>, чтобы дать точный анализ — но передаёт наружу только абстрактный числовой портрет. Никто не узнает про ваших бывших, страхи или мечты, если вы сами не расскажете.</p>
+                </div>
+            </div>
+            
+            <div class="privacy-principle">
+                <div class="principle-icon">📊</div>
+                <div class="principle-text">
+                    <strong>Что используется в отчёте?</strong>
+                    <p>Для <em>вашего</em> отчёта бот использует всё, что знает о вас — чтобы говорить на вашем языке и давать конкретные, а не общие советы. Но это видите <em>только вы</em>.</p>
+                </div>
+            </div>
+            
+            <div class="privacy-summary">
+                <span class="summary-emoji">💡</span>
+                <p><strong>Если коротко:</strong> эмбеддинг — это рентген вашей личности без подписи. Точный, анонимный, бесполезный для сталкера.</p>
+            </div>
+        </div>
+        
+        <div class="privacy-footer">
+            <button class="privacy-accept-btn" onclick="acceptPrivacyDisclaimer()">
+                ✅ Да, мне понятно
+            </button>
+        </div>
+    </div>
+</div>
 </body>
 </html>

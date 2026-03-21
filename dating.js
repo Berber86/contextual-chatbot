@@ -472,7 +472,7 @@ function renderCompatibilityTab() {
     const savedIdeal = getSavedIdeal();
     const hasIdeal = savedIdeal && savedIdeal.searchScales;
 
-    container.innerHTML = `
+        container.innerHTML = `
         <div class="compat-container">
             <div class="compat-intro">
                 <div class="dating-icon">🧲</div>
@@ -511,13 +511,13 @@ function renderCompatibilityTab() {
             </div>
 
             <div class="compat-buttons-grid">
-                <button class="dating-generate-btn compat-btn" id="analyzeBtn" onclick="runCompatibilityAnalysis()" disabled>
+                <button class="dating-generate-btn compat-btn" id="analyzeBtn" onclick="showPrivacyDisclaimer(() => runCompatibilityAnalysis())" disabled>
                     🧠 Глубокий разбор
                 </button>
-                <button class="dating-generate-btn compat-btn compat-light-btn" id="analyzeLightBtn" onclick="runLightCompatibilityAnalysis()" disabled ${!hasIdeal ? 'title="Сначала определите идеал во вкладке 💫"' : ''}>
+                <button class="dating-generate-btn compat-btn compat-light-btn" id="analyzeLightBtn" onclick="showPrivacyDisclaimer(() => runLightCompatibilityAnalysis())" disabled ${!hasIdeal ? 'title="Сначала определите идеал во вкладке 💫"' : ''}>
                     ⚡ Быстрый чек
                 </button>
-                <button class="dating-generate-btn compat-btn compat-mutual-btn" id="analyzeMutualBtn" onclick="runMutualAnalysis()" disabled title="Нужен эмбеддинг V3 у обоих">
+                <button class="dating-generate-btn compat-btn compat-mutual-btn" id="analyzeMutualBtn" onclick="showPrivacyDisclaimer(() => runMutualAnalysis())" disabled title="Нужен эмбеддинг V3 у обоих">
                     💞 Взаимность и Динамика
                 </button>
             </div>
@@ -1260,15 +1260,12 @@ function buildMutualDynamicsPrompt(data) {
     }
 
     return `Ты — эксперт по динамике отношений и футуролог. Пиши на ${langName}.
-${styleBlock}
 
 === КОНТЕКСТ ===
 
-**О пользователе (факты и черты):**
-${data.userFacts || '(мало данных)'}
-${data.userTraits || ''}
 
-**Что пользователь ищет в партнёре (его слова):**
+
+**Что пользователь ищет в партнёре :**
 "${data.userIdealText}"
 
 ${data.candidateDescription ? `**Описание кандидата:**\n"${data.candidateDescription}"\n` : ''}
@@ -1294,7 +1291,7 @@ ${dynamicsContext}
 
 **Часть 1: Зачем он вам (кратко)**
 
-2-3 предложения. Резюме: закрывает ли кандидат ваши ключевые потребности? Используй данные прямого мэтча и словесные ожидания пользователя. Без воды — у пользователя уже есть подробные отчёты по режимам 1 и 2.
+2-3 предложения. Резюме: закрывает ли кандидат ваши ключевые потребности? Используй данные прямого мэтча и словесные ожидания пользователя. Без воды — у пользователя уже есть подробные отчёты по этому вопросы  сделаннве ранее.
 
 ---
 
@@ -2178,6 +2175,46 @@ function renderGenerationError(message) {
             <p>${message}</p>
             <button class="dating-btn" onclick="checkDatingEligibility()">🔄 Снова</button>
         </div>`;
+}
+
+// ==================== PRIVACY DISCLAIMER ====================
+
+const PRIVACY_ACCEPTED_KEY = 'chatbot_dating_privacy_accepted';
+
+function isPrivacyAccepted() {
+    return localStorage.getItem(PRIVACY_ACCEPTED_KEY) === 'true';
+}
+
+function showPrivacyDisclaimer(callback) {
+    if (isPrivacyAccepted()) {
+        callback();
+        return;
+    }
+    
+    // Сохраняем callback для вызова после принятия
+    window._privacyCallback = callback;
+    
+    const overlay = document.getElementById('privacyDisclaimer');
+    if (overlay) {
+        overlay.classList.add('active');
+    }
+}
+
+function acceptPrivacyDisclaimer() {
+    localStorage.setItem(PRIVACY_ACCEPTED_KEY, 'true');
+    
+    const overlay = document.getElementById('privacyDisclaimer');
+    if (overlay) {
+        overlay.classList.remove('active');
+    }
+    
+    // Вызываем сохранённый callback
+    if (window._privacyCallback) {
+        const cb = window._privacyCallback;
+        window._privacyCallback = null;
+        // Небольшая задержка, чтобы модалка успела закрыться
+        setTimeout(cb, 200);
+    }
 }
 
 // ==================== INIT ====================
