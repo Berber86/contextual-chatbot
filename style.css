@@ -6096,3 +6096,32 @@ body.server-mode .input-form {
         font-size: 13px;
     }
 }
+/* ==================== REPORTS LOADING HINTS ==================== */
+
+.reports-wait-hint {
+    font-size: 13px;
+    color: #a0a0c0;
+    margin: 8px 0 0 0;
+    line-height: 1.5;
+}
+
+.reports-wait-hint:last-child {
+    margin-top: 16px;
+    font-style: italic;
+    opacity: 0.8;
+}
+
+.reports-loading p:first-of-type {
+    font-size: 15px;
+    margin-bottom: 12px;
+}
+
+/* Анимация для спиннера */
+.reports-loading {
+    animation: reportsFadeIn 0.3s ease;
+}
+
+@keyframes reportsFadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
