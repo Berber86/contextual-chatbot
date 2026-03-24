@@ -7,16 +7,28 @@ const isLocal = window.location.hostname.includes('localhost') ||
     window.location.hostname.includes('127.0.0.1');
 
 const CONFIG = {
-    // Модели
-    model_chat: "hydra-gemini-3-pro",           // Hydra модель для финального ответа
-    model_analysis: "stepfun/step-3.5-flash:free",  // OpenRouter для анализа
-    model_fallback: "stepfun/step-3.5-flash:free",  // Fallback если нет Hydra ключа
+    // Hydra модель (единственная, платная)
+    model_chat: "hydra-gemini-3-pro",
+    
+    // OpenRouter модели — fallback цепочка (7 вариантов)
+    openRouterModels: [
+        "stepfun/step-3.5-flash:free",
+        "nvidia/nemotron-3-super-120b-a12b:free",
+        "z-ai/glm-4.5-air:free",
+        "arcee-ai/trinity-large-preview:free",
+        "nvidia/nemotron-3-nano-30b-a3b:free",
+        "nvidia/nemotron-3-nano-30b-a3b:free",
+        "nvidia/nemotron-3-nano-30b-a3b:free"
+    ],
+    
+    // Текущий индекс в цепочке (сбрасывается при успехе)
+    currentModelIndex: 0,
     
     // API URLs
     hydraApiUrl: "https://api.hydraai.ru/v1/chat/completions",
-    openrouterApiUrl: isLocal 
-        ? "https://openrouter.ai/api/v1/chat/completions"
-        : "/api/chat",
+    openrouterApiUrl: isLocal ?
+        "https://openrouter.ai/api/v1/chat/completions" :
+        "/api/chat",
     
     maxRetries: 3,
     baseSystemPrompt: "You are a ai assistant. Be an attentive and caring conversationalist.",
@@ -29,6 +41,39 @@ const CONFIG = {
     showToolCalls: false,
     showContextAnalysis: true
 };
+
+// Геттеры для получения текущей модели
+function getCurrentOpenRouterModel() {
+    return CONFIG.openRouterModels[CONFIG.currentModelIndex] || CONFIG.openRouterModels[0];
+}
+
+function switchToNextModel() {
+    if (CONFIG.currentModelIndex < CONFIG.openRouterModels.length - 1) {
+        CONFIG.currentModelIndex++;
+        console.log(`[Model Fallback] Switching to model #${CONFIG.currentModelIndex + 1}: ${getCurrentOpenRouterModel()}`);
+        return true;
+    }
+    console.log('[Model Fallback] All models exhausted!');
+    return false;
+}
+
+function resetModelIndex() {
+    if (CONFIG.currentModelIndex !== 0) {
+        console.log('[Model Fallback] Success! Resetting to primary model');
+        CONFIG.currentModelIndex = 0;
+    }
+}
+
+function isOverloadError(error) {
+    const errorStr = error.message?.toLowerCase() || error.toString().toLowerCase();
+    return errorStr.includes('overload') ||
+        errorStr.includes('too many requests') ||
+        errorStr.includes('rate limit') ||
+        errorStr.includes('capacity') ||
+        errorStr.includes('busy') ||
+        errorStr.includes('503') ||
+        errorStr.includes('429');
+}
 
 // Флаг, что приветствие уже было показано в этой сессии
 let greetingShown = false;
@@ -1484,8 +1529,46 @@ function handleKeyDown(event) {
     }
 }
 
-// ==================== STREAMING VIA OPENROUTER (для приветствий и анализа) ====================
+// ====================  VIA OPENROUTER (для приветствий и анализа) ====================
+// Стриминг через OpenRouter с fallback по моделям
 async function streamResponseOpenRouter(messages, onChunk, onComplete, options = {}) {
+    const startingIndex = CONFIG.currentModelIndex;
+    let lastError = null;
+    
+    while (CONFIG.currentModelIndex < CONFIG.openRouterModels.length) {
+        const currentModel = getCurrentOpenRouterModel();
+        
+        try {
+            const result = await streamResponseOpenRouterSingle(
+                messages, currentModel, onChunk, onComplete, options
+            );
+            
+            // Успех! Сбрасываем индекс
+            resetModelIndex();
+            return result;
+            
+        } catch (error) {
+            lastError = error;
+            console.error(`[OpenRouter Stream] Model ${currentModel} failed:`, error.message);
+            
+            if (isOverloadError(error)) {
+                if (!switchToNextModel()) {
+                    break;
+                }
+                await new Promise(resolve => setTimeout(resolve, 500));
+                continue;
+            }
+            
+            throw error;
+        }
+    }
+    
+    CONFIG.currentModelIndex = 0;
+    throw new Error(`All ${CONFIG.openRouterModels.length} models failed (stream). Last error: ${lastError?.message || 'Unknown'}`);
+}
+
+// Одиночный стриминг запрос к конкретной модели
+async function streamResponseOpenRouterSingle(messages, model, onChunk, onComplete, options = {}) {
     const headers = {
         'Content-Type': 'application/json',
         'HTTP-Referer': window.location.href,
@@ -1501,96 +1584,7 @@ async function streamResponseOpenRouter(messages, onChunk, onComplete, options =
             headers['Authorization'] = `Bearer ${orKey}`;
         }
     } else {
-        apiUrl = CONFIG.openrouterApiUrl; // /api/chat
-    }
-    
-    const requestBody = {
-        model: CONFIG.model_analysis, // Лёгкая модель для приветствий
-        messages: messages,
-        stream: true,
-        ...options
-    };
-    
-    console.log(`[OpenRouter Stream] Model: ${CONFIG.model_analysis}`);
-    
-    const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: headers,
-        body: JSON.stringify(requestBody)
-    });
-    
-    if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
-    }
-    
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let fullText = '';
-    let buffer = '';
-    
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-        
-        for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed || trimmed === 'data: [DONE]') continue;
-            
-            if (trimmed.startsWith('data: ')) {
-                try {
-                    const json = JSON.parse(trimmed.slice(6));
-                    const content = json.choices?.[0]?.delta?.content;
-                    if (content) {
-                        fullText += content;
-                        onChunk(fullText);
-                    }
-                } catch (e) {}
-            }
-        }
-    }
-    
-    onComplete(fullText);
-    return fullText;
-}
-
-// ==================== STREAMING RESPONSE (Hydra или OpenRouter fallback) ====================
-async function streamResponse(messages, onChunk, onComplete, options = {}) {
-    const useHydra = hasValidHydraKey();
-    
-    const headers = {
-        'Content-Type': 'application/json',
-        'HTTP-Referer': window.location.href,
-        'X-Title': 'Memory Chatbot'
-    };
-    
-    let apiUrl;
-    let model;
-    
-    if (useHydra) {
-        // Используем Hydra напрямую
-        apiUrl = CONFIG.hydraApiUrl;
-        model = CONFIG.model_chat;
-        headers['Authorization'] = `Bearer ${getHydraKey()}`;
-        console.log('[Stream] Using Hydra API');
-    } else if (isLocal) {
-        // Локальная разработка — OpenRouter напрямую
-        apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
-        model = CONFIG.model_fallback;
-        const orKey = localStorage.getItem('my_openrouter_key');
-        if (orKey) {
-            headers['Authorization'] = `Bearer ${orKey}`;
-        }
-        console.log('[Stream] Using OpenRouter (local)');
-    } else {
-        // Production без Hydra — через сервер
         apiUrl = CONFIG.openrouterApiUrl;
-        model = CONFIG.model_fallback;
-        console.log('[Stream] Using OpenRouter (server)');
     }
     
     const requestBody = {
@@ -1600,17 +1594,7 @@ async function streamResponse(messages, onChunk, onComplete, options = {}) {
         ...options
     };
     
-    // Логирование
-    console.log('═══════════════════════════════════════════════════════════');
-    console.log(`[STREAM REQUEST] Model: ${model}, Via: ${useHydra ? 'Hydra' : 'OpenRouter'}`);
-    if (options.temperature) console.log(`[STREAM REQUEST] Temperature: ${options.temperature}`);
-    console.log('═══════════════════════════════════════════════════════════');
-    messages.forEach((msg, idx) => {
-        console.log(`\n[MESSAGE ${idx + 1}] Role: ${msg.role.toUpperCase()}`);
-        console.log('───────────────────────────────────────────────────────────');
-        console.log(msg.content?.substring(0, 500) + (msg.content?.length > 500 ? '...' : ''));
-    });
-    console.log('═══════════════════════════════════════════════════════════\n');
+    console.log(`[OpenRouter Stream] Trying model: ${model}`);
     
     const response = await fetch(apiUrl, {
         method: 'POST',
@@ -1630,30 +1614,36 @@ async function streamResponse(messages, onChunk, onComplete, options = {}) {
     
     while (true) {
         const { done, value } = await reader.read();
-        
         if (done) break;
         
         buffer += decoder.decode(value, { stream: true });
-        
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
         
         for (const line of lines) {
             const trimmed = line.trim();
-            
             if (!trimmed || trimmed === 'data: [DONE]') continue;
             
             if (trimmed.startsWith('data: ')) {
                 try {
                     const json = JSON.parse(trimmed.slice(6));
-                    const content = json.choices?.[0]?.delta?.content;
                     
+                    // Проверяем на ошибку в стриме
+                    if (json.error) {
+                        throw new Error(json.error.message || JSON.stringify(json.error));
+                    }
+                    
+                    const content = json.choices?.[0]?.delta?.content;
                     if (content) {
                         fullText += content;
                         onChunk(fullText);
                     }
                 } catch (e) {
-                    // Ignore parse errors for incomplete chunks
+                    // Если это ошибка парсинга JSON — игнорируем
+                    // Если это ошибка от API — пробрасываем
+                    if (e.message && !e.message.includes('JSON')) {
+                        throw e;
+                    }
                 }
             }
         }
@@ -1661,6 +1651,80 @@ async function streamResponse(messages, onChunk, onComplete, options = {}) {
     
     onComplete(fullText);
     return fullText;
+}
+
+// ==================== STREAMING RESPONSE (Hydra или OpenRouter fallback) ====================
+// Стриминг: Hydra (если есть ключ) или OpenRouter с fallback
+async function streamResponse(messages, onChunk, onComplete, options = {}) {
+    const useHydra = hasValidHydraKey();
+    
+    if (useHydra) {
+        // Hydra — одна модель, без fallback
+        const headers = {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${getHydraKey()}`,
+            'HTTP-Referer': window.location.href,
+            'X-Title': 'Memory Chatbot'
+        };
+        
+        const requestBody = {
+            model: CONFIG.model_chat,
+            messages: messages,
+            stream: true,
+            ...options
+        };
+        
+        console.log(`[Stream] Using Hydra API, model: ${CONFIG.model_chat}`);
+        
+        const response = await fetch(CONFIG.hydraApiUrl, {
+            method: 'POST',
+            headers: headers,
+            body: JSON.stringify(requestBody)
+        });
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`HTTP ${response.status}: ${errorText}`);
+        }
+        
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let fullText = '';
+        let buffer = '';
+        
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+            
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed || trimmed === 'data: [DONE]') continue;
+                
+                if (trimmed.startsWith('data: ')) {
+                    try {
+                        const json = JSON.parse(trimmed.slice(6));
+                        const content = json.choices?.[0]?.delta?.content;
+                        if (content) {
+                            fullText += content;
+                            onChunk(fullText);
+                        }
+                    } catch (e) {}
+                }
+            }
+        }
+        
+        onComplete(fullText);
+        return fullText;
+        
+    } else {
+        // OpenRouter с fallback цепочкой
+        console.log('[Stream] Using OpenRouter with fallback chain');
+        return await streamResponseOpenRouter(messages, onChunk, onComplete, options);
+    }
 }
 
 function createStreamingMessage() {
@@ -2223,7 +2287,49 @@ function buildSystemPromptLegacy() {
 // ==================== API REQUESTS ====================
 
 // Вызов API через OpenRouter (для анализа, аналитики, приветствий)
+// Вызов API через OpenRouter с автоматическим fallback по цепочке моделей
 async function callAPIOpenRouter(messages, useAnalysisModel = false, tools = null) {
+    const startingIndex = CONFIG.currentModelIndex;
+    let lastError = null;
+    
+    // Пробуем все модели начиная с текущей
+    while (CONFIG.currentModelIndex < CONFIG.openRouterModels.length) {
+        const currentModel = getCurrentOpenRouterModel();
+        
+        try {
+            const result = await callAPIOpenRouterSingle(messages, currentModel, tools);
+            
+            // Успех! Сбрасываем индекс на первую модель для следующих запросов
+            resetModelIndex();
+            return result;
+            
+        } catch (error) {
+            lastError = error;
+            console.error(`[OpenRouter] Model ${currentModel} failed:`, error.message);
+            
+            // Если это ошибка перегрузки — пробуем следующую модель
+            if (isOverloadError(error)) {
+                if (!switchToNextModel()) {
+                    // Все модели исчерпаны
+                    break;
+                }
+                // Небольшая пауза перед следующей попыткой
+                await new Promise(resolve => setTimeout(resolve, 500));
+                continue;
+            }
+            
+            // Если это другая ошибка (не перегрузка) — не переключаемся, просто выбрасываем
+            throw error;
+        }
+    }
+    
+    // Все модели исчерпаны, сбрасываем индекс и выбрасываем последнюю ошибку
+    CONFIG.currentModelIndex = 0;
+    throw new Error(`All ${CONFIG.openRouterModels.length} models failed. Last error: ${lastError?.message || 'Unknown'}`);
+}
+
+// Одиночный вызов к конкретной модели OpenRouter (без fallback логики)
+async function callAPIOpenRouterSingle(messages, model, tools = null) {
     const headers = {
         'Content-Type': 'application/json',
         'HTTP-Referer': window.location.href,
@@ -2242,8 +2348,6 @@ async function callAPIOpenRouter(messages, useAnalysisModel = false, tools = nul
         apiUrl = CONFIG.openrouterApiUrl; // /api/chat (server proxy)
     }
     
-    const model = useAnalysisModel ? CONFIG.model_analysis : CONFIG.model_fallback;
-    
     const body = { model, messages };
     
     if (tools && tools.length > 0) {
@@ -2251,7 +2355,7 @@ async function callAPIOpenRouter(messages, useAnalysisModel = false, tools = nul
         body.tool_choice = 'auto';
     }
     
-    console.log(`[API OpenRouter] Model: ${model}`);
+    console.log(`[API OpenRouter] Trying model: ${model}`);
     
     const response = await fetch(apiUrl, {
         method: 'POST',
@@ -2266,6 +2370,11 @@ async function callAPIOpenRouter(messages, useAnalysisModel = false, tools = nul
     
     const data = await response.json();
     
+    // Проверяем на ошибку в теле ответа
+    if (data.error) {
+        throw new Error(data.error.message || JSON.stringify(data.error));
+    }
+    
     if (data.choices && data.choices.length > 0 && data.choices[0].message) {
         return data.choices[0].message;
     }
@@ -2276,10 +2385,6 @@ async function callAPIOpenRouter(messages, useAnalysisModel = false, tools = nul
     
     if (data.content) {
         return { content: data.content, role: 'assistant' };
-    }
-    
-    if (data.error) {
-        throw new Error(data.error.message || JSON.stringify(data.error));
     }
     
     throw new Error('Could not parse API response');

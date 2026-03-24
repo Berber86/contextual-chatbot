@@ -6,17 +6,27 @@
 // ============================================
 
 const YOU_CONFIG = {
-    models: {
-        
-      //  cards: 'mistralai/devstral-2512:free', 
-        
-        cards: 'nvidia/nemotron-3-super-120b-a12b:free',      // Генерация уточнённых карточек (OpenRouter)
-        analysis: 'nvidia/nemotron-3-super-120b-a12b:free',      // Промежуточные выводы (OpenRouter)
-        discussion: 'hydra-gemini-3-pro',               // Финальный ответ (Hydra если есть ключ)
-        discussionFallback: 'openrouter/free' // Fallback для discussion
-    },
+    // Hydra модель (единственная, платная)
+    hydraModel: 'hydra-gemini-3-pro',
+    
+    // OpenRouter модели — fallback цепочка (используем ту же что в ui.js)
+    // Будем брать из CONFIG если доступен, иначе свой список
+    openRouterModels: [
+    "stepfun/step-3.5-flash:free",
+    "z-ai/glm-4.5-air:free",
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "z-ai/glm-4.5-air:free",
+    "arcee-ai/trinity-large-preview:free",
+    "nvidia/nemotron-3-nano-30b-a3b:free",
+    "nvidia/nemotron-3-nano-30b-a3b:free",
+    "nvidia/nemotron-3-nano-30b-a3b:free"
+],
+    
+    // Текущий индекс модели для YOU (изолирован от ui.js)
+    currentModelIndex: 0,
+    
     hydraApiUrl: 'https://api.hydraai.ru/v1/chat/completions',
-    timeout: 60000,
+    timeout: 600000,
     zoneLimits: {
         yes: 2,
         neutral: 999,
@@ -34,11 +44,48 @@ const YOU_STORAGE = {
 };
 
 // ============================================
+// Функции управления моделями (аналогично ui.js)
+// ============================================
+
+function youGetCurrentModel() {
+    return YOU_CONFIG.openRouterModels[YOU_CONFIG.currentModelIndex] || YOU_CONFIG.openRouterModels[0];
+}
+
+function youSwitchToNextModel() {
+    if (YOU_CONFIG.currentModelIndex < YOU_CONFIG.openRouterModels.length - 1) {
+        YOU_CONFIG.currentModelIndex++;
+        console.log(`[YOU Model Fallback] Switching to model #${YOU_CONFIG.currentModelIndex + 1}: ${youGetCurrentModel()}`);
+        return true;
+    }
+    console.log('[YOU Model Fallback] All models exhausted!');
+    return false;
+}
+
+function youResetModelIndex() {
+    if (YOU_CONFIG.currentModelIndex !== 0) {
+        console.log('[YOU Model Fallback] Success! Resetting to primary model');
+        YOU_CONFIG.currentModelIndex = 0;
+    }
+}
+
+function youIsOverloadError(error) {
+    const errorStr = error.message?.toLowerCase() || error.toString().toLowerCase();
+    return errorStr.includes('overload') ||
+           errorStr.includes('too many requests') ||
+           errorStr.includes('rate limit') ||
+           errorStr.includes('capacity') ||
+           errorStr.includes('busy') ||
+           errorStr.includes('503') ||
+           errorStr.includes('429') ||
+           errorStr.includes('service unavailable') ||
+           errorStr.includes('temporarily unavailable');
+}
+
+// ============================================
 // Проверка Hydra ключа (из основного бота)
 // ============================================
 
 function youGetHydraKey() {
-    // Используем тот же ключ что и в основном боте
     const key = localStorage.getItem('chatbot_hydra_key');
     return key ? key.trim() : null;
 }
@@ -294,9 +341,9 @@ let youState = {
 // ============================================
 
 /**
- * Вызов OpenRouter API (для промежуточных запросов)
+ * Одиночный вызов к конкретной модели OpenRouter (без fallback)
  */
-async function youCallOpenRouter(prompt, model) {
+async function youCallOpenRouterSingle(prompt, model) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), YOU_CONFIG.timeout);
     
@@ -337,11 +384,17 @@ async function youCallOpenRouter(prompt, model) {
         clearTimeout(timeoutId);
         
         if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            throw new Error(errorData.error?.message || `HTTP ${response.status}`);
+            const errorText = await response.text();
+            throw new Error(`HTTP ${response.status}: ${errorText}`);
         }
         
         const data = await response.json();
+        
+        // Проверяем на ошибку в теле ответа
+        if (data.error) {
+            throw new Error(data.error.message || JSON.stringify(data.error));
+        }
+        
         const content = data.choices?.[0]?.message?.content;
         
         if (!content) {
@@ -358,9 +411,49 @@ async function youCallOpenRouter(prompt, model) {
 }
 
 /**
+ * Вызов OpenRouter с автоматическим fallback по цепочке моделей
+ */
+async function youCallOpenRouter(prompt) {
+    let lastError = null;
+    
+    while (YOU_CONFIG.currentModelIndex < YOU_CONFIG.openRouterModels.length) {
+        const currentModel = youGetCurrentModel();
+        
+        try {
+            const result = await youCallOpenRouterSingle(prompt, currentModel);
+            
+            // Успех! Сбрасываем индекс
+            youResetModelIndex();
+            return result;
+            
+        } catch (error) {
+            lastError = error;
+            console.error(`[YOU] Model ${currentModel} failed:`, error.message);
+            
+            // Если это ошибка перегрузки — пробуем следующую модель
+            if (youIsOverloadError(error)) {
+                if (!youSwitchToNextModel()) {
+                    break;
+                }
+                // Небольшая пауза перед следующей попыткой
+                await new Promise(resolve => setTimeout(resolve, 500));
+                continue;
+            }
+            
+            // Если это другая ошибка — не переключаемся
+            throw error;
+        }
+    }
+    
+    // Все модели исчерпаны
+    YOU_CONFIG.currentModelIndex = 0;
+    throw new Error(`Все ${YOU_CONFIG.openRouterModels.length} моделей недоступны. Последняя ошибка: ${lastError?.message || 'Unknown'}`);
+}
+
+/**
  * Вызов Hydra API (для финальных ответов)
  */
-async function youCallHydra(prompt, model) {
+async function youCallHydra(prompt) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), YOU_CONFIG.timeout);
     
@@ -377,13 +470,13 @@ async function youCallHydra(prompt, model) {
             'X-Title': 'Memory Chatbot - YOU'
         };
         
-        console.log(`[YOU] Hydra request, model: ${model}`);
+        console.log(`[YOU] Hydra request, model: ${YOU_CONFIG.hydraModel}`);
         
         const response = await fetch(YOU_CONFIG.hydraApiUrl, {
             method: 'POST',
             headers: headers,
             body: JSON.stringify({
-                model: model,
+                model: YOU_CONFIG.hydraModel,
                 messages: [{ role: 'user', content: prompt }]
             }),
             signal: controller.signal
@@ -414,23 +507,23 @@ async function youCallHydra(prompt, model) {
 
 /**
  * Основная функция вызова AI
- * - Для обычных запросов: OpenRouter
- * - Для discussion (финальный ответ): Hydra если есть ключ, иначе OpenRouter
+ * - Для обычных запросов: OpenRouter с fallback
+ * - Для discussion (финальный ответ): Hydra если есть ключ, иначе OpenRouter с fallback
  */
-async function youCallAI(prompt, model = YOU_CONFIG.models.analysis, useHydraIfAvailable = false) {
+async function youCallAI(prompt, useHydraIfAvailable = false) {
     // Если запрошен Hydra и ключ есть — используем Hydra
     if (useHydraIfAvailable && youHasValidHydraKey()) {
         try {
-            return await youCallHydra(prompt, YOU_CONFIG.models.discussion);
+            return await youCallHydra(prompt);
         } catch (error) {
             console.warn('[YOU] Hydra failed, falling back to OpenRouter:', error.message);
-            // Fallback на OpenRouter
-            return await youCallOpenRouter(prompt, YOU_CONFIG.models.discussionFallback);
+            // Fallback на OpenRouter с цепочкой моделей
+            return await youCallOpenRouter(prompt);
         }
     }
     
-    // Обычный запрос через OpenRouter
-    return await youCallOpenRouter(prompt, model);
+    // Обычный запрос через OpenRouter с fallback
+    return await youCallOpenRouter(prompt);
 }
 
 // ============================================
@@ -461,9 +554,13 @@ function closeYouModal() {
 function youInitialize() {
     console.log('[YOU] Initializing...');
     console.log('[YOU] Hydra key available:', youHasValidHydraKey());
+    console.log('[YOU] OpenRouter models:', YOU_CONFIG.openRouterModels.length);
     
     // Сброс состояния при открытии
     youResetState();
+    
+    // Сброс индекса моделей
+    YOU_CONFIG.currentModelIndex = 0;
     
     // Начинаем первый раунд
     youStartRound(0);
@@ -628,13 +725,10 @@ async function youHandleNext() {
         
         data.step1Promise = (async () => {
             try {
-                // Портрет — модель analysis (OpenRouter)
-                data.portrait1 = await youCallAI(config.promptPortrait(selection), YOU_CONFIG.models.analysis);
-                // Карточки — модель cards (OpenRouter)
-                const qualitiesText = await youCallAI(
-                    config.promptItems(data.portrait1),
-                    YOU_CONFIG.models.cards
-                );
+                // Портрет — OpenRouter с fallback
+                data.portrait1 = await youCallAI(config.promptPortrait(selection));
+                // Карточки — OpenRouter с fallback
+                const qualitiesText = await youCallAI(config.promptItems(data.portrait1));
                 data.step2Qualities = youParseQualities(qualitiesText);
             } catch (error) {
                 console.error(`[YOU] Background processing failed for ${round.mode}:`, error);
@@ -652,8 +746,8 @@ async function youHandleNext() {
         } else {
             data.step2Promise = (async () => {
                 try {
-                    // Финальный портрет режима — модель analysis (OpenRouter)
-                    data.finalPortrait = await youCallAI(config.promptPortrait(selection), YOU_CONFIG.models.analysis);
+                    // Финальный портрет режима — OpenRouter с fallback
+                    data.finalPortrait = await youCallAI(config.promptPortrait(selection));
                 } catch (error) {
                     console.error(`[YOU] Final portrait failed for ${round.mode}:`, error);
                     throw error;
@@ -672,7 +766,7 @@ async function youProcessLastRound(selection) {
     youShowLoading(60, 'Завершаю анализ...');
     
     try {
-        data.finalPortrait = await youCallAI(config.promptPortrait(selection), YOU_CONFIG.models.analysis);
+        data.finalPortrait = await youCallAI(config.promptPortrait(selection));
         
         youShowLoading(70, 'Собираю результаты...');
         
@@ -718,7 +812,7 @@ async function youGenerateFinalReport() {
     try {
         const prompt = YOU_PROMPTS.final(youState.savedResults);
         // Финальный отчет — используем Hydra если есть ключ
-        youState.finalReportText = await youCallAI(prompt, YOU_CONFIG.models.analysis, true);
+        youState.finalReportText = await youCallAI(prompt, true);
         
         youShowLoading(100, 'Готово!');
         await new Promise(r => setTimeout(r, 300));
@@ -774,6 +868,7 @@ function youRenderFinalResult(text) {
 function youRestartAll() {
     if (!confirm('Сбросить все результаты и начать заново?')) return;
     youResetState();
+    YOU_CONFIG.currentModelIndex = 0; // Сброс индекса моделей
     youStartRound(0);
 }
 
@@ -1249,7 +1344,7 @@ async function youCopyAndAnalyze(text) {
     }
     
     try {
-        const response = await youCallAI(YOU_PROMPTS.facts(text), YOU_CONFIG.models.analysis);
+        const response = await youCallAI(YOU_PROMPTS.facts(text));
         youParseAndSaveFacts(response);
         youShowToast('✨ Новые инсайты сохранены!');
     } catch (error) {
@@ -1444,7 +1539,7 @@ ${botTimeline || '(нет данных)'}
     
     try {
         // Discussion — используем Hydra если есть ключ
-        const response = await youCallAI(prompt, YOU_CONFIG.models.analysis, true);
+        const response = await youCallAI(prompt, true);
         youShowDiscussionResult(response);
     } catch (error) {
         youShowDiscussionError(error.message);
@@ -1456,9 +1551,8 @@ function youShowDiscussionLoading() {
     if (!content) return;
     
     const usingHydra = youHasValidHydraKey();
-    const hint = usingHydra 
-        ? 'Сопоставляю данные теста с контекстом бесед (Hydra)' 
-        : 'Сопоставляю данные теста с контекстом бесед';
+    const currentModel = usingHydra ? YOU_CONFIG.hydraModel : youGetCurrentModel();
+    const hint = `Сопоставляю данные теста с контекстом бесед (${usingHydra ? 'Hydra' : 'OpenRouter'})`;
     
     content.innerHTML = `
         <div class="you-loading-state">
@@ -1573,3 +1667,4 @@ window.youCopyText = youCopyText;
 
 console.log('[you.js] Loaded. Self-discovery module ready.');
 console.log('[you.js] Hydra support:', youHasValidHydraKey() ? 'enabled' : 'disabled (using OpenRouter fallback)');
+console.log('[you.js] OpenRouter models:', YOU_CONFIG.openRouterModels.length, 'available for fallback');
