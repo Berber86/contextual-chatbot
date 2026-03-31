@@ -96,8 +96,15 @@ function hasValidHydraKey() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+    console.log('[UI] DOMContentLoaded started');
+    
     loadLanguage();
+    console.log('[UI] loadLanguage done');
+    
     loadChatHistory();
+    console.log('[UI] loadChatHistory done');
+    
+    // ... остальной код
     autoResizeTextarea();
     initSettingsMenu();
     
@@ -670,7 +677,18 @@ function shouldUpdateGaps() {
 // ==================== CHAT HISTORY ====================
 function getChatHistory() {
     const history = localStorage.getItem(STORAGE_KEYS.chatHistory);
-    return history ? JSON.parse(history) : [];
+    if (!history) return [];
+    
+    try {
+        const parsed = JSON.parse(history);
+        // Фильтруем только валидные сообщения с role и content
+        const valid = parsed.filter(msg => msg.role && msg.content);
+        console.log('[getChatHistory] Total:', parsed.length, 'Valid:', valid.length);
+        return valid;
+    } catch (e) {
+        console.error('[getChatHistory] Parse error:', e);
+        return [];
+    }
 }
 
 function saveChatHistory(history) {
@@ -686,9 +704,19 @@ function addToHistory(role, content) {
 
 function loadChatHistory() {
     const history = getChatHistory();
+    console.log('[UI] loadChatHistory: got', history.length, 'messages');
+    console.log('[UI] loadChatHistory: history =', history);
+    
+    const chatArea = document.getElementById('chatArea');
+    console.log('[UI] loadChatHistory: chatArea =', chatArea);
+    console.log('[UI] loadChatHistory: chatArea.innerHTML BEFORE =', chatArea?.innerHTML?.substring(0, 100));
+    
     history.forEach(msg => {
+        console.log('[UI] appending message:', msg.role, msg.content?.substring(0, 30));
         appendMessage(msg.role, msg.content, false);
     });
+    
+    console.log('[UI] loadChatHistory: chatArea.innerHTML AFTER =', chatArea?.innerHTML?.substring(0, 200));
 }
 
 function clearChat() {

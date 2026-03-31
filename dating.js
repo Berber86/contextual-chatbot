@@ -822,6 +822,16 @@ async function runCompatibilityAnalysis() {
             },
             { temperature: 0.7 }
         );
+        
+                // Добавляем кнопки действий после анализа
+        const actionsDiv = document.createElement('div');
+        actionsDiv.className = 'compat-report-actions';
+        actionsDiv.innerHTML = `
+            <button class="dating-btn dating-btn-regenerate" onclick="closeDatingModal()">✕ Закрыть отчёт</button>
+            <button class="dating-btn dating-btn-copy" onclick="startDialogFromDating()" ${!window.currentCandidateId ? 'disabled title="Нет ID"' : ''}>💬 Написать кандидату</button>
+        `;
+        resultContainer.appendChild(actionsDiv);
+        
     } catch (error) {
         resultContainer.innerHTML = `
             <div class="compat-error">
@@ -2616,12 +2626,14 @@ async function refreshCandidateList() {
 
 // Открыть вкладку совместимости с данными выбранного профиля
 function openCompatibilityWithProfile(profileId) {
-    // Находим профиль по ID из глобального хранилища
     const profile = window.lastProfiles?.find(p => p.id === profileId);
-    if (!profile) {
-        alert('Профиль не найден');
-        return;
-    }
+    if (!profile) return;
+    
+    // СОХРАНЯЕМ ГЛОБАЛЬНО ДЛЯ МЕССЕНДЖЕРА
+    window.currentCandidateId = profile.id;
+    window.currentCandidateEmbed = profile.embedding;
+    
+    // ... дальше твой старый код ...
     
     // Переключаем таб на совместимость
     switchDatingTab('compatibility');

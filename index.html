@@ -43,6 +43,12 @@
             🧲
         </button>
         
+                <!-- Кнопка Диалогов -->
+        <button class="header-btn dialogs-btn" onclick="openDialogsModal()" title="Диалоги">
+            💬
+            <span id="dialogsUnreadBadge" class="unread-badge" style="display: none;"></span>
+        </button>
+        
         <!-- В header-bar после dating-btn и перед help-btn -->
 <button class="header-btn reports-btn" onclick="openReportsModal()" title="Reports">
     📊
@@ -599,5 +605,47 @@
         </div>
     </div>
 </div>
+
+<!-- Dialogs Modal -->
+<div class="dialogs-modal-overlay" id="dialogsModal">
+    <div class="dialogs-modal">
+        <!-- Экран 1: Список контактов -->
+        <div id="dialogsListScreen" class="dialogs-screen active">
+            <div class="dialogs-header">
+                <h2>💬 Чаты</h2>
+                <div class="dialogs-header-actions">
+                    <button class="dialogs-btn-check" onclick="checkNewMessages(true)" id="checkMessagesBtn">🔄 Проверить письма</button>
+                    <button class="dialogs-close-btn" onclick="closeDialogsModal()">✕</button>
+                </div>
+            </div>
+            <div class="dialogs-list-content" id="dialogsListContent">
+                <!-- Контакты загружаются сюда -->
+            </div>
+        </div>
+        
+        <!-- Экран 2: Окно переписки -->
+        <div id="dialogsChatScreen" class="dialogs-screen">
+            <div class="dialogs-header chat-header">
+                <button class="dialogs-back-btn" onclick="showDialogsList()">⬅ Назад</button>
+                <div class="dialogs-chat-title" id="dialogsChatTitle">🎨⚡🔍</div>
+                <button class="dialogs-analyze-btn" onclick="analyzeCurrentChatPartner()" title="Анализ совместимости">🧲</button>
+            </div>
+            <div class="dialogs-messages-area" id="dialogsMessagesArea">
+                <!-- Сообщения загружаются сюда -->
+            </div>
+            <div class="dialogs-input-area">
+                <textarea id="dialogsMessageInput" placeholder="Написать сообщение... (макс 512)" maxlength="512" rows="2" oninput="updateDialogsCharCount()"></textarea>
+                <div class="dialogs-input-footer">
+                    <span id="dialogsCharCount">0 / 512</span>
+                    <button id="dialogsSendBtn" onclick="sendDialogMessage()">Отправить</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="dialogs.js"></script>
+
+
 </body>
 </html>
