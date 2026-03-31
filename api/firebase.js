@@ -10,16 +10,33 @@ const firebaseConfig = {
   appId: "1:191956270979:web:dc850a748171a8304080b6"
 };
 
+// Проверяем, есть ли ключ
+if (!process.env.FIREBASE_API_KEY) {
+  console.error('[Firebase API] ERROR: FIREBASE_API_KEY not set in environment!');
+}
+
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
 export default async function handler(req, res) {
+  // Логируем запрос
+  console.log('[Firebase API] Request:', {
+    method: req.method,
+    action: req.body?.action,
+    hasId: !!req.body?.id
+  });
+  
+  // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
+  }
+  
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
   }
   
   const { action, data, id } = req.body;
@@ -33,6 +50,7 @@ export default async function handler(req, res) {
         ...data,
         createdAt: Date.now()
       });
+      console.log('[Firebase API] Saved new profile:', newProfileRef.key);
       return res.status(200).json({ success: true, id: newProfileRef.key });
       
     } else if (action === 'update') {
@@ -45,6 +63,7 @@ export default async function handler(req, res) {
         ...data,
         updatedAt: Date.now()
       });
+      console.log('[Firebase API] Updated profile:', id);
       return res.status(200).json({ success: true });
       
     } else if (action === 'getAll') {
@@ -57,7 +76,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true, profiles: [] });
       
     } else {
-      return res.status(400).json({ error: 'Unknown action' });
+      return res.status(400).json({ error: 'Unknown action: ' + action });
     }
   } catch (error) {
     console.error('[Firebase API] Error:', error);
