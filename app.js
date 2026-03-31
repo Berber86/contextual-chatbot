@@ -1069,5 +1069,95 @@ function executeTool(name, args) {
     }
 }
 
-// Проверка загрузки
-console.log('[app.js] Loaded. Full tool definitions. Structured storage ready. Context filtering enabled.');
+// ==================== FIREBASE INTEGRATION ====================
+let firebaseReady = false;
+let firebaseDb = null;
+let firebaseRef = null;
+let firebaseSet = null;
+let firebasePush = null;
+let firebaseGet = null;
+let firebaseChild = null;
+
+async function initFirebase() {
+    if (firebaseReady) return true;
+    
+    const apiKey = localStorage.getItem('my_firebase_key');
+    if (!apiKey) return false;
+    
+    try {
+        // Импортируем Firebase SDK
+        const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js');
+        const { getDatabase, ref, set, push, get, child } = await import('https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js');
+        
+        const firebaseConfig = {
+            apiKey: apiKey,
+            authDomain: "prototypeciva.firebaseapp.com",
+            databaseURL: "https://prototypeciva-default-rtdb.europe-west1.firebasedatabase.app",
+            projectId: "prototypeciva",
+            storageBucket: "prototypeciva.firebasestorage.app",
+            appId: "1:191956270979:web:dc850a748171a8304080b6"
+        };
+        
+        const app = initializeApp(firebaseConfig);
+        firebaseDb = getDatabase(app);
+        firebaseRef = ref;
+        firebaseSet = set;
+        firebasePush = push;
+        firebaseGet = get;
+        firebaseChild = child;
+        firebaseReady = true;
+        
+        console.log('[Firebase] Готов');
+        return true;
+    } catch (e) {
+        console.error('[Firebase] Ошибка:', e);
+        return false;
+    }
+}
+
+async function saveProfileToFirebase(profileData) {
+    if (!await initFirebase()) throw new Error('Firebase не инициализирован');
+    
+    const profilesRef = firebaseRef(firebaseDb, 'dating_profiles');
+    const newProfileRef = firebasePush(profilesRef);
+    await firebaseSet(newProfileRef, {
+        ...profileData,
+        createdAt: Date.now()
+    });
+    return newProfileRef.key;
+}
+
+async function getAllProfilesFromFirebase() {
+    if (!await initFirebase()) throw new Error('Firebase не инициализирован');
+    
+    const snapshot = await firebaseGet(firebaseChild(firebaseRef(firebaseDb), 'dating_profiles'));
+    if (snapshot.exists()) {
+        const data = snapshot.val();
+        return Object.entries(data).map(([id, profile]) => ({ id, ...profile }));
+    }
+    return [];
+}
+
+// Сохранение ключа Firebase (локально)
+window.saveFirebaseKey = function() {
+    const input = document.getElementById('firebase-api-key');
+    if (!input) return;
+    const key = input.value.trim();
+    const status = document.getElementById('firebase-key-status');
+    if (key) {
+        localStorage.setItem('my_firebase_key', key);
+        if (status) status.innerText = "✅ Firebase ключ сохранён";
+        firebaseReady = false; // сбросим, чтобы переинициализировать при следующем вызове
+    } else {
+        localStorage.removeItem('my_firebase_key');
+        if (status) status.innerText = "❌ Ключ удалён";
+        firebaseReady = false;
+    }
+};
+
+// Автоинициализация при загрузке, если ключ есть
+window.addEventListener('DOMContentLoaded', () => {
+    if (localStorage.getItem('my_firebase_key')) {
+        initFirebase();
+    }
+});

@@ -14,6 +14,7 @@ const DATING_IDEAL_KEY = 'chatbot_dating_ideal';
 const MIN_FACTS_REQUIRED = 50;
 const EMBEDDING_PASSES = 3;
 const TOTAL_SCALES = 50;
+const DATING_USER_PROFILE_KEY = 'chatbot_dating_user_profile';
 
 const DATING_RELIABILITY = {
     high: 0.15,
@@ -235,11 +236,14 @@ function renderSavedEmbedding(embedding) {
     const reliableCount = embedding.vectors.filter(v => v.spread <= 0.1).length;
     const moderateCount = embedding.vectors.filter(v => v.spread > 0.1 && v.spread <= 0.2).length;
     const uncertainCount = embedding.vectors.filter(v => v.spread > 0.2).length;
-
-    // Определяем версию экспорта для подсказки
+    
     const ideal = getSavedIdeal();
     const exportVersion = (ideal && ideal.searchScales) ? 'V3 (с требованиями)' : 'V2';
-
+    
+    // Получаем анкетные данные
+    const userProfile = getUserProfile();
+    const profileComplete = isProfileComplete();
+    
     container.innerHTML = `
         <div class="dating-status dating-complete">
             <div class="dating-icon">🎯</div>
@@ -267,11 +271,22 @@ function renderSavedEmbedding(embedding) {
                 <button class="dating-btn dating-btn-copy" onclick="copyEmbeddingToClipboard()">📋 Копировать профиль (${exportVersion})</button>
                 <button class="dating-btn dating-btn-details" onclick="toggleFullEmbedding()">📊 Все 50 шкал</button>
                 <button class="dating-btn dating-btn-regenerate" onclick="confirmRegenerate()">🔄 Пересоздать</button>
+                <button class="dating-btn dating-btn-publish" onclick="publishMyProfileToFirebase()">🌍 Опубликовать анкету</button>
+<button class="dating-btn dating-btn-refresh" onclick="refreshCandidateList()">🔄 Найти кандидатов</button>
             </div>
             <div class="dating-full-embedding" id="fullEmbeddingView" style="display: none;">
                 <h4>Полный профиль (50 шкал):</h4>
                 <div class="dating-all-traits">${renderAllScales(embedding)}</div>
             </div>
+            
+            <!-- ===== АНКЕТНЫЕ ДАННЫЕ ===== -->
+            <div class="dating-profile-section">
+                <h4>👤 Анкетные данные</h4>
+                <div id="profileFormContainer">
+                    ${renderProfileForm(userProfile, profileComplete)}
+                </div>
+            </div>
+            
             <div class="dating-descriptions-section">
                 <div class="dating-descriptions-header">
                     <h4>✍️ Описания профиля</h4>
@@ -324,6 +339,147 @@ function renderSavedEmbedding(embedding) {
             </div>
         </div>`;
 }
+
+function renderProfileForm(profile, isComplete) {
+    if (isComplete) {
+        // Отображаем сохранённые данные с кнопкой редактирования
+        const genderText = {
+            male: 'Мужской',
+            female: 'Женский',
+            unspecified: 'Не указан'
+        } [profile.userGender] || 'Не указан';
+        
+        const targetGenderText = profile.targetGender.map(g => {
+            if (g === 'male') return 'Мужчины';
+            if (g === 'female') return 'Женщины';
+            return 'Не указывать';
+        }).join(', ');
+        
+        return `
+            <div class="profile-readonly">
+                <div class="profile-field"><strong>Ваш пол:</strong> ${genderText}</div>
+                <div class="profile-field"><strong>Ваш возраст:</strong> ${profile.userAge} лет</div>
+                <div class="profile-field"><strong>Ищете:</strong> ${targetGenderText}</div>
+                <div class="profile-field"><strong>Возраст партнёра:</strong> ${profile.targetAgeMin} – ${profile.targetAgeMax} лет</div>
+                <button class="dating-btn dating-btn-edit-profile" onclick="editProfile()">✏️ Редактировать</button>
+            </div>
+        `;
+    } else {
+        // Форма для заполнения
+        return `
+            <div class="profile-edit-form">
+                <div class="profile-field">
+                    <label>Ваш пол:</label>
+                    <select id="profileUserGender">
+                        <option value="">-- выберите --</option>
+                        <option value="male" ${profile.userGender === 'male' ? 'selected' : ''}>Мужской</option>
+                        <option value="female" ${profile.userGender === 'female' ? 'selected' : ''}>Женский</option>
+                        <option value="unspecified" ${profile.userGender === 'unspecified' ? 'selected' : ''}>Не указывать</option>
+                    </select>
+                </div>
+                <div class="profile-field">
+                    <label>Ваш возраст (лет):</label>
+                    <input type="number" id="profileUserAge" min="18" max="120" value="${profile.userAge || ''}" placeholder="18–120">
+                </div>
+                <div class="profile-field">
+                    <label>Кого ищете:</label>
+                    <div class="profile-checkboxes">
+                        <label><input type="checkbox" value="male" ${profile.targetGender.includes('male') ? 'checked' : ''}> Мужчины</label>
+                        <label><input type="checkbox" value="female" ${profile.targetGender.includes('female') ? 'checked' : ''}> Женщины</label>
+                        <label><input type="checkbox" value="unspecified" ${profile.targetGender.includes('unspecified') ? 'checked' : ''}> Не указывать (всем)</label>
+                    </div>
+                </div>
+                <div class="profile-field">
+                    <label>Возраст партнёра:</label>
+                    <div class="profile-range">
+                        <input type="number" id="profileTargetAgeMin" min="18" max="120" value="${profile.targetAgeMin || 18}" placeholder="от">
+                        <span>–</span>
+                        <input type="number" id="profileTargetAgeMax" min="18" max="120" value="${profile.targetAgeMax || 80}" placeholder="до">
+                    </div>
+                </div>
+                <button class="dating-btn dating-btn-save-profile" onclick="saveProfileData()">💾 Сохранить анкету</button>
+            </div>
+        `;
+    }
+}
+
+function saveProfileData() {
+    const genderSelect = document.getElementById('profileUserGender');
+    const ageInput = document.getElementById('profileUserAge');
+    const targetGenderChecks = document.querySelectorAll('#profileFormContainer input[type="checkbox"][value]');
+    const targetAgeMin = document.getElementById('profileTargetAgeMin');
+    const targetAgeMax = document.getElementById('profileTargetAgeMax');
+    
+    if (!genderSelect || !ageInput || !targetAgeMin || !targetAgeMax) {
+        alert('Ошибка: не все поля найдены');
+        return;
+    }
+    
+    const userGender = genderSelect.value;
+    const userAge = parseInt(ageInput.value);
+    const targetAgeMinVal = parseInt(targetAgeMin.value);
+    const targetAgeMaxVal = parseInt(targetAgeMax.value);
+    
+    // Валидация
+    if (!userGender) {
+        alert('Пожалуйста, укажите ваш пол');
+        return;
+    }
+    if (isNaN(userAge) || userAge < 18 || userAge > 120) {
+        alert('Возраст должен быть от 18 до 120 лет');
+        return;
+    }
+    if (isNaN(targetAgeMinVal) || targetAgeMinVal < 18 || targetAgeMinVal > 120) {
+        alert('Минимальный возраст партнёра должен быть от 18 до 120');
+        return;
+    }
+    if (isNaN(targetAgeMaxVal) || targetAgeMaxVal < 18 || targetAgeMaxVal > 120) {
+        alert('Максимальный возраст партнёра должен быть от 18 до 120');
+        return;
+    }
+    if (targetAgeMinVal > targetAgeMaxVal) {
+        alert('Минимальный возраст не может быть больше максимального');
+        return;
+    }
+    
+    const targetGender = [];
+    targetGenderChecks.forEach(cb => {
+        if (cb.checked) targetGender.push(cb.value);
+    });
+    if (targetGender.length === 0) {
+        alert('Укажите хотя бы один вариант "Кого ищете"');
+        return;
+    }
+    
+    const profile = {
+        userGender,
+        userAge,
+        targetGender,
+        targetAgeMin: targetAgeMinVal,
+        targetAgeMax: targetAgeMaxVal
+    };
+    saveUserProfile(profile);
+    
+    // Перерисовываем блок анкетных данных
+    const container = document.getElementById('profileFormContainer');
+    if (container) {
+        const updatedProfile = getUserProfile();
+        container.innerHTML = renderProfileForm(updatedProfile, true);
+    }
+    
+    alert('Анкетные данные сохранены!');
+}
+
+function editProfile() {
+    const profile = getUserProfile();
+    const container = document.getElementById('profileFormContainer');
+    if (container) {
+        container.innerHTML = renderProfileForm(profile, false);
+        // Небольшой хак: после перерисовки нужно привязать обработчики? Нет, кнопка saveProfileData вызовется заново.
+    }
+}
+
+
 
 // ==================== SCALE RENDERING ====================
 
@@ -2042,6 +2198,49 @@ function getSavedEmbedding() {
     }
 }
 
+// ==================== USER PROFILE (AGE, GENDER, PREFERENCES) ====================
+
+function getUserProfile() {
+    const data = localStorage.getItem(DATING_USER_PROFILE_KEY);
+    if (!data) {
+        return {
+            userGender: null, // 'male', 'female', 'unspecified'
+            userAge: null, // number
+            targetGender: [], // ['male', 'female', 'unspecified']
+            targetAgeMin: 18,
+            targetAgeMax: 80,
+            updatedAt: null
+        };
+    }
+    try {
+        return JSON.parse(data);
+    } catch (e) {
+        return {
+            userGender: null,
+            userAge: null,
+            targetGender: [],
+            targetAgeMin: 18,
+            targetAgeMax: 80,
+            updatedAt: null
+        };
+    }
+}
+
+function saveUserProfile(profile) {
+    profile.updatedAt = Date.now();
+    localStorage.setItem(DATING_USER_PROFILE_KEY, JSON.stringify(profile));
+}
+
+function isProfileComplete() {
+    const profile = getUserProfile();
+    if (!profile.userAge || profile.userAge < 18 || profile.userAge > 120) return false;
+    if (!profile.userGender) return false;
+    if (!profile.targetGender || profile.targetGender.length === 0) return false;
+    if (profile.targetAgeMin === undefined || profile.targetAgeMax === undefined) return false;
+    if (profile.targetAgeMin < 18 || profile.targetAgeMax > 120 || profile.targetAgeMin > profile.targetAgeMax) return false;
+    return true;
+}
+
 // ==================== EXPORT / IMPORT (V3 SUPPORT) ====================
 
 function formatEmbeddingForExport(embedding) {
@@ -2217,6 +2416,189 @@ function acceptPrivacyDisclaimer() {
     }
 }
 
+// ==================== FIREBASE PUBLIC ACTIONS ====================
+
+async function publishMyProfileToFirebase() {
+    const embedding = getSavedEmbedding();
+    if (!embedding) {
+        alert('Сначала создайте личностный профиль (вкладка "Мой профиль")');
+        return;
+    }
+    
+    const userProfile = getUserProfile();
+    if (!isProfileComplete()) {
+        alert('Сначала заполните анкетные данные (пол, возраст, кого ищете)');
+        return;
+    }
+    
+    const descriptions = getSavedDescriptions();
+    const exportStr = formatEmbeddingForExport(embedding);
+    
+    const profileData = {
+        embedding: exportStr,
+        descriptionLevel1: descriptions.level1?.text || '',
+        descriptionLevel2: descriptions.level2?.text || '',
+        userGender: userProfile.userGender,
+        userAge: userProfile.userAge,
+        targetGender: userProfile.targetGender,
+        targetAgeMin: userProfile.targetAgeMin,
+        targetAgeMax: userProfile.targetAgeMax
+    };
+    
+    try {
+        await saveProfileToFirebase(profileData);
+        alert('✅ Анкета опубликована на сервере!');
+    } catch (e) {
+        console.error(e);
+        alert('Ошибка публикации. Убедитесь, что Firebase ключ введён в настройках (🔧).');
+    }
+}
+
+// ==================== FILTER PROFILES ====================
+function filterProfiles(profiles, userProfile) {
+    if (!userProfile.userGender || !userProfile.targetGender) return [];
+    const targetGenders = userProfile.targetGender;
+    const targetAgeMin = userProfile.targetAgeMin;
+    const targetAgeMax = userProfile.targetAgeMax;
+    const userGender = userProfile.userGender;
+    
+    return profiles.filter(profile => {
+        // Пол кандидата должен быть в targetGender пользователя (или unspecified)
+        if (!targetGenders.includes(profile.userGender) && !targetGenders.includes('unspecified')) {
+            if (profile.userGender !== 'unspecified') return false;
+        }
+        // Возраст кандидата в диапазоне
+        if (profile.userAge < targetAgeMin || profile.userAge > targetAgeMax) return false;
+        // Пол пользователя должен быть в targetGender кандидата (или unspecified у кандидата)
+        if (!profile.targetGender.includes(userGender) && !profile.targetGender.includes('unspecified')) {
+            if (userGender !== 'unspecified') return false;
+        }
+        return true;
+    });
+}
+
+// ==================== PUBLISH & REFRESH ====================
+async function publishMyProfileToFirebase() {
+    const embedding = getSavedEmbedding();
+    if (!embedding) {
+        alert('Сначала создайте личностный профиль (вкладка "Мой профиль")');
+        return;
+    }
+    const userProfile = getUserProfile();
+    if (!isProfileComplete()) {
+        alert('Сначала заполните анкетные данные (пол, возраст, кого ищете)');
+        return;
+    }
+    const descriptions = getSavedDescriptions();
+    const exportStr = formatEmbeddingForExport(embedding);
+    
+    const profileData = {
+        embedding: exportStr,
+        descriptionLevel1: descriptions.level1?.text || '',
+        descriptionLevel2: descriptions.level2?.text || '',
+        userGender: userProfile.userGender,
+        userAge: userProfile.userAge,
+        targetGender: userProfile.targetGender,
+        targetAgeMin: userProfile.targetAgeMin,
+        targetAgeMax: userProfile.targetAgeMax
+    };
+    
+    try {
+        await saveProfileToFirebase(profileData);
+        alert('✅ Анкета опубликована!');
+    } catch (e) {
+        alert('Ошибка публикации: ' + e.message);
+    }
+}
+
+async function refreshCandidateList() {
+    const container = document.getElementById('datingContent');
+    if (!container) return;
+    
+    const userProfile = getUserProfile();
+    if (!isProfileComplete()) {
+        container.innerHTML = `<div class="dating-status dating-not-ready">
+            <div class="dating-icon">⚠️</div>
+            <h3>Сначала заполните анкетные данные</h3>
+            <p>Перейдите во вкладку "Мой профиль" и укажите свой пол, возраст и кого ищете.</p>
+        </div>`;
+        return;
+    }
+    
+    container.innerHTML = `<div class="dating-loading"><div class="dating-spinner"></div><p>Загрузка анкет...</p></div>`;
+    
+    try {
+        const allProfiles = await getAllProfilesFromFirebase();
+        const filtered = filterProfiles(allProfiles, userProfile);
+        
+        const myEmbedding = getSavedEmbedding();
+        const myIdeal = getSavedIdeal();
+        
+        const scored = filtered.map(profile => {
+            let matchCount = 0;
+            if (myIdeal && myIdeal.searchScales && profile.embedding) {
+                const candidateEmbed = parseEmbeddingFromExport(profile.embedding);
+                if (candidateEmbed && candidateEmbed.vectors) {
+                    for (const scaleId of myIdeal.searchScales.high) {
+                        const idx = scaleId - 1;
+                        const val = candidateEmbed.vectors[idx]?.value || 0.5;
+                        if (val >= 0.7) matchCount++;
+                    }
+                    for (const scaleId of myIdeal.searchScales.low) {
+                        const idx = scaleId - 1;
+                        const val = candidateEmbed.vectors[idx]?.value || 0.5;
+                        if (val <= 0.5) matchCount++;
+                    }
+                }
+            }
+            return { ...profile, matchCount };
+        });
+        
+        const high = scored.filter(p => p.matchCount >= 7);
+        const medium = scored.filter(p => p.matchCount >= 4 && p.matchCount < 7);
+        const low = scored.filter(p => p.matchCount < 4);
+        
+        let html = `<div class="compat-container"><h3>📋 Найдено анкет: ${scored.length}</h3>`;
+        if (high.length) {
+            html += `<div class="dating-top-traits"><h4>🔥 Сильное совпадение (≥7)</h4>`;
+            high.forEach(p => {
+                html += `<div style="margin-bottom:10px; padding:10px; background:#252540; border-radius:8px;">
+                            <div><strong>${p.userGender === 'male' ? '♂' : '♀'} Возраст: ${p.userAge}</strong> | Совпадений: ${p.matchCount}</div>
+                            <div>${p.descriptionLevel1?.substring(0, 100) || ''}...</div>
+                            <button class="dating-btn" style="margin-top:8px;" onclick="alert('Чат пока в разработке')">💬 Написать</button>
+                         </div>`;
+            });
+            html += `</div>`;
+        }
+        if (medium.length) {
+            html += `<div class="dating-top-traits"><h4>🟡 Компромисс (4-6)</h4>`;
+            medium.forEach(p => {
+                html += `<div style="margin-bottom:10px; padding:10px; background:#252540; border-radius:8px;">
+                            <div><strong>${p.userGender === 'male' ? '♂' : '♀'} Возраст: ${p.userAge}</strong> | Совпадений: ${p.matchCount}</div>
+                            <div>${p.descriptionLevel1?.substring(0, 100) || ''}...</div>
+                            <button class="dating-btn" style="margin-top:8px;" onclick="alert('Чат пока в разработке')">💬 Написать</button>
+                         </div>`;
+            });
+            html += `</div>`;
+        }
+        if (low.length) {
+            html += `<div class="dating-top-traits"><h4>⚪ Низкое совпадение (<4)</h4>`;
+            low.forEach(p => {
+                html += `<div style="margin-bottom:10px; padding:10px; background:#252540; border-radius:8px;">
+                            <div><strong>${p.userGender === 'male' ? '♂' : '♀'} Возраст: ${p.userAge}</strong> | Совпадений: ${p.matchCount}</div>
+                            <div>${p.descriptionLevel1?.substring(0, 100) || ''}...</div>
+                            <button class="dating-btn" style="margin-top:8px;" onclick="alert('Чат пока в разработке')">💬 Написать</button>
+                         </div>`;
+            });
+            html += `</div>`;
+        }
+        if (scored.length === 0) html += `<p>Пока нет подходящих анкет. Опубликуйте свою!</p>`;
+        html += `</div>`;
+        container.innerHTML = html;
+    } catch (e) {
+        container.innerHTML = `<div class="dating-status dating-error"><div class="dating-icon">❌</div><p>Ошибка: ${e.message}</p><button class="dating-btn" onclick="refreshCandidateList()">🔄 Повторить</button></div>`;
+    }
+}
 // ==================== INIT ====================
 
 console.log('[dating.js] v3.0 loaded. V3 export with requirements. Mutual dynamics analysis enabled.');

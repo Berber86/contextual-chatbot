@@ -14,8 +14,8 @@ const CONFIG = {
     openRouterModels: [
         "stepfun/step-3.5-flash:free",
         "nvidia/nemotron-3-super-120b-a12b:free",
+        "qwen/qwen3.6-plus-preview:free",
         "z-ai/glm-4.5-air:free",
-        "arcee-ai/trinity-large-preview:free",
         "nvidia/nemotron-3-nano-30b-a3b:free",
         "nvidia/nemotron-3-nano-30b-a3b:free",
         "nvidia/nemotron-3-nano-30b-a3b:free"
