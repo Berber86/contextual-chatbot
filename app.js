@@ -1070,94 +1070,210 @@ function executeTool(name, args) {
 }
 
 // ==================== FIREBASE INTEGRATION ====================
-let firebaseReady = false;
-let firebaseDb = null;
-let firebaseRef = null;
-let firebaseSet = null;
-let firebasePush = null;
-let firebaseGet = null;
-let firebaseChild = null;
+// Используем глобальную переменную isLocal из ui.js
+// isLocal уже определена в ui.js, не объявляем повторно
 
-async function initFirebase() {
-    if (firebaseReady) return true;
+async function callFirebaseAPI(action, data = null) {
+    // Определяем, локально ли мы (глобальная переменная из ui.js)
+    const isLocalMode = typeof isLocal !== 'undefined' ? isLocal :
+        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
     
-    const apiKey = localStorage.getItem('my_firebase_key');
-    if (!apiKey) return false;
+    // Для локальной разработки используем прямой доступ к Firebase с ключом из localStorage
+    if (isLocalMode) {
+        return callFirebaseLocal(action, data);
+    }
     
+    // На проде идём через серверный эндпоинт
     try {
-        // Импортируем Firebase SDK
-        const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js');
-        const { getDatabase, ref, set, push, get, child } = await import('https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js');
+        const response = await fetch('/api/firebase', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action, data })
+        });
         
-        const firebaseConfig = {
-            apiKey: apiKey,
-            authDomain: "prototypeciva.firebaseapp.com",
-            databaseURL: "https://prototypeciva-default-rtdb.europe-west1.firebasedatabase.app",
-            projectId: "prototypeciva",
-            storageBucket: "prototypeciva.firebasestorage.app",
-            appId: "1:191956270979:web:dc850a748171a8304080b6"
-        };
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
         
-        const app = initializeApp(firebaseConfig);
-        firebaseDb = getDatabase(app);
-        firebaseRef = ref;
-        firebaseSet = set;
-        firebasePush = push;
-        firebaseGet = get;
-        firebaseChild = child;
-        firebaseReady = true;
-        
-        console.log('[Firebase] Готов');
-        return true;
-    } catch (e) {
-        console.error('[Firebase] Ошибка:', e);
-        return false;
+        const result = await response.json();
+        if (!result.success) throw new Error(result.error);
+        return result;
+    } catch (error) {
+        console.error('[Firebase API] Server error:', error);
+        throw new Error('Не удалось соединиться с сервером');
     }
 }
 
-async function saveProfileToFirebase(profileData) {
-    if (!await initFirebase()) throw new Error('Firebase не инициализирован');
+// Локальная версия (прямой доступ к Firebase, нужен ключ в localStorage)
+async function callFirebaseLocal(action, data) {
+    // Инициализируем Firebase один раз
+    if (!window.firebaseDb) {
+        const apiKey = localStorage.getItem('my_firebase_key');
+        if (!apiKey) {
+            throw new Error('Нет Firebase ключа. Сохраните его в настройках (🔧)');
+        }
+        
+        try {
+            const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js');
+            const { getDatabase, ref, set, push, get, child } = await import('https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js');
+            
+            const firebaseConfig = {
+                apiKey: apiKey,
+                authDomain: "prototypeciva.firebaseapp.com",
+                databaseURL: "https://prototypeciva-default-rtdb.europe-west1.firebasedatabase.app",
+                projectId: "prototypeciva",
+                storageBucket: "prototypeciva.firebasestorage.app",
+                appId: "1:191956270979:web:dc850a748171a8304080b6"
+            };
+            
+            const app = initializeApp(firebaseConfig);
+            window.firebaseDb = getDatabase(app);
+            window.firebaseRef = ref;
+            window.firebaseSet = set;
+            window.firebasePush = push;
+            window.firebaseGet = get;
+            window.firebaseChild = child;
+            console.log('[Firebase] Локальная инициализация успешна');
+        } catch (e) {
+            console.error('[Firebase] Ошибка инициализации:', e);
+            throw new Error('Ошибка подключения к Firebase');
+        }
+    }
     
-    const profilesRef = firebaseRef(firebaseDb, 'dating_profiles');
-    const newProfileRef = firebasePush(profilesRef);
-    await firebaseSet(newProfileRef, {
-        ...profileData,
-        createdAt: Date.now()
-    });
-    return newProfileRef.key;
+    if (action === 'save') {
+        const profilesRef = window.firebaseRef(window.firebaseDb, 'dating_profiles');
+        const newProfileRef = window.firebasePush(profilesRef);
+        await window.firebaseSet(newProfileRef, {
+            ...data,
+            createdAt: Date.now()
+        });
+        return { success: true, id: newProfileRef.key };
+        
+    } else if (action === 'getAll') {
+        const snapshot = await window.firebaseGet(window.firebaseChild(window.firebaseRef(window.firebaseDb), 'dating_profiles'));
+        if (snapshot.exists()) {
+            const profiles = snapshot.val();
+            const profilesArray = Object.entries(profiles).map(([id, profile]) => ({ id, ...profile }));
+            return { success: true, profiles: profilesArray };
+        }
+        return { success: true, profiles: [] };
+    }
+}
+
+// Функции для использования в dating.js
+async function saveProfileToFirebase(profileData) {
+    const result = await callFirebaseAPI('save', profileData);
+    return result.id;
 }
 
 async function getAllProfilesFromFirebase() {
-    if (!await initFirebase()) throw new Error('Firebase не инициализирован');
-    
-    const snapshot = await firebaseGet(firebaseChild(firebaseRef(firebaseDb), 'dating_profiles'));
-    if (snapshot.exists()) {
-        const data = snapshot.val();
-        return Object.entries(data).map(([id, profile]) => ({ id, ...profile }));
-    }
-    return [];
+    const result = await callFirebaseAPI('getAll');
+    return result.profiles || [];
 }
 
-// Сохранение ключа Firebase (локально)
+// Сохранение Firebase ключа (только для локальной разработки)
 window.saveFirebaseKey = function() {
+    const isLocalMode = typeof isLocal !== 'undefined' ? isLocal :
+        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    
+    if (!isLocalMode) {
+        alert('На сервере ключ хранится в переменной окружения, не нужно вводить вручную');
+        return;
+    }
+    
     const input = document.getElementById('firebase-api-key');
     if (!input) return;
     const key = input.value.trim();
     const status = document.getElementById('firebase-key-status');
+    
     if (key) {
         localStorage.setItem('my_firebase_key', key);
-        if (status) status.innerText = "✅ Firebase ключ сохранён";
-        firebaseReady = false; // сбросим, чтобы переинициализировать при следующем вызове
+        if (status) {
+            status.innerText = "✅ Firebase ключ сохранён (для локальной разработки)";
+            status.style.color = "#4ade80";
+        }
+        // Сбрасываем инициализацию
+        window.firebaseDb = null;
+        alert('Ключ сохранён! Теперь Firebase работает локально.');
     } else {
         localStorage.removeItem('my_firebase_key');
-        if (status) status.innerText = "❌ Ключ удалён";
-        firebaseReady = false;
+        if (status) {
+            status.innerText = "❌ Ключ удалён";
+            status.style.color = "#e94560";
+        }
+        window.firebaseDb = null;
     }
 };
 
-// Автоинициализация при загрузке, если ключ есть
-window.addEventListener('DOMContentLoaded', () => {
-    if (localStorage.getItem('my_firebase_key')) {
-        initFirebase();
+// Ключ для хранения ID анкеты пользователя
+const USER_PROFILE_ID_KEY = 'chatbot_firebase_profile_id';
+
+// Получить сохранённый ID анкеты
+function getMyProfileId() {
+    return localStorage.getItem(USER_PROFILE_ID_KEY);
+}
+
+// Сохранить ID анкеты
+function setMyProfileId(id) {
+    localStorage.setItem(USER_PROFILE_ID_KEY, id);
+}
+
+// Обновить существующую анкету
+async function updateProfileInFirebase(profileId, profileData) {
+    const isLocalMode = typeof isLocal !== 'undefined' ? isLocal :
+        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    
+    if (isLocalMode) {
+        return updateProfileLocal(profileId, profileData);
     }
-});
+    
+    const response = await fetch('/api/firebase', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'update', id: profileId, data: profileData })
+    });
+    
+    const result = await response.json();
+    if (!result.success) throw new Error(result.error);
+    return result;
+}
+
+// Локальное обновление
+async function updateProfileLocal(profileId, profileData) {
+    if (!window.firebaseDb) {
+        throw new Error('Firebase не инициализирован');
+    }
+    
+    const profileRef = window.firebaseRef(window.firebaseDb, `dating_profiles/${profileId}`);
+    await window.firebaseSet(profileRef, {
+        ...profileData,
+        updatedAt: Date.now()
+    });
+    return { success: true };
+}
+
+// Модифицируем функцию сохранения (создаёт новую, если нет ID)
+async function saveProfileToFirebase(profileData) {
+    const existingId = getMyProfileId();
+    
+    if (existingId) {
+        // Обновляем существующую анкету
+        await updateProfileInFirebase(existingId, {
+            ...profileData,
+            updatedAt: Date.now()
+        });
+        return existingId;
+    } else {
+        // Создаём новую
+        const result = await callFirebaseAPI('save', profileData);
+        if (result.id) {
+            setMyProfileId(result.id);
+        }
+        return result.id;
+    }
+}
+
+// Проверка при загрузке (только для лога)
+if (typeof isLocal !== 'undefined' && isLocal && localStorage.getItem('my_firebase_key')) {
+    console.log('[Firebase] Локальный режим, ключ есть');
+}

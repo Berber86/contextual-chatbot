@@ -271,7 +271,9 @@ function renderSavedEmbedding(embedding) {
                 <button class="dating-btn dating-btn-copy" onclick="copyEmbeddingToClipboard()">📋 Копировать профиль (${exportVersion})</button>
                 <button class="dating-btn dating-btn-details" onclick="toggleFullEmbedding()">📊 Все 50 шкал</button>
                 <button class="dating-btn dating-btn-regenerate" onclick="confirmRegenerate()">🔄 Пересоздать</button>
-                <button class="dating-btn dating-btn-publish" onclick="publishMyProfileToFirebase()">🌍 Опубликовать анкету</button>
+             <button class="dating-btn dating-btn-publish" onclick="publishMyProfileToFirebase()" style="background:#4CAF50;">
+    ${getMyProfileId() ? '🔄 Обновить анкету' : '🌍 Опубликовать анкету'}
+</button>
 <button class="dating-btn dating-btn-refresh" onclick="refreshCandidateList()">🔄 Найти кандидатов</button>
             </div>
             <div class="dating-full-embedding" id="fullEmbeddingView" style="display: none;">
@@ -1239,6 +1241,15 @@ function formatMatchReportDetailed(report) {
     }
 
     return sections;
+}
+
+// Показать, опубликована ли анкета
+function getProfilePublishStatus() {
+    const profileId = getMyProfileId();
+    if (profileId) {
+        return `<span style="font-size:12px; color:#4ade80; margin-left:10px;">✅ Анкета опубликована</span>`;
+    }
+    return `<span style="font-size:12px; color:#f59e0b; margin-left:10px;">⚠️ Не опубликовано</span>`;
 }
 
 // ==================== PROMPT BUILDERS ====================
