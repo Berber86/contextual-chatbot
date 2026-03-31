@@ -2565,6 +2565,8 @@ async function refreshCandidateList() {
             return { ...profile, matchCount };
         });
         
+        window.lastProfiles = scored;
+        
         const high = scored.filter(p => p.matchCount >= 7);
         const medium = scored.filter(p => p.matchCount >= 4 && p.matchCount < 7);
         const low = scored.filter(p => p.matchCount < 4);
@@ -2576,7 +2578,7 @@ async function refreshCandidateList() {
                 html += `<div style="margin-bottom:10px; padding:10px; background:#252540; border-radius:8px;">
                             <div><strong>${p.userGender === 'male' ? '♂' : '♀'} Возраст: ${p.userAge}</strong> | Совпадений: ${p.matchCount}</div>
                             <div>${p.descriptionLevel1?.substring(0, 100) || ''}...</div>
-                            <button class="dating-btn" style="margin-top:8px;" onclick="alert('Чат пока в разработке')">💬 Написать</button>
+                            <button class="dating-btn" style="margin-top:8px; background:#6366f1;" onclick="openCompatibilityWithProfile('${p.id}')">📊 Анализ совместимости</button>
                          </div>`;
             });
             html += `</div>`;
@@ -2587,7 +2589,7 @@ async function refreshCandidateList() {
                 html += `<div style="margin-bottom:10px; padding:10px; background:#252540; border-radius:8px;">
                             <div><strong>${p.userGender === 'male' ? '♂' : '♀'} Возраст: ${p.userAge}</strong> | Совпадений: ${p.matchCount}</div>
                             <div>${p.descriptionLevel1?.substring(0, 100) || ''}...</div>
-                            <button class="dating-btn" style="margin-top:8px;" onclick="alert('Чат пока в разработке')">💬 Написать</button>
+                            <button class="dating-btn" style="margin-top:8px; background:#6366f1;" onclick="openCompatibilityWithProfile('${p.id}')">📊 Анализ совместимости</button>
                          </div>`;
             });
             html += `</div>`;
@@ -2598,7 +2600,7 @@ async function refreshCandidateList() {
                 html += `<div style="margin-bottom:10px; padding:10px; background:#252540; border-radius:8px;">
                             <div><strong>${p.userGender === 'male' ? '♂' : '♀'} Возраст: ${p.userAge}</strong> | Совпадений: ${p.matchCount}</div>
                             <div>${p.descriptionLevel1?.substring(0, 100) || ''}...</div>
-                            <button class="dating-btn" style="margin-top:8px;" onclick="alert('Чат пока в разработке')">💬 Написать</button>
+                            <button class="dating-btn" style="margin-top:8px; background:#6366f1;" onclick="openCompatibilityWithProfile('${p.id}')">📊 Анализ совместимости</button>
                          </div>`;
             });
             html += `</div>`;
@@ -2609,6 +2611,47 @@ async function refreshCandidateList() {
     } catch (e) {
         container.innerHTML = `<div class="dating-status dating-error"><div class="dating-icon">❌</div><p>Ошибка: ${e.message}</p><button class="dating-btn" onclick="refreshCandidateList()">🔄 Повторить</button></div>`;
     }
+}
+
+
+// Открыть вкладку совместимости с данными выбранного профиля
+function openCompatibilityWithProfile(profileId) {
+    // Находим профиль по ID из глобального хранилища
+    const profile = window.lastProfiles?.find(p => p.id === profileId);
+    if (!profile) {
+        alert('Профиль не найден');
+        return;
+    }
+    
+    // Переключаем таб на совместимость
+    switchDatingTab('compatibility');
+    
+    // Ждём рендеринга вкладки
+    setTimeout(() => {
+        const embedInput = document.getElementById('candidateEmbeddingInput');
+        const descInput = document.getElementById('candidateDescriptionInput');
+        
+        if (embedInput && profile.embedding) {
+            embedInput.value = profile.embedding;
+            // Запускаем валидацию, чтобы кнопки разблокировались
+            if (typeof validateCandidateInput === 'function') {
+                validateCandidateInput();
+            }
+        }
+        
+        if (descInput) {
+            if (profile.descriptionLevel1 && profile.descriptionLevel1.trim()) {
+                descInput.value = profile.descriptionLevel1;
+            } else {
+                // Формируем описание из пола и возраста
+                let genderText = '';
+                if (profile.userGender === 'male') genderText = 'Мужчина';
+                else if (profile.userGender === 'female') genderText = 'Женщина';
+                else genderText = 'Пол не указан';
+                descInput.value = `${genderText}, ${profile.userAge} лет.`;
+            }
+        }
+    }, 150);
 }
 // ==================== INIT ====================
 
