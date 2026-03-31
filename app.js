@@ -1074,33 +1074,41 @@ function executeTool(name, args) {
 // isLocal уже определена в ui.js, не объявляем повторно
 
 async function callFirebaseAPI(action, data = null) {
-    // Определяем, локально ли мы (глобальная переменная из ui.js)
     const isLocalMode = typeof isLocal !== 'undefined' ? isLocal :
         (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
     
-    // Для локальной разработки используем прямой доступ к Firebase с ключом из localStorage
+    // Для локальной разработки используем прямой доступ к Firebase
     if (isLocalMode) {
         return callFirebaseLocal(action, data);
     }
     
     // На проде идём через серверный эндпоинт
     try {
+        console.log('[Firebase] Sending to server:', action);
+        
         const response = await fetch('/api/firebase', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action, data })
         });
         
+        console.log('[Firebase] Server response status:', response.status);
+        
         if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
+            const errorText = await response.text();
+            console.error('[Firebase] Server error:', errorText);
+            throw new Error(`HTTP ${response.status}: ${errorText}`);
         }
         
         const result = await response.json();
+        console.log('[Firebase] Server result:', result);
+        
         if (!result.success) throw new Error(result.error);
         return result;
+        
     } catch (error) {
-        console.error('[Firebase API] Server error:', error);
-        throw new Error('Не удалось соединиться с сервером');
+        console.error('[Firebase] Network error:', error);
+        throw new Error(`Не удалось соединиться с сервером: ${error.message}`);
     }
 }
 
