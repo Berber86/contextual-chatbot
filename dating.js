@@ -777,6 +777,8 @@ async function runCompatibilityAnalysis() {
 
     const candidateDescription = descInput?.value?.trim() || '';
 
+    window.currentCandidateDescription = candidateDescription;
+
     datingState.isAnalyzing = true;
     btn.disabled = true;
     btn.innerHTML = '<span class="btn-spinner"></span> Анализирую...';
@@ -822,6 +824,8 @@ async function runCompatibilityAnalysis() {
             },
             { temperature: 0.7 }
         );
+        
+        appendCompatibilityActions(resultContainer);
         
                 // Добавляем кнопки действий после анализа
         const actionsDiv = document.createElement('div');
@@ -1260,6 +1264,24 @@ function getProfilePublishStatus() {
         return `<span style="font-size:12px; color:#4ade80; margin-left:10px;">✅ Анкета опубликована</span>`;
     }
     return `<span style="font-size:12px; color:#f59e0b; margin-left:10px;">⚠️ Не опубликовано</span>`;
+}
+
+function appendCompatibilityActions(resultContainer) {
+    if (!resultContainer) return;
+    
+    const oldActions = resultContainer.querySelector('.compat-report-actions');
+    if (oldActions) oldActions.remove();
+    
+    const canWrite = !!window.currentCandidateId;
+    
+    const actionsDiv = document.createElement('div');
+    actionsDiv.className = 'compat-report-actions';
+    actionsDiv.innerHTML = `
+        <button class="dating-btn dating-btn-regenerate" onclick="closeDatingModal()">✕ Закрыть отчёт</button>
+        <button class="dating-btn dating-btn-copy" onclick="startDialogFromDating()" ${canWrite ? '' : 'disabled title="У этого кандидата нет ID профиля"'}>💬 Написать кандидату</button>
+    `;
+    
+    resultContainer.appendChild(actionsDiv);
 }
 
 // ==================== PROMPT BUILDERS ====================
@@ -2630,11 +2652,9 @@ function openCompatibilityWithProfile(profileId) {
     if (!profile) return;
     
     // СОХРАНЯЕМ ГЛОБАЛЬНО ДЛЯ МЕССЕНДЖЕРА
-    window.currentCandidateId = profile.id;
-    window.currentCandidateEmbed = profile.embedding;
-    
-    // ... дальше твой старый код ...
-    
+        window.currentCandidateId = profile.id;
+    window.currentCandidateEmbed = profile.embedding || '';
+    window.currentCandidateDescription = profile.descriptionLevel1 || '';
     // Переключаем таб на совместимость
     switchDatingTab('compatibility');
     
