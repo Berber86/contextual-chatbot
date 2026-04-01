@@ -1371,6 +1371,7 @@ async function checkUserActivation() {
 }
 
 // Показать модалку ввода инвайт-кода
+// Показать модалку ввода инвайт-кода
 function showInviteModal() {
     // Удаляем старую если есть
     const existing = document.getElementById('inviteModal');
@@ -1382,26 +1383,60 @@ function showInviteModal() {
     modal.innerHTML = `
         <div class="invite-modal">
             <div class="invite-header">
-                <span class="invite-icon">🎟️</span>
-                <h2>Закрытая бета</h2>
+                <span class="invite-icon">🧠</span>
+                <h2>Memory Chatbot</h2>
+                <p class="invite-tagline">ИИ, который тебя помнит</p>
             </div>
+            
             <div class="invite-body">
-                <p>Для доступа к боту нужен инвайт-код.</p>
-                <p class="invite-hint">Получить код можно у автора: <a href="https://t.me/Nascor" target="_blank">@Nascor</a></p>
-                <input 
-                    type="text" 
-                    id="inviteCodeInput" 
-                    class="invite-input" 
-                    placeholder="Введите код..."
-                    maxlength="20"
-                    autocomplete="off"
-                >
-                <div class="invite-error" id="inviteError"></div>
+                <div class="invite-section">
+                    <h3>🔮 Что это?</h3>
+                    <p>Персональный ИИ-ассистент с <strong>долговременной памятью</strong>. Он запоминает факты о тебе, твои черты характера, важных людей в твоей жизни — и использует это, чтобы давать по-настоящему персональные ответы.</p>
+                </div>
+                
+                <div class="invite-section">
+                    <h3>💘 Главная фича</h3>
+                    <p><strong>Умные знакомства.</strong> Бот строит твой психологический профиль из 50 измерений. Потом сравнивает с другими людьми и показывает реальную совместимость — не по фоткам, а по личности.</p>
+                </div>
+                
+                <div class="invite-section">
+                    <h3>🎯 Это для тебя, если ты...</h3>
+                    <ul class="invite-audience">
+                        <li>🤔 Любишь копаться в себе и понимать, почему ты такой</li>
+                        <li>😩 Устал от поверхностных знакомств в Тиндере</li>
+                        <li>🧩 Хочешь найти человека, с которым реально совпадёшь</li>
+                        <li>📝 Готов потратить время на разговоры с ботом</li>
+                        <li>🔬 Тебе интересны эксперименты на стыке психологии и ИИ</li>
+                    </ul>
+                </div>
+                
+                <div class="invite-section invite-warning">
+                    <h3>⚠️ Честное предупреждение</h3>
+                    <p>Это <strong>бета-версия</strong>. Баги будут. Но если тебе откликается идея — ты один из тех, для кого это делается.</p>
+                </div>
+                
+                <div class="invite-section invite-cta">
+                    <h3>🎟️ Закрытый доступ</h3>
+                    <p>Сейчас бот работает только по инвайтам — чтобы не перегрузить сервер.</p>
+                    <p class="invite-hint">Получить код: <a href="https://t.me/Nascor" target="_blank">@Berberber85</a> в Telegram</p>
+                    
+                    <input 
+                        type="text" 
+                        id="inviteCodeInput" 
+                        class="invite-input" 
+                        placeholder="BETA-XXXX"
+                        maxlength="20"
+                        autocomplete="off"
+                    >
+                    <div class="invite-error" id="inviteError"></div>
+                    <button class="invite-btn" id="inviteSubmitBtn" onclick="submitInviteCode()">
+                        Войти
+                    </button>
+                </div>
             </div>
+            
             <div class="invite-footer">
-                <button class="invite-btn" id="inviteSubmitBtn" onclick="submitInviteCode()">
-                    Активировать
-                </button>
+                <p>Все данные хранятся только на твоём устройстве. <a href="#" onclick="alert('Автор: Сергей Маслаков\\nTelegram: @Berberber85\\nВерсия: 1.2 beta'); return false;">О проекте</a></p>
             </div>
         </div>
     `;
@@ -1418,6 +1453,7 @@ function showInviteModal() {
         if (e.key === 'Enter') submitInviteCode();
     });
 }
+
 
 // Скрыть модалку
 function hideInviteModal() {

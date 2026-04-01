@@ -6460,54 +6460,147 @@ body.server-mode .input-form {
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(10, 10, 15, 0.95);
+    background: rgba(10, 10, 15, 0.98);
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: center;
     z-index: 10000;
+    overflow-y: auto;
+    padding: 20px;
 }
 
 .invite-modal {
-    background: #1a1a2e;
-    border: 1px solid #e94560;
-    border-radius: 16px;
-    padding: 32px;
-    max-width: 400px;
-    width: 90%;
-    text-align: center;
-    box-shadow: 0 20px 60px rgba(233, 69, 96, 0.3);
+    background: linear-gradient(180deg, #1a1a2e 0%, #16162a 100%);
+    border: 1px solid #2a2a4a;
+    border-radius: 20px;
+    padding: 0;
+    max-width: 480px;
+    width: 100%;
+    margin: 20px auto;
+    box-shadow:
+        0 20px 60px rgba(0, 0, 0, 0.5),
+        0 0 100px rgba(233, 69, 96, 0.1);
+    overflow: hidden;
 }
 
 .invite-header {
-    margin-bottom: 24px;
+    background: linear-gradient(135deg, #e94560 0%, #c73e54 100%);
+    padding: 28px 24px;
+    text-align: center;
 }
 
 .invite-icon {
-    font-size: 48px;
+    font-size: 56px;
     display: block;
-    margin-bottom: 12px;
+    margin-bottom: 8px;
+    filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3));
 }
 
 .invite-header h2 {
     color: #fff;
-    font-size: 24px;
+    font-size: 26px;
+    margin: 0;
+    font-weight: 700;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.invite-tagline {
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 15px;
+    margin: 6px 0 0 0;
+    font-style: italic;
+}
+
+.invite-body {
+    padding: 24px;
+}
+
+.invite-section {
+    margin-bottom: 20px;
+}
+
+.invite-section:last-child {
+    margin-bottom: 0;
+}
+
+.invite-section h3 {
+    color: #fff;
+    font-size: 16px;
+    margin: 0 0 10px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.invite-section p {
+    color: #b0b0c0;
+    font-size: 14px;
+    line-height: 1.6;
     margin: 0;
 }
 
-.invite-body p {
+.invite-section strong {
+    color: #e94560;
+}
+
+.invite-audience {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.invite-audience li {
     color: #a0a0b0;
-    margin: 0 0 12px 0;
-    font-size: 15px;
+    font-size: 14px;
+    padding: 8px 0;
+    border-bottom: 1px solid #252540;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+.invite-audience li:last-child {
+    border-bottom: none;
+}
+
+.invite-warning {
+    background: rgba(251, 191, 36, 0.1);
+    border: 1px solid rgba(251, 191, 36, 0.3);
+    border-radius: 12px;
+    padding: 16px !important;
+}
+
+.invite-warning h3 {
+    color: #fbbf24;
+}
+
+.invite-warning p {
+    color: #d0c090;
+}
+
+.invite-cta {
+    background: rgba(233, 69, 96, 0.08);
+    border: 1px solid rgba(233, 69, 96, 0.2);
+    border-radius: 12px;
+    padding: 20px !important;
+    text-align: center;
+}
+
+.invite-cta h3 {
+    justify-content: center;
+    color: #e94560;
 }
 
 .invite-hint {
     font-size: 13px !important;
-    color: #707080 !important;
+    color: #808090 !important;
+    margin-top: 8px !important;
 }
 
 .invite-hint a {
     color: #e94560;
     text-decoration: none;
+    font-weight: 600;
 }
 
 .invite-hint a:hover {
@@ -6520,24 +6613,26 @@ body.server-mode .input-form {
     font-size: 18px;
     text-align: center;
     text-transform: uppercase;
-    letter-spacing: 2px;
+    letter-spacing: 3px;
     background: #252540;
     border: 2px solid #3a3a5a;
-    border-radius: 8px;
+    border-radius: 10px;
     color: #fff;
     margin-top: 16px;
-    transition: border-color 0.2s;
+    transition: all 0.2s;
 }
 
 .invite-input:focus {
     outline: none;
     border-color: #e94560;
+    box-shadow: 0 0 20px rgba(233, 69, 96, 0.2);
 }
 
 .invite-input::placeholder {
     color: #505060;
     text-transform: none;
-    letter-spacing: normal;
+    letter-spacing: 1px;
+    font-size: 16px;
 }
 
 .invite-error {
@@ -6547,29 +6642,92 @@ body.server-mode .input-form {
     margin-top: 8px;
 }
 
-.invite-footer {
-    margin-top: 24px;
-}
-
 .invite-btn {
     width: 100%;
-    padding: 14px 24px;
-    font-size: 16px;
-    font-weight: 600;
+    padding: 16px 24px;
+    font-size: 17px;
+    font-weight: 700;
     background: linear-gradient(135deg, #e94560, #c73e54);
     color: #fff;
     border: none;
-    border-radius: 8px;
+    border-radius: 10px;
     cursor: pointer;
-    transition: transform 0.2s, box-shadow 0.2s;
+    margin-top: 12px;
+    transition: all 0.2s;
+    text-transform: uppercase;
+    letter-spacing: 1px;
 }
 
 .invite-btn:hover:not(:disabled) {
     transform: translateY(-2px);
-    box-shadow: 0 8px 20px rgba(233, 69, 96, 0.4);
+    box-shadow: 0 8px 25px rgba(233, 69, 96, 0.4);
+}
+
+.invite-btn:active:not(:disabled) {
+    transform: translateY(0);
 }
 
 .invite-btn:disabled {
     opacity: 0.6;
     cursor: not-allowed;
+    transform: none;
+}
+
+.invite-footer {
+    background: #12121f;
+    padding: 16px 24px;
+    text-align: center;
+    border-top: 1px solid #252540;
+}
+
+.invite-footer p {
+    color: #606070;
+    font-size: 12px;
+    margin: 0;
+}
+
+.invite-footer a {
+    color: #808090;
+    text-decoration: none;
+}
+
+.invite-footer a:hover {
+    color: #e94560;
+}
+
+/* Mobile optimization */
+@media (max-width: 500px) {
+    .invite-modal-overlay {
+        padding: 12px;
+    }
+    
+    .invite-modal {
+        margin: 10px auto;
+        border-radius: 16px;
+    }
+    
+    .invite-header {
+        padding: 24px 20px;
+    }
+    
+    .invite-icon {
+        font-size: 48px;
+    }
+    
+    .invite-header h2 {
+        font-size: 22px;
+    }
+    
+    .invite-body {
+        padding: 20px;
+    }
+    
+    .invite-section h3 {
+        font-size: 15px;
+    }
+    
+    .invite-section p,
+    .invite-audience li {
+        font-size: 13px;
+    }
 }
