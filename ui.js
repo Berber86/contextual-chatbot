@@ -524,9 +524,14 @@ function initSettingsMenu() {
     renderLanguageMenu();
     
     document.addEventListener('click', (e) => {
-        if (!e.target.closest('.settings-wrapper')) {
+        // Если кликнули мимо шестеренки И мимо самого розового блока
+        if (!e.target.closest('.settings-wrapper') && !e.target.closest('#dev-settings')) {
             const dropdown = document.getElementById('settingsDropdown');
             if (dropdown) dropdown.classList.remove('open');
+            
+            const devBox = document.getElementById('dev-settings');
+            if (devBox) devBox.style.display = 'none';
+            
             closeAllLanguageDropdowns();
         }
     });
@@ -535,6 +540,10 @@ function initSettingsMenu() {
         if (e.key === 'Escape') {
             const dropdown = document.getElementById('settingsDropdown');
             if (dropdown) dropdown.classList.remove('open');
+            
+            const devBox = document.getElementById('dev-settings');
+            if (devBox) devBox.style.display = 'none';
+            
             closeAllLanguageDropdowns();
         }
     });
@@ -542,10 +551,18 @@ function initSettingsMenu() {
 
 function toggleSettingsMenu() {
     const settingsDropdown = document.getElementById('settingsDropdown');
-    if (settingsDropdown) settingsDropdown.classList.toggle('open');
+    const devBox = document.getElementById('dev-settings'); // Находим наш розовый блок
+    
+    if (settingsDropdown) {
+        const isOpen = settingsDropdown.classList.toggle('open');
+        
+        // Показываем/скрываем розовый блок вместе с выпадающим меню
+        if (devBox) {
+            devBox.style.display = isOpen ? 'block' : 'none';
+        }
+    }
     closeAllLanguageDropdowns();
 }
-
 function closeAllLanguageDropdowns() {
     document.querySelectorAll('.language-menu-dropdown').forEach(dropdown => {
         dropdown.classList.remove('open');
@@ -2619,8 +2636,8 @@ function initApiKeySettings() {
     const devBox = document.getElementById('dev-settings');
     if (!devBox) return;
     
-    // Показываем всегда, не только для localhost
-    devBox.style.display = 'block';
+
+  //  devBox.style.display = 'block';
     
     const savedKey = localStorage.getItem(STORAGE_KEYS.hydraKey);
     const statusSpan = document.getElementById('key-status');

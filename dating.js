@@ -11,7 +11,7 @@
 const DATING_STORAGE_KEY = 'chatbot_dating_embedding';
 const DATING_DESCRIPTIONS_KEY = 'chatbot_dating_descriptions';
 const DATING_IDEAL_KEY = 'chatbot_dating_ideal';
-const MIN_FACTS_REQUIRED = 30;
+const MIN_FACTS_REQUIRED = 50;
 const EMBEDDING_PASSES = 3;
 const TOTAL_SCALES = 50;
 const DATING_USER_PROFILE_KEY = 'chatbot_dating_user_profile';
@@ -151,7 +151,15 @@ function closeDatingModal() {
         datingState.currentPass = 0;
         datingState.passes = [];
     }
+    
+    // ДОБАВИТЬ ЭТО: Прячем вкладку совместимости при закрытии
+    const compatBtn = document.getElementById('compatTabBtn');
+    if (compatBtn) compatBtn.style.display = 'none';
+    
+    // Возвращаем активный таб на "Мой профиль", чтобы при следующем открытии не было пустой страницы
+    datingState.activeTab = 'profile';
 }
+
 
 function switchDatingTab(tab) {
     datingState.activeTab = tab;
@@ -2649,14 +2657,22 @@ async function refreshCandidateList() {
 // Открыть вкладку совместимости с данными выбранного профиля
 function openCompatibilityWithProfile(profileId) {
     const profile = window.lastProfiles?.find(p => p.id === profileId);
-    if (!profile) return;
+    if (!profile) {
+        alert('Профиль не найден');
+        return;
+    }
     
-    // СОХРАНЯЕМ ГЛОБАЛЬНО ДЛЯ МЕССЕНДЖЕРА
-        window.currentCandidateId = profile.id;
-    window.currentCandidateEmbed = profile.embedding || '';
-    window.currentCandidateDescription = profile.descriptionLevel1 || '';
+    window.currentCompatibilityProfileId = profileId;
+    window.currentCompatibilityProfileData = profile || null;
+    
+    // ДОБАВИТЬ ЭТО: Показываем вкладку совместимости
+    const compatBtn = document.getElementById('compatTabBtn');
+    if (compatBtn) compatBtn.style.display = 'block';
+    
     // Переключаем таб на совместимость
     switchDatingTab('compatibility');
+    
+    // ... остальной код функции (setTimeout и т.д.) оставляем как есть
     
     // Ждём рендеринга вкладки
     setTimeout(() => {
