@@ -6416,3 +6416,39 @@ body.server-mode .input-form {
 .compat-report-actions {
     display: flex; gap: 10px; margin-top: 20px; padding-top: 20px; border-top: 1px dashed #3a3a5a;
 }
+/* ==================== DIALOGS BUTTON WITH BADGE ==================== */
+
+.header-btn.dialogs-btn {
+    position: relative; /* Для позиционирования бейджа */
+}
+
+.unread-badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    
+    background: #e94560;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 18px;
+    text-align: center;
+    
+    border-radius: 9px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+    
+    /* Убираем flex если был, используем inline-block */
+    display: none; /* По умолчанию скрыт, JS покажет */
+}
+
+.unread-badge:not(:empty) {
+    display: block;
+}
+
+/* Когда JS явно ставит display: flex — переопределяем на block */
+.unread-badge[style*="display: flex"] {
+    display: block !important;
+}

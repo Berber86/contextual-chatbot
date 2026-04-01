@@ -11,7 +11,8 @@
         maxMessagesPerDialog: 50,
         maxMessageLength: 512,
         pollMinMs: 60000,
-        pollMaxMs: 120000
+        pollMaxMs: 120000,
+        startupCheckDelayMs: 2000  // задержка перед проверкой при запуске
     };
 
     // ==================== STATE ====================
@@ -323,21 +324,27 @@
     }
 
     // ==================== BADGE ====================
-    function dialogsUpdateUnreadBadge() {
-        const badge = document.getElementById('dialogsUnreadBadge');
-        if (!badge) return;
-
-        const contacts = dialogsGetContacts();
-        const totalUnread = Object.values(contacts).reduce((sum, c) => sum + (c.unread || 0), 0);
-
+function dialogsUpdateUnreadBadge() {
+    const badge = document.getElementById('dialogsUnreadBadge');
+    const emoji = document.getElementById('dialogsHeaderEmoji');
+    
+    const contacts = dialogsGetContacts();
+    const totalUnread = Object.values(contacts).reduce((sum, c) => sum + (c.unread || 0), 0);
+    
+    if (badge) {
         if (totalUnread > 0) {
-            badge.style.display = 'flex';
+            badge.style.display = 'block'; // ← было 'flex', теперь 'block'
             badge.textContent = totalUnread > 99 ? '99+' : String(totalUnread);
         } else {
             badge.style.display = 'none';
             badge.textContent = '';
         }
     }
+    
+    if (emoji) {
+        emoji.textContent = totalUnread > 0 ? '📩' : '💬';
+    }
+}
 
     // ==================== RENDER ====================
     function dialogsRenderList() {
@@ -483,7 +490,6 @@
 
         dialogsCurrentPartnerId = partnerId;
 
-        // Сброс unread
         if (contact) {
             dialogsUpsertContactMeta(partnerId, { unread: 0 });
         }
@@ -672,7 +678,6 @@
 
             dialogsSaveContacts(contacts);
 
-            // Вторая фаза удаления с сервера: только после сохранения локально
             if (idsToDelete.length > 0) {
                 await dialogsFirebaseRequest('deleteMessages', { messageIds: idsToDelete }, myId);
             }
@@ -714,6 +719,25 @@
         }, delay);
 
         console.log(`[Dialogs] Next auto-check in ${Math.round(delay / 1000)} sec`);
+    }
+
+    // ==================== STARTUP CHECK ====================
+    // Однократная фоновая проверка при запуске, БЕЗ запуска таймера поллинга
+    async function dialogsStartupCheck() {
+        const myId = dialogsGetMyProfileId();
+        if (!myId) {
+            console.log('[Dialogs] Startup check skipped: no profile ID');
+            return;
+        }
+
+        console.log('[Dialogs] Startup check: looking for new messages...');
+
+        try {
+            await checkNewMessages(false);
+            console.log('[Dialogs] Startup check complete');
+        } catch (e) {
+            console.warn('[Dialogs] Startup check failed (non-critical):', e.message);
+        }
     }
 
     // ==================== COMPATIBILITY ====================
@@ -793,6 +817,12 @@
     function dialogsInit() {
         dialogsBindInputHandlers();
         dialogsUpdateUnreadBadge();
+
+        // Однократная проверка входящих при запуске (с задержкой, чтобы не мешать загрузке)
+        // НЕ запускает таймер поллинга — он стартует только при отправке сообщения
+        setTimeout(() => {
+            dialogsStartupCheck();
+        }, DIALOGS_CONFIG.startupCheckDelayMs);
     }
 
     document.addEventListener('DOMContentLoaded', dialogsInit);
