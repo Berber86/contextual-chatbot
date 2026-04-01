@@ -1418,7 +1418,7 @@ function showInviteModal() {
                 <div class="invite-section invite-cta">
                     <h3>🎟️ Закрытый доступ</h3>
                     <p>Сейчас бот работает только по инвайтам — чтобы не перегрузить сервер.</p>
-                    <p class="invite-hint">Получить код: <a href="https://t.me/Nascor" target="_blank">@Berberber85</a> в Telegram</p>
+                    <p class="invite-hint">Получить код: <a href="https://t.me/Berberber85" target="_blank">@Berberber85</a> в Telegram</p>
                     
                     <input 
                         type="text" 
