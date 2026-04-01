@@ -6452,3 +6452,124 @@ body.server-mode .input-form {
 .unread-badge[style*="display: flex"] {
     display: block !important;
 }
+
+/* ==================== INVITE MODAL ==================== */
+.invite-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(10, 10, 15, 0.95);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+}
+
+.invite-modal {
+    background: #1a1a2e;
+    border: 1px solid #e94560;
+    border-radius: 16px;
+    padding: 32px;
+    max-width: 400px;
+    width: 90%;
+    text-align: center;
+    box-shadow: 0 20px 60px rgba(233, 69, 96, 0.3);
+}
+
+.invite-header {
+    margin-bottom: 24px;
+}
+
+.invite-icon {
+    font-size: 48px;
+    display: block;
+    margin-bottom: 12px;
+}
+
+.invite-header h2 {
+    color: #fff;
+    font-size: 24px;
+    margin: 0;
+}
+
+.invite-body p {
+    color: #a0a0b0;
+    margin: 0 0 12px 0;
+    font-size: 15px;
+}
+
+.invite-hint {
+    font-size: 13px !important;
+    color: #707080 !important;
+}
+
+.invite-hint a {
+    color: #e94560;
+    text-decoration: none;
+}
+
+.invite-hint a:hover {
+    text-decoration: underline;
+}
+
+.invite-input {
+    width: 100%;
+    padding: 14px 16px;
+    font-size: 18px;
+    text-align: center;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    background: #252540;
+    border: 2px solid #3a3a5a;
+    border-radius: 8px;
+    color: #fff;
+    margin-top: 16px;
+    transition: border-color 0.2s;
+}
+
+.invite-input:focus {
+    outline: none;
+    border-color: #e94560;
+}
+
+.invite-input::placeholder {
+    color: #505060;
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+.invite-error {
+    color: #e94560;
+    font-size: 14px;
+    min-height: 20px;
+    margin-top: 8px;
+}
+
+.invite-footer {
+    margin-top: 24px;
+}
+
+.invite-btn {
+    width: 100%;
+    padding: 14px 24px;
+    font-size: 16px;
+    font-weight: 600;
+    background: linear-gradient(135deg, #e94560, #c73e54);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.invite-btn:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(233, 69, 96, 0.4);
+}
+
+.invite-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}

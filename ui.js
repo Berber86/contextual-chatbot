@@ -98,11 +98,20 @@ function hasValidHydraKey() {
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('[UI] DOMContentLoaded started');
     
+    // ⬇️ ДОБАВИТЬ: Проверка инвайта (блокирует всё остальное)
+    const hasAccess = await checkInviteAccess();
+    if (!hasAccess) {
+        console.log('[UI] Waiting for invite code...');
+        return; // Не инициализируем ничего, пока нет доступа
+    }
+    
     loadLanguage();
     console.log('[UI] loadLanguage done');
     
     loadChatHistory();
     console.log('[UI] loadChatHistory done');
+    
+    // ... остальной код
     
     // ... остальной код
     autoResizeTextarea();

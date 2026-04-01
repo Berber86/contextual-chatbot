@@ -1285,3 +1285,205 @@ async function saveProfileToFirebase(profileData) {
 if (typeof isLocal !== 'undefined' && isLocal && localStorage.getItem('my_firebase_key')) {
     console.log('[Firebase] Локальный режим, ключ есть');
 }
+
+// ==================== INVITE SYSTEM ====================
+const INVITE_STORAGE_KEY = 'chatbot_invite_activated';
+const INVITE_ODEX_KEY = 'chatbot_user_odex';
+
+// Генерируем или получаем уникальный ID юзера
+function getOrCreateUserOdex() {
+    let odex = localStorage.getItem(INVITE_ODEX_KEY);
+    if (!odex) {
+        odex = 'user_' + Date.now() + '_' + Math.random().toString(36).slice(2, 11);
+        localStorage.setItem(INVITE_ODEX_KEY, odex);
+    }
+    return odex;
+}
+
+// Проверяем, активирован ли юзер
+function isInviteActivated() {
+    return localStorage.getItem(INVITE_STORAGE_KEY) === 'true';
+}
+
+// Сохраняем статус активации
+function setInviteActivated(activated) {
+    localStorage.setItem(INVITE_STORAGE_KEY, activated ? 'true' : 'false');
+}
+
+// Проверка кода на сервере
+async function validateInviteCode(code) {
+    try {
+        const response = await fetch('/api/invite', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'validate', code })
+        });
+        return await response.json();
+    } catch (e) {
+        console.error('[Invite] Validate error:', e);
+        return { success: false, error: e.message };
+    }
+}
+
+// Активация кода
+async function activateInviteCode(code) {
+    const odex = getOrCreateUserOdex();
+    try {
+        const response = await fetch('/api/invite', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'activate', code, odex })
+        });
+        const result = await response.json();
+        if (result.success) {
+            setInviteActivated(true);
+        }
+        return result;
+    } catch (e) {
+        console.error('[Invite] Activate error:', e);
+        return { success: false, error: e.message };
+    }
+}
+
+// Проверка статуса юзера на сервере (при перезаходе)
+async function checkUserActivation() {
+    // Если уже активирован локально — доверяем
+    if (isInviteActivated()) {
+        return { activated: true };
+    }
+    
+    const odex = getOrCreateUserOdex();
+    try {
+        const response = await fetch('/api/invite', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'checkUser', odex })
+        });
+        const result = await response.json();
+        if (result.success && result.activated) {
+            setInviteActivated(true);
+        }
+        return result;
+    } catch (e) {
+        console.error('[Invite] Check user error:', e);
+        return { activated: false };
+    }
+}
+
+// Показать модалку ввода инвайт-кода
+function showInviteModal() {
+    // Удаляем старую если есть
+    const existing = document.getElementById('inviteModal');
+    if (existing) existing.remove();
+    
+    const modal = document.createElement('div');
+    modal.id = 'inviteModal';
+    modal.className = 'invite-modal-overlay';
+    modal.innerHTML = `
+        <div class="invite-modal">
+            <div class="invite-header">
+                <span class="invite-icon">🎟️</span>
+                <h2>Закрытая бета</h2>
+            </div>
+            <div class="invite-body">
+                <p>Для доступа к боту нужен инвайт-код.</p>
+                <p class="invite-hint">Получить код можно у автора: <a href="https://t.me/Nascor" target="_blank">@Nascor</a></p>
+                <input 
+                    type="text" 
+                    id="inviteCodeInput" 
+                    class="invite-input" 
+                    placeholder="Введите код..."
+                    maxlength="20"
+                    autocomplete="off"
+                >
+                <div class="invite-error" id="inviteError"></div>
+            </div>
+            <div class="invite-footer">
+                <button class="invite-btn" id="inviteSubmitBtn" onclick="submitInviteCode()">
+                    Активировать
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    // Фокус на инпут
+    setTimeout(() => {
+        document.getElementById('inviteCodeInput')?.focus();
+    }, 100);
+    
+    // Enter для отправки
+    document.getElementById('inviteCodeInput')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') submitInviteCode();
+    });
+}
+
+// Скрыть модалку
+function hideInviteModal() {
+    const modal = document.getElementById('inviteModal');
+    if (modal) modal.remove();
+}
+
+// Обработка отправки кода
+async function submitInviteCode() {
+    const input = document.getElementById('inviteCodeInput');
+    const btn = document.getElementById('inviteSubmitBtn');
+    const errorEl = document.getElementById('inviteError');
+    
+    if (!input || !btn) return;
+    
+    const code = input.value.trim();
+    if (!code) {
+        if (errorEl) errorEl.textContent = 'Введите код';
+        return;
+    }
+    
+    btn.disabled = true;
+    btn.textContent = 'Проверяю...';
+    if (errorEl) errorEl.textContent = '';
+    
+    const result = await activateInviteCode(code);
+    
+    if (result.success) {
+        hideInviteModal();
+        // Перезагружаем страницу или просто продолжаем
+        window.location.reload();
+    } else {
+        btn.disabled = false;
+        btn.textContent = 'Активировать';
+        
+        let errorMsg = 'Неверный код';
+        if (result.error === 'Code already used' || result.reason === 'already_used') {
+            errorMsg = 'Этот код уже использован';
+        } else if (result.reason === 'not_found') {
+            errorMsg = 'Код не найден';
+        }
+        
+        if (errorEl) errorEl.textContent = errorMsg;
+        input.select();
+    }
+}
+
+// Главная проверка при загрузке
+async function checkInviteAccess() {
+    // Локальная разработка — пропускаем
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        console.log('[Invite] Local mode, skipping invite check');
+        return true;
+    }
+    
+    const status = await checkUserActivation();
+    
+    if (!status.activated) {
+        showInviteModal();
+        return false;
+    }
+    
+    return true;
+}
+
+// Экспорт
+window.checkInviteAccess = checkInviteAccess;
+window.submitInviteCode = submitInviteCode;
+window.isInviteActivated = isInviteActivated;
