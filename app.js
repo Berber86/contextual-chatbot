@@ -1372,6 +1372,7 @@ async function checkUserActivation() {
 
 // Показать модалку ввода инвайт-кода
 // Показать модалку ввода инвайт-кода
+// Показать модалку ввода инвайт-кода
 function showInviteModal() {
     // Удаляем старую если есть
     const existing = document.getElementById('inviteModal');
@@ -1443,17 +1444,19 @@ function showInviteModal() {
     
     document.body.appendChild(modal);
     
-    // Фокус на инпут
-    setTimeout(() => {
-        document.getElementById('inviteCodeInput')?.focus();
-    }, 100);
+    // ДОБАВЛЕНО: Скроллим модалку в самый верх
+    modal.scrollTop = 0;
     
-    // Enter для отправки
+    // Небольшая задержка для надёжности (после рендера)
+    setTimeout(() => {
+        modal.scrollTop = 0;
+    }, 10);
+    
+    // Enter для отправки (без фокуса на инпут — пусть сначала читает)
     document.getElementById('inviteCodeInput')?.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') submitInviteCode();
     });
 }
-
 
 // Скрыть модалку
 function hideInviteModal() {
