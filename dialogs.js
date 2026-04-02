@@ -741,44 +741,100 @@ function dialogsUpdateUnreadBadge() {
     }
 
     // ==================== COMPATIBILITY ====================
-    async function analyzeCurrentChatPartner() {
+      async function analyzeCurrentChatPartner() {
         if (!dialogsCurrentPartnerId) return;
-
+        
         let contacts = dialogsGetContacts();
         let contact = contacts[dialogsCurrentPartnerId];
-
+        
         if (!contact || !contact.embedding) {
             contact = await dialogsEnsureContactCached(dialogsCurrentPartnerId);
             contacts = dialogsGetContacts();
             contact = contacts[dialogsCurrentPartnerId];
         }
-
+        
         if (!contact || !contact.embedding) {
             alert('Не удалось получить данные кандидата для анализа.');
             return;
         }
-
+        
+        // Подгружаем полный профиль из Firebase (пол, возраст, описания)
+        let fullProfile = null;
+        try {
+            const res = await dialogsFirebaseRequest('getProfile', null, dialogsCurrentPartnerId);
+            fullProfile = res.profile || null;
+        } catch (e) {
+            console.warn('[Dialogs] Could not fetch full profile for analysis:', e.message);
+        }
+        
         closeDialogsModal();
-
+        
         if (typeof openDatingModal === 'function') openDatingModal();
+        
+        // Показываем вкладку совместимости
+        const compatBtn = document.getElementById('compatTabBtn');
+        if (compatBtn) compatBtn.style.display = 'block';
+        
         if (typeof switchDatingTab === 'function') switchDatingTab('compatibility');
-
+        
+        // Записываем данные кандидата для использования в анализе
         window.currentCandidateId = dialogsCurrentPartnerId;
         window.currentCandidateEmbed = contact.embedding;
-
+        
+        // Записываем полный профиль — пол, возраст, описания
+        if (fullProfile) {
+            window.currentCompatibilityProfileData = {
+                id: dialogsCurrentPartnerId,
+                userGender: fullProfile.userGender || null,
+                userAge: fullProfile.userAge || null,
+                targetGender: fullProfile.targetGender || [],
+                targetAgeMin: fullProfile.targetAgeMin || 18,
+                targetAgeMax: fullProfile.targetAgeMax || 80,
+                descriptionLevel1: fullProfile.descriptionLevel1 || '',
+                descriptionLevel2: fullProfile.descriptionLevel2 || '',
+                embedding: fullProfile.embedding || contact.embedding
+            };
+        } else {
+            // Fallback — хотя бы то, что есть в контакте
+            window.currentCompatibilityProfileData = {
+                id: dialogsCurrentPartnerId,
+                embedding: contact.embedding,
+                descriptionLevel1: contact.description || ''
+            };
+        }
+        
         setTimeout(() => {
             const embedInput = document.getElementById('candidateEmbeddingInput');
             const descInput = document.getElementById('candidateDescriptionInput');
-
+            
             if (embedInput) {
                 embedInput.value = contact.embedding;
                 if (typeof validateCandidateInput === 'function') {
                     validateCandidateInput();
                 }
             }
-
-            if (descInput && contact.description) {
-                descInput.value = contact.description;
+            
+            if (descInput) {
+                // Формируем описание: текст + пол/возраст если есть
+                let desc = '';
+                
+                if (fullProfile) {
+                    const parts = [];
+                    if (fullProfile.userGender === 'male') parts.push('Мужчина');
+                    else if (fullProfile.userGender === 'female') parts.push('Женщина');
+                    if (fullProfile.userAge) parts.push(`${fullProfile.userAge} лет`);
+                    if (parts.length > 0) desc += parts.join(', ') + '.\n';
+                    if (fullProfile.descriptionLevel1) desc += fullProfile.descriptionLevel1;
+                } else if (contact.description) {
+                    desc = contact.description;
+                }
+                
+                descInput.value = desc.trim();
+            }
+            
+            // Обновляем превью профилей если переключатель включён
+            if (typeof onCompatProfileModeChange === 'function') {
+                onCompatProfileModeChange();
             }
         }, 150);
     }
