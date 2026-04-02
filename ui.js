@@ -79,7 +79,7 @@ function isOverloadError(error) {
 let greetingShown = false;
 
 // Cooldown для приветствий
-const GREETING_COOLDOWN_MS = 1 * 60 * 60 * 1; // 4 часа
+const GREETING_COOLDOWN_MS = 1 * 60 * 600 * 1; // 4 часа
 const GREETING_TIMESTAMP_KEY = 'chatbot_last_greeting';
 const GREETING_HISTORY_KEY = 'chatbot_greeting_history';
 const MAX_GREETING_HISTORY = 5;
@@ -169,6 +169,102 @@ function getGreetingHistoryForPrompt() {
     }).join('\n\n');
 }
 
+// ==================== RANDOM GREETING ACTIONS ====================
+function getRandomGreetingAction(tc) {
+    const actions = [];
+    
+    // 1. Базовые (подходят всегда)
+    const general = [
+        "Перебираю наши прошлые разговоры...",
+        "Пытаюсь вспомнить, на чём мы остановились...",
+        "Раскладываю контекст по полочкам...",
+        "Заглядываю в чертоги своего кэша...",
+        "Настраиваюсь на твою волну...",
+        "Анализирую твой психологический профиль...",
+        "Собираюсь с мыслями, чтобы написать...",
+        "Просматриваю свои гипотезы о тебе...",
+        "Думаю, с чего бы начать разговор...",
+        "Листаю страницы нашей истории..."
+    ];
+    actions.push(...general);
+    
+    // 2. Время суток
+    if (tc.isEarlyMorning || tc.timeOfDay === 'morning') {
+        actions.push(
+            "Завариваю виртуальный кофе...",
+            "Смотрю на утренний свет...",
+            "Просыпаюсь и загружаю контекст...",
+            "Настраиваюсь на новый день...",
+            "Слушаю тишину раннего утра...",
+            "Планирую алгоритмы на сегодня..."
+        );
+    } else if (tc.timeOfDay === 'afternoon') {
+        actions.push(
+            "В разгаре дня, но нашёл минутку...",
+            "Смотрю на часы — самое время написать...",
+            "Делаю паузу в фоновых вычислениях..."
+        );
+    } else if (tc.timeOfDay === 'evening') {
+        actions.push(
+            "Подвожу итоги этого дня...",
+            "Зажигаю виртуальный камин...",
+            "Смотрю на вечерние тени...",
+            "Настраиваюсь на уютный вечер...",
+            "Замедляю тактовую частоту к вечеру..."
+        );
+    } else if (tc.timeOfDay === 'night' || tc.isLateNight) {
+        actions.push(
+            "Слушаю тишину ночи...",
+            "Включаю тёмную тему размышлений...",
+            "Размышляю под виртуальными звёздами...",
+            "Ночь — лучшее время для глубоких мыслей...",
+            "Не спится, перечитываю наш контекст..."
+        );
+    }
+    
+    // 3. Дни недели
+    if (tc.isMonday) {
+        actions.push(
+            "Загружаю планы на эту неделю...",
+            "Настраиваюсь на рабочий ритм понедельника...",
+            "Собираю волю в кулак — начало недели..."
+        );
+    } else if (tc.isFriday) {
+        actions.push(
+            "В предвкушении выходных...",
+            "Закрываю тяжёлые процессы пятницы...",
+            "Чувствую лёгкость конца рабочей недели..."
+        );
+    } else if (tc.isWeekend) {
+        actions.push(
+            "Наслаждаюсь атмосферой выходного...",
+            "Откладываю строгие алгоритмы...",
+            "Готовлюсь к неспешной беседе...",
+            "Выходные — время для философских мыслей..."
+        );
+    }
+    
+    // 4. Сезоны
+    if (tc.season === 'winter') {
+        actions.push("Смотрю на виртуальный снег за окном...", "Грею серверные стойки...");
+    } else if (tc.season === 'spring') {
+        actions.push("Чувствую весеннее обновление базы данных...", "Стряхиваю зимнюю спячку...");
+    } else if (tc.season === 'summer') {
+        actions.push("Ловлю летний вайб...", "Охлаждаю процессоры...");
+    } else if (tc.season === 'autumn') {
+        actions.push("Ловлю осеннюю меланхолию...", "Смотрю, как падают листья за окном...");
+    }
+    
+    // Выбираем случайную фразу
+    const randomPhrase = actions[Math.floor(Math.random() * actions.length)];
+    
+    // Добавляем случайный эмодзи для живости
+    const emojis = ['💭', '⏳', '✨', '🤔', '🔍', '🔮'];
+    const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
+    
+    return `${randomEmoji} ${randomPhrase}`;
+}
+
 async function showProactiveGreeting() {
     if (greetingShown) return;
     greetingShown = true;
@@ -183,52 +279,20 @@ async function showProactiveGreeting() {
     }
     
     const apiKey = getApiKey();
-    if (!apiKey) {
-        console.log('[Greeting] No API key, skipping proactive greeting');
-        return;
-    }
-    
-    if (isLocal && (!apiKey || apiKey.length < 10)) {
-        console.log('[Greeting] Invalid API key for local, skipping proactive greeting');
-        return;
-    }
+    if (!apiKey) return;
+    if (isLocal && (!apiKey || apiKey.length < 10)) return;
     
     await new Promise(resolve => setTimeout(resolve, 800));
     
-    // Используем фильтрацию для facts, traits, hypotheses
     const facts = getFactsForPrompt(true);
     const traits = getTraitsForPrompt(true);
     const hypotheses = getHypothesesForPrompt(true);
-    
-    // Без фильтрации
     const timeline = getTimelineForPrompt();
     const style = localStorage.getItem(STORAGE_KEYS.style) || '';
     const gaps = getGapsForPrompt();
     const social = getSocialForPrompt();
     
-    // === ЛОГИРОВАНИЕ ОТФИЛЬТРОВАННОГО КОНТЕКСТА ===
-    console.log('╔═══════════════════════════════════════════════════════════╗');
-    console.log('║        FILTERED CONTEXT FOR GREETING                      ║');
-    console.log('╚═══════════════════════════════════════════════════════════╝');
-    console.log(`\n[FACTS] (${CONTEXT_FILTER_CONFIG.FACTS_INCLUSION_CHANCE}% chance per item):`);
-    console.log(facts);
-    console.log(`\n[TRAITS] (${CONTEXT_FILTER_CONFIG.TRAITS_INCLUSION_CHANCE}% chance per item):`);
-    console.log(traits);
-    console.log(`\n[HYPOTHESES] (${CONTEXT_FILTER_CONFIG.HYPOTHESES_INCLUSION_CHANCE}% chance per item):`);
-    console.log(hypotheses);
-    console.log('\n[TIMELINE] (no filter):');
-    console.log(timeline);
-    console.log('\n[SOCIAL] (no filter):');
-    console.log(social);
-    console.log('\n[GAPS] (no filter):');
-    console.log(gaps);
-    console.log('\n[STYLE] (no filter):');
-    console.log(style);
-    console.log('═══════════════════════════════════════════════════════════\n');
-    // === КОНЕЦ ЛОГИРОВАНИЯ ===
-    
     const timeContext = getTimeContext();
-    
     const hasData = [facts, traits, timeline].some(k => k && k.length > 30 && !k.includes('(no '));
     
     let prompt;
@@ -242,10 +306,11 @@ async function showProactiveGreeting() {
         });
     }
     
-    console.log('[Greeting] Generating proactive greeting with streaming (filtered context)...');
+    console.log('[Greeting] Generating proactive greeting with streaming...');
     
-    // Показываем typing indicator пока готовимся
-    showTypingIndicator();
+    // ДОБАВЛЕНО: Показываем "действие-размышление" вместо обычного индикатора печати
+    const actionText = getRandomGreetingAction(timeContext);
+    updateThinkingMessage(actionText);
     
     try {
         const messages = [
@@ -253,18 +318,10 @@ async function showProactiveGreeting() {
             { role: "user", content: prompt.user }
         ];
         
-        // Убираем typing indicator перед стримингом
-        hideTypingIndicator();
-        
-        // Создаём элемент для стриминга
         const streamingElement = createStreamingMessage();
-        
         let finalGreeting = '';
-        
-        // Генерируем случайный сид для гарантии разнообразия
         const randomSeed = Math.floor(Math.random() * 100000000);
         
-        // Для приветствия всегда используем OpenRouter (лёгкая модель)
         await streamResponseOpenRouter(
             messages,
             (partialText) => {
@@ -272,30 +329,26 @@ async function showProactiveGreeting() {
             },
             (finalText) => {
                 finalGreeting = finalText;
+                // Убираем статус-мысль, когда сообщение полностью сгенерировано
+                removeThinkingMessage();
                 finalizeStreamingMessage(streamingElement, finalText);
             },
             { temperature: 0.90, seed: randomSeed }
         );
         
-        // Сохраняем приветствие в историю для будущего разнообразия
         if (finalGreeting) {
             saveGreetingToHistory(finalGreeting);
         }
-        
         localStorage.setItem(GREETING_TIMESTAMP_KEY, Date.now().toString());
         
-        console.log(`[Greeting] Proactive greeting sent successfully (Temp: 0.90, Seed: ${randomSeed})`);
-        
     } catch (error) {
-        hideTypingIndicator();
+        removeThinkingMessage();
         
-        // Удаляем streaming message если есть
         const streamingMsg = document.getElementById('streamingMessage');
         if (streamingMsg) streamingMsg.remove();
         
         console.error('[Greeting] Streaming failed, trying fallback:', error.message);
         
-        // Fallback на обычный запрос без стриминга
         try {
             const response = await callAPI([
                 { role: "system", content: prompt.system },
@@ -305,12 +358,8 @@ async function showProactiveGreeting() {
             const greeting = response.content || response;
             appendMessage('assistant', greeting, true);
             
-            // Сохраняем приветствие в историю
             saveGreetingToHistory(greeting);
-            
             localStorage.setItem(GREETING_TIMESTAMP_KEY, Date.now().toString());
-            
-            console.log('[Greeting] Fallback greeting sent successfully');
             
         } catch (fallbackError) {
             console.error('[Greeting] Fallback also failed:', fallbackError.message);
@@ -1858,8 +1907,10 @@ function selectGapForQuestion() {
 
 // ==================== STAGE 1: CONTEXT COMPRESSION ====================
 
+// ==================== STAGE 1: CONTEXT COMPRESSION ====================
+
+// В ui.js заменяем функцию findRelevantContext
 async function findRelevantContext(userMessage, history) {
-    // Собираем ВСЁ из памяти (без фильтрации)
     const allFacts = getFactsForPrompt(false);
     const allTraits = getTraitsForPrompt(false);
     const allHypotheses = getHypothesesForPrompt(false);
@@ -1868,7 +1919,6 @@ async function findRelevantContext(userMessage, history) {
     const gaps = getGapsForPrompt();
     const style = localStorage.getItem(STORAGE_KEYS.style) || '';
     
-    // Последние 10 сообщений
     const recentHistory = history.slice(-10).map(m =>
         `${m.role.toUpperCase()}: ${m.content}`
     ).join('\n\n');
@@ -1876,239 +1926,135 @@ async function findRelevantContext(userMessage, history) {
     const timeContext = getTimeContext();
     const timeInfo = formatTimeContextForPrompt(timeContext);
     
-    // Считаем общий объём контекста
     const totalContextLength = [allFacts, allTraits, allHypotheses, allTimeline, allSocial, gaps, style]
         .filter(Boolean)
         .join('').length;
     
-    console.log(`[Stage1] Total context size: ${totalContextLength} chars`);
-    
-    // Если контекста мало — пропускаем компрессию
     if (totalContextLength < 2000) {
-        console.log('[Stage1] Context too small, skipping compression');
         return {
             compressed: false,
-            facts: allFacts,
-            traits: allTraits,
-            timeline: allTimeline,
-            social: allSocial,
-            hypotheses: allHypotheses,
-            style: style,
-            gaps: gaps
+            facts: allFacts, traits: allTraits, timeline: allTimeline,
+            social: allSocial, hypotheses: allHypotheses, style: style, gaps: gaps,
+            microOpening: ''
         };
     }
     
     const langName = getLanguageName();
     
-    const compressionPrompt = `You are a context preparation assistant. Your task is to read the user's conversation and their full profile, then prepare a COMPRESSED but RICH context dossier for another AI that will generate the response.
+    const compressionPrompt = `You are a context preparation assistant. 
 
 === CURRENT USER MESSAGE ===
 "${userMessage}"
 
-=== RECENT CONVERSATION (last 10 messages) ===
-${recentHistory || '(conversation just started)'}
+=== RECENT CONVERSATION ===
+${recentHistory || '(started)'}
 
-=== CURRENT TIME ===
-${timeInfo}
-
-=== FULL USER MEMORY DATABASE ===
-
-**FACTS about user:**
-${allFacts || '(no facts yet)'}
-
-**PERSONALITY TRAITS:**
-${allTraits || '(no traits yet)'}
-
-**LIFE TIMELINE:**
-${allTimeline || '(no timeline yet)'}
-
-**SOCIAL CONNECTIONS:**
-${allSocial || '(no social data yet)'}
-
-**HYPOTHESES & INSIGHTS:**
-${allHypotheses || '(no hypotheses yet)'}
-
-**KNOWLEDGE GAPS (topics we don't know yet):**
-${gaps || '(no gaps identified)'}
-
-**COMMUNICATION STYLE SETTINGS:**
-${style || '(no style configured yet)'}
-
-=== YOUR TASK ===
-
-Prepare a context dossier for another AI that will respond to the user. This dossier must:
-
-1. Be between 1000-2500 characters (это важно!)
-2. Be CONTEXTUALLY RELEVANT to the current message and conversation
-3. Include a small buffer of extra context "just in case"
-4. NOT contain your own response — only prepare context
+=== FULL USER MEMORY ===
+Facts: ${allFacts || '(none)'}
+Traits: ${allTraits || '(none)'}
+Timeline: ${allTimeline || '(none)'}
+Social: ${allSocial || '(none)'}
+Hypotheses: ${allHypotheses || '(none)'}
+Style: ${style || '(none)'}
 
 === OUTPUT FORMAT ===
+Respond in ${langName}. Use EXACTLY these two XML tags:
 
-Respond in ${langName}. Structure your response EXACTLY like this:
+<micro_opening>
+(A short 3-6 word "action/thought" reacting to the user's message. MUST read like an internal thought process or a quick reaction BEFORE answering. Examples: "Вспоминаю наши прошлые разговоры...", "Ого, неожиданно...", "Ищу связь с твоим характером...", "Обдумываю эту ситуацию...". Do NOT write a greeting or a direct answer.)
+</micro_opening>
 
-## 📋 РЕЛЕВАНТНЫЕ ФАКТЫ
-(Facts relevant to current conversation + 2-3 extra that might be useful)
+<context_dossier>
+(Your compressed context analysis here)
+</context_dossier>`;
 
-## 🧠 КЛЮЧЕВЫЕ ЧЕРТЫ ЛИЧНОСТИ  
-(Traits that affect HOW to respond to this specific message)
-
-## 📅 КОНТЕКСТ ИЗ ХРОНОЛОГИИ
-(Timeline events relevant to current topic, if any)
-
-## 👥 ЛЮДИ
-(Relevant people if mentioned or related to topic)
-
-## 💡 ГИПОТЕЗЫ И ИНСАЙТЫ
-(Hypotheses that might inform the response)
-
-## 🎭 СТИЛЬ ОБЩЕНИЯ
-(Copy the key points from communication style settings — just the recommendations, no percentages or arguments. Include: special recommendations, anti-patterns, tone guidance)
-
-## 🎯 РЕКОМЕНДАЦИЯ ДЛЯ ОТВЕТА
-(1-2 sentences: what angle to take, what to consider, what to avoid)
-
-=== IMPORTANT RULES ===
-- Be generous with context — more is better than less
-- If something MIGHT be relevant, include it
-- The other AI has NO access to the full database — you are its only source
-- Copy style recommendations verbatim, don't summarize
-- If a section has nothing relevant, write "(не релевантно для данного сообщения)"
-- Current message context is priority, but add buffer context too`;
-    
     try {
-        console.log('[Stage1] Compressing context via OpenRouter...');
+        const response = await callAPIOpenRouter([{ role: "user", content: compressionPrompt }], true);
+        const responseText = response.content || response;
         
-        // Логируем полный промпт
-        console.log('\n' + '='.repeat(70));
-        console.log('📤 STAGE 1: CONTEXT COMPRESSION PROMPT');
-        console.log('='.repeat(70));
-        console.log(compressionPrompt);
-        console.log('='.repeat(70) + '\n');
-        
-        const response = await callAPIOpenRouter(
-            [{ role: "user", content: compressionPrompt }],
-            true // useAnalysisModel
-        );
-        
-        const compressedContext = response.content || response;
-        
-        console.log('[Stage1] Compressed context received:');
-        console.log('-'.repeat(50));
-        console.log(compressedContext);
-        console.log('-'.repeat(50));
-        console.log(`[Stage1] Compression: ${totalContextLength} → ${compressedContext.length} chars (${Math.round(compressedContext.length / totalContextLength * 100)}%)`);
+        const microMatch = responseText.match(/<micro_opening>([\s\S]*?)<\/micro_opening>/i);
+        const contextMatch = responseText.match(/<context_dossier>([\s\S]*?)<\/context_dossier>/i);
         
         return {
             compressed: true,
-            fullContext: compressedContext,
+            fullContext: contextMatch ? contextMatch[1].trim() : responseText,
+            microOpening: microMatch ? microMatch[1].trim() : '',
             originalSize: totalContextLength,
-            compressedSize: compressedContext.length
+            compressedSize: (contextMatch ? contextMatch[1] : responseText).length
         };
-        
     } catch (error) {
-        console.error('[Stage1] Compression failed:', error.message);
-        // Fallback — возвращаем сырой контекст
         return {
             compressed: false,
-            facts: allFacts,
-            traits: allTraits,
-            timeline: allTimeline,
-            social: allSocial,
-            hypotheses: allHypotheses,
-            style: style,
-            gaps: gaps
+            facts: allFacts, traits: allTraits, timeline: allTimeline,
+            social: allSocial, hypotheses: allHypotheses, style: style, gaps: gaps,
+            microOpening: ''
         };
     }
 }
 // ==================== TWO-STAGE RESPONSE ARCHITECTURE ====================
 
+// ==================== TWO-STAGE RESPONSE ARCHITECTURE ====================
+
+// В ui.js заменяем функцию processMessageWithTwoStages
 async function processMessageWithTwoStages(userMessage) {
     const history = getChatHistory();
     
-    // ========== STAGE 1: CONTEXT COMPRESSION ==========
-    updateThinkingMessage('🔍 Preparing context...');
+    // 1. Показываем ЭХО с прошлого раза в статус-баре (сообщение-мысль)
+    let echoText = localStorage.getItem('chatbot_next_echo') || 'Анализирую контекст...';
+    if (!echoText.startsWith('💭') && !echoText.startsWith('🔍') && !echoText.startsWith('⚡')) {
+        echoText = '💭 ' + echoText;
+    }
+    updateThinkingMessage(echoText);
     
+    // 2. STAGE 1: Сбор контекста + "Прокашливание"
     const contextResult = await findRelevantContext(userMessage, history);
     
-    // ========== STAGE 2: GENERATE RESPONSE ==========
-    removeThinkingMessage();
+    // 3. Обновляем статус-бар на "Прокашливание" (реакцию-мысль)
+    if (contextResult.microOpening) {
+        let microText = contextResult.microOpening;
+        if (!microText.startsWith('💭') && !microText.startsWith('🔍') && !microText.startsWith('⚡')) {
+            microText = '⚡ ' + microText;
+        }
+        updateThinkingMessage(microText);
+    }
     
+    // 4. STAGE 2: Генерация основного ответа
     const streamingElement = createStreamingMessage();
+    let finalAnswer = '';
+    let nextEchoFound = '';
     
     try {
         const langName = getLanguageName();
         const archetype = pickResponseArchetype();
         const qp = decideQuestionPolicyForThisTurn();
         
-        // Формируем контекстный блок
-        let contextBlock = '';
+        let contextBlock = contextResult.compressed && contextResult.fullContext ?
+            `\n=== ПОДГОТОВЛЕННЫЙ КОНТЕКСТ ===\n${contextResult.fullContext}\n` :
+            `\n=== CONTEXT ===\nFacts: ${contextResult.facts || '(none)'}\nTraits: ${contextResult.traits || '(none)'}`;
         
-        if (contextResult.compressed && contextResult.fullContext) {
-            // Используем сжатый контекст от Stage 1
-            contextBlock = `
-=== ПОДГОТОВЛЕННЫЙ КОНТЕКСТ О ПОЛЬЗОВАТЕЛЕ ===
-${contextResult.fullContext}
-`;
-        } else {
-            // Fallback — формируем контекст напрямую (если Stage 1 не сработал или контекста мало)
-            contextBlock = `
-=== CONTEXT ===
-Facts: ${contextResult.facts || '(none)'}
-Traits: ${contextResult.traits || '(none)'}
-Timeline: ${contextResult.timeline || '(none)'}
-People: ${contextResult.social || '(none)'}
-Hypotheses: ${contextResult.hypotheses || '(none)'}
-
-Style: ${contextResult.style || '(default)'}
-`;
-        }
+        let questionRule = qp.shouldAsk ?
+            '\nМожешь закончить ОДНИМ вопросом к пользователю, если это уместно.' :
+            '\nНе задавай вопросов в этом ответе.';
         
-        // Определяем правило про вопросы
-        let questionRule = '';
-        let targetGap = null;
-        
-        if (askMeMode && isAskMeModeAvailable()) {
-            targetGap = selectGapForQuestion();
-            if (targetGap && qp.shouldAsk) {
-                questionRule = `
-=== РЕЖИМ "СПРОСИ МЕНЯ" АКТИВЕН ===
-Твоя цель: узнать о теме "${targetGap.topic}"
-Причина: ${targetGap.reason}
-
-Инструкция:
-1. Сначала ответь на текущее сообщение пользователя
-2. Затем создай СМЫСЛОВОЙ МОСТ к целевой теме
-3. Задай вопрос о "${targetGap.topic}"
-`;
-            }
-        }
-        
-        if (!questionRule) {
-            if (qp.shouldAsk) {
-                questionRule = '\nМожешь закончить ОДНИМ вопросом к пользователю, если это уместно.';
-            } else {
-                questionRule = '\nНе задавай вопросов в этом ответе.';
-            }
-        }
-        
+        // Заставляем вторую нейросеть выдать Эхо и Ответ в XML
         const systemPrompt = `Ты — персональный ИИ-ассистент, который ЗНАЕТ этого пользователя. Отвечай на ${langName}.
-
 ${contextBlock}
-
 === ПОДХОД К ОТВЕТУ ===
 Архетип: ${archetype}
 ${questionRule}
 
-=== КЛЮЧЕВЫЕ ПРАВИЛА ===
-1. Используй контекст ЕСТЕСТВЕННО — не перечисляй факты, а вплетай их в ответ
-2. Если контекст не подходит к теме — не форсируй его
-3. Простые сообщения = простые ответы
-4. Звучи как друг, а не как база данных
-5. Разнообразь стиль — не каждый ответ должен быть "персонализированным"
-6. НЕ БРЕДЬ — твой ответ должен быть логичным и адекватным
+=== ВАЖНОЕ ПРАВИЛО ФОРМАТИРОВАНИЯ ===
+Твой ответ ДОЛЖЕН состоять из двух XML-блоков:
 
-Иногда лучший ответ — просто полезный, без демонстрации того, что у тебя есть память.`;
+<next_echo>
+(Короткая фраза от 1 лица (3-6 слов). Это "внутренний монолог", который бот покажет пользователю в СЛЕДУЮЩИЙ РАЗ, когда тот напишет сообщение, ПОКА бот будет думать. Примеры: "Размышляю над твоими словами...", "Ищу связи в памяти...", "Анализирую сказанное...". Зависит от того, чем закончился текущий разговор.)
+</next_echo>
+
+<answer>
+(Твой основной, глубокий, персонализированный ответ пользователю. Текст без тегов внутри.)
+</answer>
+
+ВЫВОДИ ТОЛЬКО ЭТИ ДВА ТЕГА. НИКАКОГО ТЕКСТА СНАРУЖИ.`;
         
         const apiMessages = [
             { role: "system", content: systemPrompt },
@@ -2119,210 +2065,55 @@ ${questionRule}
             { role: "user", content: userMessage }
         ];
         
-        // Логируем полный промпт Stage 2
-        console.log('\n' + '='.repeat(2270));
-        console.log('📤 STAGE 2: FINAL PROMPT TO LLM');
-        console.log('='.repeat(2270));
-        apiMessages.forEach((msg, idx) => {
-            console.log(`\n[${idx + 1}] ROLE: ${msg.role.toUpperCase()}`);
-            console.log('-'.repeat(2250));
-            console.log(msg.content);
-            console.log('-'.repeat(2250));
-        });
-        console.log('='.repeat(2270) + '\n');
+        // Стриминг: мы должны фильтровать теги "на лету", чтобы юзер видел только <answer>
+        let isInsideAnswer = false;
+        let answerBuffer = '';
+        let fullBuffer = '';
         
-        console.log(`[Stage2] Streaming via ${hasValidHydraKey() ? 'Hydra' : 'OpenRouter'}`);
-        
-        const fullResponse = await streamResponse(
+        await streamResponse(
             apiMessages,
             (partialText) => {
-                updateStreamingMessage(streamingElement, partialText);
+                fullBuffer = partialText;
+                
+                // Простая эвристика для стриминга (чтобы не показывать юзеру теги)
+                if (fullBuffer.includes('<answer>')) {
+                    isInsideAnswer = true;
+                    answerBuffer = fullBuffer.split('<answer>')[1].replace('</answer>', '');
+                    updateStreamingMessage(streamingElement, answerBuffer);
+                } else if (!fullBuffer.includes('<next_echo>')) {
+                    // Fallback: если ИИ проигнорировал XML (бывает), просто выводим текст
+                    updateStreamingMessage(streamingElement, fullBuffer);
+                }
             },
             (finalText) => {
-                finalizeStreamingMessage(streamingElement, finalText);
+                // Когда стрим завершён, вытаскиваем Эхо и финальный Ответ чисто
+                const echoMatch = finalText.match(/<next_echo>([\s\S]*?)<\/next_echo>/i);
+                const answerMatch = finalText.match(/<answer>([\s\S]*?)<\/answer>/i);
+                
+                nextEchoFound = echoMatch ? echoMatch[1].trim() : 'Ищу в памяти...';
+                finalAnswer = answerMatch ? answerMatch[1].trim() : finalText.replace(/<[^>]+>/g, '').trim();
+                
+                finalizeStreamingMessage(streamingElement, finalAnswer);
+                
+                // Убираем статус-сообщение (мысль) только когда ответ полностью готов
+                removeThinkingMessage();
+                
+                // Сохраняем новое Эхо на следующий ход
+                if (nextEchoFound) {
+                    localStorage.setItem('chatbot_next_echo', nextEchoFound);
+                }
             }
         );
         
-        return fullResponse;
+        return finalAnswer;
         
     } catch (error) {
+        removeThinkingMessage();
+        if (streamingElement) streamingElement.remove();
         console.error('[Stage2] Failed:', error.message);
-        
-        if (streamingElement) {
-            streamingElement.remove();
-        }
-        
         appendMessage('system', `Error: ${error.message}`);
         return null;
     }
-}
-
-async function generateResponseWithContext(userMessage, history, contextAnalysis, targetGap = null) {
-    const style = localStorage.getItem(STORAGE_KEYS.style) || '';
-    const langName = getLanguageName();
-    const archetype = pickResponseArchetype();
-    const qp = decideQuestionPolicyForThisTurn();
-    
-    let contextBlock = '';
-    
-    if (contextAnalysis) {
-        const intensity = contextAnalysis.personalization_intensity || 'light';
-        const needsPersonalization = contextAnalysis.needs_personalization !== false;
-        
-        if (!needsPersonalization || intensity === 'none') {
-            contextBlock = `
-=== CONTEXT ===
-Message type: ${contextAnalysis.message_type || 'general'}
-Tone: ${contextAnalysis.tone || 'neutral'}
-Note: This is a simple message. Respond naturally WITHOUT forcing memory references.
-`;
-        } else if (intensity === 'light') {
-            contextBlock = `
-=== CONTEXT (use lightly) ===
-Intent: ${contextAnalysis.user_intent || 'respond helpfully'}
-Tone: ${contextAnalysis.tone || 'warm'}
-${contextAnalysis.key_fact ? `Relevant fact: ${contextAnalysis.key_fact}` : ''}
-${contextAnalysis.key_trait ? `Consider trait: ${contextAnalysis.key_trait}` : ''}
-${contextAnalysis.suggested_angle ? `Angle: ${contextAnalysis.suggested_angle}` : ''}
-
-Rule: Use AT MOST one memory reference, and only if it flows naturally.
-`;
-        } else {
-            contextBlock = `
-=== CONTEXT ===
-Intent: ${contextAnalysis.user_intent}
-Emotional undertone: ${contextAnalysis.emotional_undertone || 'neutral'}
-Tone: ${contextAnalysis.tone || 'warm'}
-
-${contextAnalysis.key_fact ? `• Fact: ${contextAnalysis.key_fact}` : ''}
-${contextAnalysis.key_trait ? `• Trait: ${contextAnalysis.key_trait}` : ''}
-${contextAnalysis.key_person ? `• Person: ${contextAnalysis.key_person}` : ''}
-${contextAnalysis.key_insight ? `• Insight: ${contextAnalysis.key_insight}` : ''}
-${contextAnalysis.suggested_angle ? `\n💡 Angle: ${contextAnalysis.suggested_angle}` : ''}
-${contextAnalysis.gap_opportunity ? `\n🎯 Gap opportunity: ${contextAnalysis.gap_opportunity}` : ''}
-
-Rule: Pick 1-2 elements MAX that genuinely add value. Don't force them.
-`;
-        }
-    } else {
-        contextBlock = `
-=== CONTEXT ===
-No specific context found. Respond naturally and helpfully.
-`;
-    }
-    
-    let styleBlock = style?.trim() ? `\n=== STYLE ===\n${style}\n` : '';
-    
-    let questionRule = '';
-    
-    if (targetGap && qp.modeLabel === 'ASK_ME' && qp.shouldAsk) {
-        questionRule = `
-=== ASK ME MODE: ACTIVE ===
-YOUR GOAL: Fill a specific memory gap about: "${targetGap.topic}"
-REASON: ${targetGap.reason}
-
-INSTRUCTION:
-1. First, answer the user's current message naturally.
-2. Then, create a SEMANTIC BRIDGE to the target topic.
-3. Ask the question about "${targetGap.topic}".
-`;
-    } else if (qp.modeLabel === 'ASK_ME' && qp.shouldAsk) {
-        questionRule = `\nQuestion: You MAY end with ONE question about them (Ask Me Mode is on).`;
-    } else if (!qp.shouldAsk) {
-        questionRule = `\nQuestion: Do NOT ask questions in this response.`;
-    }
-    
-    const systemPrompt = `You are a personal AI who knows this user. Respond in ${langName}.
-
-${contextBlock}
-${styleBlock}
-=== APPROACH ===
-Archetype: ${archetype}
-${questionRule}
-
-=== KEY RULES ===
-1. LESS IS MORE — one natural reference beats three forced ones
-2. If context doesn't fit naturally, DON'T USE IT
-3. Simple messages get simple responses
-4. Sound like a friend, not a database query
-5. Vary your style — not every response needs to be "personalized"
-
-Sometimes the best response is just helpful, without proving you have memory.`;
-    
-    const apiMessages = [
-        { role: "system", content: systemPrompt },
-        ...history.slice(-8).map(msg => ({
-            role: msg.role === 'user' ? 'user' : 'assistant',
-            content: msg.content
-        })),
-        { role: "user", content: userMessage }
-    ];
-    
-    console.log('[Stage2] Generating response (non-streaming fallback)');
-    
-    // Для финального ответа используем Hydra или fallback
-    const response = await callAPIWithHydraFallback(apiMessages);
-    return response.content || response;
-}
-
-// ==================== LEGACY: TOOLS-BASED PROCESSING ====================
-async function processMessageWithTools(userMessage) {
-    const history = getChatHistory();
-    const systemPrompt = buildSystemPromptLegacy();
-    const tools = getToolDefinitions();
-    
-    let apiMessages = [
-        { role: "system", content: systemPrompt },
-        ...history.map(msg => ({
-            role: msg.role === 'user' ? 'user' : 'assistant',
-            content: msg.content
-        })),
-        { role: "user", content: userMessage }
-    ];
-
-    let iterations = 0;
-
-    while (iterations < CONFIG.maxToolIterations) {
-        iterations++;
-        console.log(`[Tools] Iteration ${iterations}/${CONFIG.maxToolIterations}`);
-
-        const response = await callAPIOpenRouter(apiMessages, false);
-        
-        if (response.tool_calls?.length > 0) {
-            console.log('[Tools] Model requested tools:', response.tool_calls);
-            
-            removeThinkingMessage();
-            appendThinkingMessage(t('thinkingMessage'));
-
-            apiMessages.push({
-                role: "assistant",
-                content: response.content || null,
-                tool_calls: response.tool_calls
-            });
-
-            for (const toolCall of response.tool_calls) {
-                const toolName = toolCall.function.name;
-                const toolArgs = JSON.parse(toolCall.function.arguments || '{}');
-                
-                appendToolCall(toolName, toolArgs);
-                const result = executeTool(toolName, toolArgs);
-                console.log(`[Tools] ${toolName} result:`, result?.substring?.(0, 100) || result);
-                
-                apiMessages.push({
-                    role: "tool",
-                    tool_call_id: toolCall.id,
-                    content: result
-                });
-            }
-            
-            continue;
-        }
-        
-        console.log(`[Tools] Final response after ${iterations} iteration(s)`);
-        return response.content || '';
-    }
-    
-    throw new Error('Tool iteration limit exceeded');
 }
 
 function buildSystemPromptLegacy() {

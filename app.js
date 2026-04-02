@@ -181,9 +181,9 @@ const LIMITS = {
 
 // ==================== CONTEXT FILTERING CONFIG ====================
 const CONTEXT_FILTER_CONFIG = {
-    FACTS_INCLUSION_CHANCE: 100,      // % шанс включения каждого факта
-    TRAITS_INCLUSION_CHANCE: 100,     // % шанс включения каждой черты
-    HYPOTHESES_INCLUSION_CHANCE: 100  // % шанс включения каждой гипотезы
+    FACTS_INCLUSION_CHANCE: 90,      // % шанс включения каждого факта
+    TRAITS_INCLUSION_CHANCE: 90,     // % шанс включения каждой черты
+    HYPOTHESES_INCLUSION_CHANCE: 90  // % шанс включения каждой гипотезы
 };
 
 // ==================== CONFIDENCE LEVELS ====================
