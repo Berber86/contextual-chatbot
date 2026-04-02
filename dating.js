@@ -618,85 +618,7 @@ function getTopTraits(embedding, countPerPole = 5) {
 
 // ==================== COMPATIBILITY TAB ====================
 
-function renderCompatibilityTab() {
-    const container = document.getElementById('datingContent');
-    if (!container) return;
 
-    const savedEmbedding = getSavedEmbedding();
-
-    if (!savedEmbedding) {
-        container.innerHTML = `
-            <div class="dating-status dating-not-ready">
-                <div class="dating-icon">🔒</div>
-                <h3>Сначала создайте свой профиль</h3>
-                <p>Перейдите во вкладку "Мой профиль" и создайте личностный эмбеддинг.</p>
-                <button class="dating-btn dating-btn-details" onclick="switchDatingTab('profile')">← Мой профиль</button>
-            </div>`;
-        return;
-    }
-
-    const savedIdeal = getSavedIdeal();
-    const hasIdeal = savedIdeal && savedIdeal.searchScales;
-
-        container.innerHTML = `
-        <div class="compat-container">
-            <div class="compat-intro">
-                <div class="dating-icon">🧲</div>
-                <h3>Анализ совместимости</h3>
-                <p>Вставьте эмбеддинг другого человека. Можете добавить его описание для более глубокого анализа.</p>
-            </div>
-
-            <div class="compat-input-block">
-                <label class="compat-label">
-                    <span class="label-icon">🧬</span>
-                    <span>Эмбеддинг кандидата</span>
-                    <span class="label-required">*</span>
-                </label>
-                <input
-                    type="text"
-                    id="candidateEmbeddingInput"
-                    class="compat-embedding-input"
-                    placeholder="DATING_EMBED_V2|... или DATING_EMBED_V3|..."
-                    oninput="validateCandidateInput()"
-                >
-                <div class="compat-input-status" id="embedStatus"></div>
-            </div>
-
-            <div class="compat-input-block">
-                <label class="compat-label">
-                    <span class="label-icon">✍️</span>
-                    <span>Описание кандидата</span>
-                    <span class="label-optional">необязательно</span>
-                </label>
-                <textarea
-                    id="candidateDescriptionInput"
-                    class="compat-description-input"
-                    placeholder="Любая информация о человеке..."
-                    rows="4"
-                ></textarea>
-            </div>
-
-            <div class="compat-buttons-grid">
-                <button class="dating-generate-btn compat-btn" id="analyzeBtn" onclick="showPrivacyDisclaimer(() => runCompatibilityAnalysis())" disabled>
-                    🧠 Глубокий разбор
-                </button>
-                <button class="dating-generate-btn compat-btn compat-light-btn" id="analyzeLightBtn" onclick="showPrivacyDisclaimer(() => runLightCompatibilityAnalysis())" disabled ${!hasIdeal ? 'title="Сначала определите идеал во вкладке 💫"' : ''}>
-                    ⚡ Быстрый чек
-                </button>
-                <button class="dating-generate-btn compat-btn compat-mutual-btn" id="analyzeMutualBtn" onclick="showPrivacyDisclaimer(() => runMutualAnalysis())" disabled title="Нужен эмбеддинг V3 у обоих">
-                    💞 Взаимность и Динамика
-                </button>
-            </div>
-
-            <div id="mutualHint" class="compat-light-hint" style="display:none">
-                ℹ️ Для анализа «Взаимность» оба профиля должны быть формата V3 (создаётся автоматически, если заполнена вкладка «💫 Кто мне нужен»).
-            </div>
-
-            ${!hasIdeal ? '<p class="compat-light-hint">⚡ Быстрый чек и 💞 Взаимность доступны после заполнения вкладки "💫 Кто мне нужен?"</p>' : ''}
-
-            <div class="compat-result" id="compatResult"></div>
-        </div>`;
-}
 
 function validateCandidateInput() {
     const input = document.getElementById('candidateEmbeddingInput');
@@ -770,256 +692,14 @@ function validateCandidateInput() {
 
 // ==================== MODE 1: DEEP COMPATIBILITY ANALYSIS ====================
 
-async function runCompatibilityAnalysis() {
-    if (datingState.isAnalyzing) return;
-
-    const embedInput = document.getElementById('candidateEmbeddingInput');
-    const descInput = document.getElementById('candidateDescriptionInput');
-    const resultContainer = document.getElementById('compatResult');
-    const btn = document.getElementById('analyzeBtn');
-
-    if (!embedInput || !resultContainer || !btn) return;
-
-    const candidateEmbedding = parseEmbeddingFromExport(embedInput.value.trim());
-    if (!candidateEmbedding) return;
-
-    const candidateDescription = descInput?.value?.trim() || '';
-
-    window.currentCandidateDescription = candidateDescription;
-
-    datingState.isAnalyzing = true;
-    btn.disabled = true;
-    btn.innerHTML = '<span class="btn-spinner"></span> Анализирую...';
-
-    resultContainer.innerHTML = `
-        <div class="compat-loading">
-            <div class="dating-spinner"></div>
-            <p>Изучаю кандидата и вашу совместимость...</p>
-        </div>`;
-
-    try {
-        const userFacts = getFactsForPrompt(false);
-        const userTraits = getTraitsForPrompt(false);
-        const userTimeline = getTimelineForPrompt();
-        const userSocial = getSocialForPrompt();
-        const userHypotheses = getHypothesesForPrompt(false);
-        const userStyle = localStorage.getItem(STORAGE_KEYS.style) || '';
-        const candidateProfile = decodeCandidateEmbedding(candidateEmbedding);
-
-        const prompt = buildCompatibilityPrompt({
-            userFacts,
-            userTraits,
-            userTimeline,
-            userSocial,
-            userHypotheses,
-            userStyle,
-            candidateProfile,
-            candidateDescription
-        });
-
-        const streamingDiv = document.createElement('div');
-        streamingDiv.className = 'compat-analysis-text';
-        resultContainer.innerHTML = '';
-        resultContainer.appendChild(streamingDiv);
-
-        await streamResponseOpenRouter(
-            [{ role: "user", content: prompt }],
-            (partialText) => {
-                streamingDiv.innerHTML = formatMessageMarkdown(partialText);
-            },
-            (finalText) => {
-                streamingDiv.innerHTML = formatMessageMarkdown(finalText);
-            },
-            { temperature: 0.7 }
-        );
-        
-        appendCompatibilityActions(resultContainer);
-        
-                // Добавляем кнопки действий после анализа
-        const actionsDiv = document.createElement('div');
-        actionsDiv.className = 'compat-report-actions';
-        actionsDiv.innerHTML = `
-            <button class="dating-btn dating-btn-regenerate" onclick="closeDatingModal()">✕ Закрыть отчёт</button>
-            <button class="dating-btn dating-btn-copy" onclick="startDialogFromDating()" ${!window.currentCandidateId ? 'disabled title="Нет ID"' : ''}>💬 Написать кандидату</button>
-        `;
-        resultContainer.appendChild(actionsDiv);
-        
-    } catch (error) {
-        resultContainer.innerHTML = `
-            <div class="compat-error">
-                <p>❌ Ошибка: ${error.message}</p>
-                <button class="dating-btn" onclick="runCompatibilityAnalysis()">🔄 Попробовать снова</button>
-            </div>`;
-    } finally {
-        datingState.isAnalyzing = false;
-        btn.disabled = false;
-        btn.innerHTML = '🧠 Глубокий разбор';
-    }
-}
 
 // ==================== MODE 2: LIGHT COMPATIBILITY ANALYSIS ====================
 
-async function runLightCompatibilityAnalysis() {
-    if (datingState.isAnalyzing) return;
 
-    const embedInput = document.getElementById('candidateEmbeddingInput');
-    const descInput = document.getElementById('candidateDescriptionInput');
-    const resultContainer = document.getElementById('compatResult');
-    const btn = document.getElementById('analyzeLightBtn');
-
-    if (!embedInput || !resultContainer || !btn) return;
-
-    const candidateEmbedding = parseEmbeddingFromExport(embedInput.value.trim());
-    if (!candidateEmbedding) return;
-
-    const userEmbedding = getSavedEmbedding();
-    if (!userEmbedding) return;
-
-    const ideal = getSavedIdeal();
-    if (!ideal || !ideal.searchScales) return;
-
-    const candidateDescription = descInput?.value?.trim() || '';
-
-    datingState.isAnalyzing = true;
-    btn.disabled = true;
-    btn.innerHTML = '<span class="btn-spinner"></span> Анализирую...';
-
-    resultContainer.innerHTML = `
-        <div class="compat-loading">
-            <div class="dating-spinner"></div>
-            <p>Быстрый анализ по шкалам...</p>
-        </div>`;
-
-    try {
-        const matchReport = buildMatchReport(userEmbedding, candidateEmbedding, ideal);
-        const prompt = buildLightCompatibilityPrompt(matchReport, candidateDescription, ideal.expectations);
-
-        console.log('[Dating] Running light compatibility analysis...');
-
-        const streamingDiv = document.createElement('div');
-        streamingDiv.className = 'compat-analysis-text';
-        resultContainer.innerHTML = '';
-        resultContainer.appendChild(streamingDiv);
-
-        await streamResponseOpenRouter(
-            [{ role: "user", content: prompt }],
-            (partialText) => {
-                streamingDiv.innerHTML = formatMessageMarkdown(partialText);
-            },
-            (finalText) => {
-                streamingDiv.innerHTML = formatMessageMarkdown(finalText);
-            },
-            { temperature: 0.7 }
-        );
-    } catch (error) {
-        console.error('[Dating] Light analysis failed:', error);
-        resultContainer.innerHTML = `
-            <div class="compat-error">
-                <p>❌ Ошибка: ${error.message}</p>
-                <button class="dating-btn" onclick="runLightCompatibilityAnalysis()">🔄 Попробовать снова</button>
-            </div>`;
-    } finally {
-        datingState.isAnalyzing = false;
-        btn.disabled = false;
-        btn.innerHTML = '⚡ Быстрый чек';
-    }
-}
 
 // ==================== MODE 3: MUTUAL ANALYSIS & DYNAMICS ====================
 
-async function runMutualAnalysis() {
-    if (datingState.isAnalyzing) return;
 
-    const embedInput = document.getElementById('candidateEmbeddingInput');
-    const descInput = document.getElementById('candidateDescriptionInput');
-    const resultContainer = document.getElementById('compatResult');
-    const btn = document.getElementById('analyzeMutualBtn');
-
-    if (!embedInput || !resultContainer || !btn) return;
-
-    const candidateEmbedding = parseEmbeddingFromExport(embedInput.value.trim());
-    if (!candidateEmbedding || !candidateEmbedding.requirements) {
-        alert('Ошибка: У кандидата нет требований (нужен V3 эмбеддинг)');
-        return;
-    }
-
-    const userEmbedding = getSavedEmbedding();
-    const userIdeal = getSavedIdeal();
-
-    if (!userEmbedding || !userIdeal || !userIdeal.searchScales) {
-        alert('Ошибка: Заполните свой профиль и вкладку «Кто мне нужен»');
-        return;
-    }
-
-    datingState.isAnalyzing = true;
-    btn.disabled = true;
-    btn.innerHTML = '<span class="btn-spinner"></span> Прогнозирую будущее...';
-
-    resultContainer.innerHTML = `
-        <div class="compat-loading">
-            <div class="dating-spinner"></div>
-            <p>Моделирую динамику отношений...</p>
-        </div>`;
-
-    try {
-        // 1. Прямой мэтч: как КАНДИДАТ подходит ЮЗЕРУ
-        const directMatchReport = buildMatchReport(userEmbedding, candidateEmbedding, userIdeal);
-        const directSummary = summarizeMatchForPrompt(directMatchReport, 'direct');
-
-        // 2. Обратный мэтч: как ЮЗЕР подходит КАНДИДАТУ
-        const candidateIdealFake = {
-            searchScales: candidateEmbedding.requirements
-        };
-        const reverseMatchReport = buildMatchReport(candidateEmbedding, userEmbedding, candidateIdealFake);
-        const reverseSummary = summarizeMatchForPrompt(reverseMatchReport, 'reverse');
-
-        const candidateDescription = descInput?.value?.trim() || '';
-
-        // 3. Собираем контекст о юзере для живости
-        const userFacts = getFactsForPrompt(false);
-        const userTraits = getTraitsForPrompt(false);
-
-        // 4. Строим промпт
-        const prompt = buildMutualDynamicsPrompt({
-            userIdealText: userIdeal.expectations,
-            directSummary,
-            reverseSummary,
-            directReport: directMatchReport,
-            reverseReport: reverseMatchReport,
-            candidateDescription,
-            userFacts,
-            userTraits
-        });
-
-        const streamingDiv = document.createElement('div');
-        streamingDiv.className = 'compat-analysis-text';
-        resultContainer.innerHTML = '';
-        resultContainer.appendChild(streamingDiv);
-
-        await streamResponseOpenRouter(
-            [{ role: "user", content: prompt }],
-            (partialText) => {
-                streamingDiv.innerHTML = formatMessageMarkdown(partialText);
-            },
-            (finalText) => {
-                streamingDiv.innerHTML = formatMessageMarkdown(finalText);
-            },
-            { temperature: 0.8 }
-        );
-
-    } catch (error) {
-        console.error('[Dating] Mutual analysis failed:', error);
-        resultContainer.innerHTML = `
-            <div class="compat-error">
-                <p>❌ Ошибка: ${error.message}</p>
-                <button class="dating-btn" onclick="runMutualAnalysis()">🔄 Попробовать снова</button>
-            </div>`;
-    } finally {
-        datingState.isAnalyzing = false;
-        btn.disabled = false;
-        btn.innerHTML = '💞 Взаимность и Динамика';
-    }
-}
 
 // ==================== MATCH REPORT BUILDER ====================
 
@@ -1294,263 +974,9 @@ function appendCompatibilityActions(resultContainer) {
 
 // ==================== PROMPT BUILDERS ====================
 
-function buildCompatibilityPrompt(data) {
-    const {
-        userFacts,
-        userTraits,
-        userTimeline,
-        userSocial,
-        userHypotheses,
-        userStyle,
-        candidateProfile,
-        candidateDescription
-    } = data;
-
-    const langName = getLanguageName();
-
-    let candidateBlock = `=== ПСИХОЛОГИЧЕСКИЙ ПРОФИЛЬ КАНДИДАТА (50 шкал) ===\n${candidateProfile}`;
-    if (candidateDescription) {
-        candidateBlock += `\n\n=== ОПИСАНИЕ КАНДИДАТА ===\n${candidateDescription}`;
-    }
-
-    let styleBlock = '';
-    if (userStyle && userStyle.trim()) {
-        styleBlock = `\n\n=== СТИЛЬ ОБЩЕНИЯ С ЭТИМ ПОЛЬЗОВАТЕЛЕМ ===\nАдаптируй стиль анализа под этого пользователя:\n${userStyle}`;
-    }
-
-    return `Ты — проницательный аналитик отношений. Пиши на ${langName}.
-${styleBlock}
-
-=== ЗАДАЧА ===
-Проанализируй совместимость пользователя с кандидатом.
-
-ВАЖНО:
-- О пользователе ты знаешь ВСЁ из его данных — используй их
-- О кандидате знаешь только эмбеддинг (50 шкал от 0 до 1 и степень их возможного отклонения/достоверности) и возможно описание
-- Каждая шкала: 0 = абсолютно не выражено, 1.0 = крайне ярко выражено
-- Отклонение 0.05 — очень точная и уверенная оценка шкалы кандидата
-- Отклонение 0.15 — умеренно точная
-- Отклонение 0.25 — неточная и требует прояснения этой черты в диалоге с кандидатом
-
-- И НИЗКИЕ значения важны: 0.4 тревожности = весьма спокойный человек
-- НЕ используй эмбеддинг пользователя — у тебя есть живые данные о нём
-- Пиши ДЛЯ пользователя — соблюдай правила стиля общения с ним
-
-=== ВСЁ О ПОЛЬЗОВАТЕЛЕ ===
-
-**Факты:** ${userFacts || '(нет)'}
-**Черты:** ${userTraits || '(нет)'}
-**Хронология:** ${userTimeline || '(нет)'}
-**Социальные связи:** ${userSocial || '(нет)'}
-**Гипотезы:** ${userHypotheses || '(нет)'}
-
-${candidateBlock}
-
-=== СТРУКТУРА АНАЛИЗА ===
-
-1. **Суть** (2-3 предложения) — кто этот кандидат, первое впечатление от профиля через призму мира и личности пользователя
-2. **Где совпадёте** (3-4 пункта)
-3. **Где будет тереть** (3-4 пункта) — потенциальные трения. Честно, но не жестоко
-3.5 **Интересные многомерные комбинации** шкал и неочевидные наблюдения
-4. **Главное** (1-2 предложения) — чёткий вывод
-
-=== ПРАВИЛА ===
-
-- Используй валидную конкретику из жизни пользователя
-- Если у шкалы кандидата отклонение больше 0.20, не считай её твёрдым фактом
-- Если шкала из-за отклонения может оказаться по обе стороны важного порога, трактуй это как неопределённость, а не как совпадение
-- Низкие значения тоже значимы: 0.4 — это уже низкое значение
-- Если описания кандидата нет — скажи, что судишь по цифрам
-- Если у кандидата много недостоверных оценок — упомяни, что портрет размыт
-- Пиши как умный друг, адаптируй стиль под пользователя`;
-}
-
-function buildLightCompatibilityPrompt(report, candidateDescription, expectations) {
-    const langName = getLanguageName();
-    const userStyle = localStorage.getItem(STORAGE_KEYS.style) || '';
-
-    let styleBlock = '';
-    if (userStyle && userStyle.trim()) {
-        styleBlock = `\n=== СТИЛЬ ОБЩЕНИЯ ===\nАдаптируй стиль под пользователя:\n${userStyle}\n`;
-    }
-
-    const matchSection = formatMatchReportDetailed(report);
-
-    let userContext = '';
-    if (report.userHighlights.length > 0 || report.userLowlights.length > 0) {
-        userContext = '\n=== КЛЮЧЕВЫЕ ЧЕРТЫ ПОЛЬЗОВАТЕЛЯ ===\n';
-        if (report.userHighlights.length > 0) {
-            userContext += '🔥 Высокие: ' + report.userHighlights.map(e => `${e.emoji} ${e.name} ${e.percent}`).join(', ') + '\n';
-        }
-        if (report.userLowlights.length > 0) {
-            userContext += '🧊 Низкие: ' + report.userLowlights.map(e => `${e.emoji} ${e.name} ${e.percent}`).join(', ') + '\n';
-        }
-    }
-
-    let descBlock = '';
-    if (candidateDescription) {
-        descBlock = `\n=== ОПИСАНИЕ КАНДИДАТА ===\n${candidateDescription}\n`;
-    }
-
-    const totalExpected =
-        report.matchedHigh.length + report.failedHigh.length + report.uncertainHigh.length +
-        report.matchedLow.length + report.failedLow.length + report.uncertainLow.length;
-
-    const totalMatched = report.matchedHigh.length + report.matchedLow.length;
-    const totalUncertain = report.uncertainHigh.length + report.uncertainLow.length;
-
-    return `Ты — аналитик совместимости. Пиши на ${langName}.
-${styleBlock}
-
-=== ЗАДАЧА ===
-Сделай БЫСТРЫЙ анализ совместимости на основе ожиданий пользователя и проверки кандидата по шкалам.
-
-=== ОЖИДАНИЯ ПОЛЬЗОВАТЕЛЯ ОТ ПАРТНЁРА ===
-${expectations}
-
-=== РЕЗУЛЬТАТ ПРОВЕРКИ КАНДИДАТА ===
-Надёжно совпало: ${totalMatched}
-Неопределённых / размытых: ${totalUncertain}
-Всего проверенных ожиданий: ${totalExpected}
-
-${matchSection}
-${userContext}
-${descBlock}
-
-=== СТРУКТУРА ОТВЕТА ===
-1. **Счёт** — коротко, общее впечатление
-2. **Где повезло** — только про надёжные совпадения
-3. **Цена компромисса** — только про надёжные несовпадения
-4. **Что пока нельзя утверждать** — отдельно про размытые / недостоверные шкалы
-5. **Вердикт** — стоит ли пробовать, учитывая и совпадения, и зоны неопределённости
-
-=== ПРАВИЛА ===
-- Не считай размытые шкалы ни плюсами, ни минусами
-- Если шкала пересекает порог из-за большого отклонения, трактуй это как НЕОПРЕДЕЛЁННОСТЬ, а не как совпадение
-- Низкие значения тоже важны: 0.4 — уже низкое значение
-- Пиши коротко, но умно
-- Не перечисляй сухие проценты пользователю без нужды
-- Если неопределённостей много — прямо скажи, что портрет кандидата размыт`;
-}
-
-function buildMutualDynamicsPrompt(data) {
-    const langName = getLanguageName();
-    const userStyle = localStorage.getItem(STORAGE_KEYS.style) || '';
-
-    let styleBlock = '';
-    if (userStyle && userStyle.trim()) {
-        styleBlock = `\n=== СТИЛЬ ОБЩЕНИЯ ===\nАдаптируй тон и глубину анализа под этого пользователя:\n${userStyle}\n`;
-    }
-
-    // Формируем детальный блок обратного мэтча для Части 2
-    const reverseDetailed = formatMatchReportDetailed(data.reverseReport);
-
-    // Ключевые шкалы обоих для динамики
-    let dynamicsContext = '';
-    if (data.directReport.userHighlights.length > 0 || data.directReport.userLowlights.length > 0) {
-        dynamicsContext += '\n--- Ключевые черты ПОЛЬЗОВАТЕЛЯ ---\n';
-        if (data.directReport.userHighlights.length > 0) {
-            dynamicsContext += '🔥 Высокие: ' + data.directReport.userHighlights.map(e => `${e.emoji} ${e.name} ${e.percent}`).join(', ') + '\n';
-        }
-        if (data.directReport.userLowlights.length > 0) {
-            dynamicsContext += '🧊 Низкие: ' + data.directReport.userLowlights.map(e => `${e.emoji} ${e.name} ${e.percent}`).join(', ') + '\n';
-        }
-    }
-    if (data.reverseReport.userHighlights.length > 0 || data.reverseReport.userLowlights.length > 0) {
-        dynamicsContext += '\n--- Ключевые черты КАНДИДАТА ---\n';
-        if (data.reverseReport.userHighlights.length > 0) {
-            dynamicsContext += '🔥 Высокие: ' + data.reverseReport.userHighlights.map(e => `${e.emoji} ${e.name} ${e.percent}`).join(', ') + '\n';
-        }
-        if (data.reverseReport.userLowlights.length > 0) {
-            dynamicsContext += '🧊 Низкие: ' + data.reverseReport.userLowlights.map(e => `${e.emoji} ${e.name} ${e.percent}`).join(', ') + '\n';
-        }
-    }
-
-    return `Ты — эксперт по динамике отношений и футуролог. Пиши на ${langName}.
-
-=== КОНТЕКСТ ===
 
 
 
-**Что пользователь ищет в партнёре :**
-"${data.userIdealText}"
-
-${data.candidateDescription ? `**Описание кандидата:**\n"${data.candidateDescription}"\n` : ''}
-
-=== ДАННЫЕ СОВМЕСТИМОСТИ ===
-
-**1. Как КАНДИДАТ подходит пользователю (→):**
-${data.directSummary}
-
-**2. Как ПОЛЬЗОВАТЕЛЬ подходит кандидату (←):**
-${data.reverseSummary}
-
-**Детальный разбор обратного мэтча:**
-${reverseDetailed}
-
-${dynamicsContext}
-
-=== ЗАДАЧА ===
-
-Напиши отчёт из трёх частей. Каждая часть должна быть содержательной, честной и глубокой.
-
----
-
-**Часть 1: Зачем он вам (кратко)**
-
-2-3 предложения. Резюме: закрывает ли кандидат ваши ключевые потребности? Используй данные прямого мэтча и словесные ожидания пользователя. Без воды — у пользователя уже есть подробные отчёты по этому вопросы  сделаннве ранее.
-
----
-
-**Часть 2: Зачем вы ему (ГЛАВНАЯ ЧАСТЬ)**
-
-Это новая информация для пользователя — он впервые видит себя глазами требований кандидата.
-
-Ответь развёрнуто:
-- В чём пользователь станет **подарком** для кандидата? (Опирайся на совпадения в обратном мэтче)
-- Где пользователь может **разочаровать** кандидата? (Опирайся на Fail в обратном мэтче)
-- Есть ли **асимметрия**: один вкладывает больше, чем получает? Кто?
-- **Вердикт взаимности**: это «игра в одни ворота» или «win-win»? Или «win-win, но в разных валютах»?
-
-Будь честен. Если пользователь не дотягивает по каким-то шкалам кандидата — скажи это прямо, но тактично. Это ценная обратная связь.
-
----
-
-**Часть 3: Динамика (Прогноз)**
-
-Спрогнозируй развитие, опираясь на сочетание обоих профилей.
-
-🗓 **Первые 2 недели (Honeymoon):**
-- Что зацепит обоих? О чём будут говорить? Где будет искра?
-- Какие шкалы создадут первоначальный магнетизм?
-- Чего будут ожидать друг от друга?
-
-🗓 **Через полгода (Reality Check):**
-- Какие «Failed» шкалы вылезут наружу?
-- О что конкретно споткнётесь? Приведи 1-2 сценария.
-- Кто первый начнёт раздражаться и почему?
-- Какой будет быт?
-
-🗓 **Через 3 года (Long Term):**
-- Если переживёте полгода — на чём будет держаться союз?
-- Это глубокая привязанность, привычка или взаимная выгода?
-- Как изменятся роли?
-- Главный риск на длинной дистанции?
-
----
-
-**Итог:**
-Одной метафорой опиши этот союз. И одним предложением — главный совет.
-
-=== ПРАВИЛА ===
-- Используй конкретику из жизни пользователя (факты, черты) — это делает анализ живым
-- О кандидате суди только по шкалам и описанию — не додумывай
-- Если у шкалы большой разброс (±0.20+) — отмечай неопределённость
-- Реалистичный тон, но не циничный
-- Пиши ДЛЯ пользователя, в его стиле общения
-- НЕ перечисляй все шкалы подряд — выбирай ключевые для каждого тезиса
-- Часть 2 должна быть самой подробной — это главная ценность этого отчёта`;
-}
 
 // ==================== CANDIDATE DECODER ====================
 
@@ -2700,6 +2126,671 @@ function openCompatibilityWithProfile(profileId) {
             }
         }
     }, 150);
+}
+
+// ==================== НАЙТИ функцию renderCompatibilityTab и ЗАМЕНИТЬ ПОЛНОСТЬЮ ====================
+
+function renderCompatibilityTab() {
+    const container = document.getElementById('datingContent');
+    if (!container) return;
+
+    const savedEmbedding = getSavedEmbedding();
+
+    if (!savedEmbedding) {
+        container.innerHTML = `
+            <div class="dating-status dating-not-ready">
+                <div class="dating-icon">🔒</div>
+                <h3>Сначала создайте свой профиль</h3>
+                <p>Перейдите во вкладку "Мой профиль" и создайте личностный эмбеддинг.</p>
+                <button class="dating-btn dating-btn-details" onclick="switchDatingTab('profile')">← Мой профиль</button>
+            </div>`;
+        return;
+    }
+
+    const savedIdeal = getSavedIdeal();
+    const hasIdeal = savedIdeal && savedIdeal.searchScales;
+
+    container.innerHTML = `
+        <div class="compat-container">
+            <div class="compat-intro">
+                <div class="dating-icon">🧲</div>
+                <h3>Анализ совместимости</h3>
+                <p>Вставьте эмбеддинг другого человека. Можете добавить его описание для более глубокого анализа.</p>
+            </div>
+
+            <div class="compat-input-block">
+                <label class="compat-label">
+                    <span class="label-icon">🧬</span>
+                    <span>Эмбеддинг кандидата</span>
+                    <span class="label-required">*</span>
+                </label>
+                <input
+                    type="text"
+                    id="candidateEmbeddingInput"
+                    class="compat-embedding-input"
+                    placeholder="DATING_EMBED_V2|... или DATING_EMBED_V3|..."
+                    oninput="validateCandidateInput()"
+                >
+                <div class="compat-input-status" id="embedStatus"></div>
+            </div>
+
+            <div class="compat-input-block">
+                <label class="compat-label">
+                    <span class="label-icon">✍️</span>
+                    <span>Описание кандидата</span>
+                    <span class="label-optional">необязательно</span>
+                </label>
+                <textarea
+                    id="candidateDescriptionInput"
+                    class="compat-description-input"
+                    placeholder="Любая информация о человеке..."
+                    rows="4"
+                ></textarea>
+            </div>
+
+            <!-- ПЕРЕКЛЮЧАТЕЛЬ РЕЖИМА -->
+            <div class="compat-profile-toggle">
+                <label class="compat-toggle-label">
+                    <input type="checkbox" id="compatProfileMode" onchange="onCompatProfileModeChange()">
+                    <span class="compat-toggle-slider"></span>
+                    <span class="compat-toggle-text">
+                        <span class="toggle-title">👤 Учитывать профиль</span>
+                        <span class="toggle-desc">Пол, возраст, описание — сильно влияют на интерпретацию шкал</span>
+                    </span>
+                </label>
+                <div class="compat-profile-preview" id="compatProfilePreview" style="display: none;"></div>
+            </div>
+
+            <div class="compat-buttons-grid">
+                <button class="dating-generate-btn compat-btn" id="analyzeBtn" onclick="showPrivacyDisclaimer(() => runCompatibilityAnalysis())" disabled>
+                    🧠 Глубокий разбор
+                </button>
+                <button class="dating-generate-btn compat-btn compat-light-btn" id="analyzeLightBtn" onclick="showPrivacyDisclaimer(() => runLightCompatibilityAnalysis())" disabled ${!hasIdeal ? 'title="Сначала определите идеал во вкладке 💫"' : ''}>
+                    ⚡ Быстрый чек
+                </button>
+                <button class="dating-generate-btn compat-btn compat-mutual-btn" id="analyzeMutualBtn" onclick="showPrivacyDisclaimer(() => runMutualAnalysis())" disabled title="Нужен эмбеддинг V3 у обоих">
+                    💞 Взаимность и Динамика
+                </button>
+            </div>
+
+            <div id="mutualHint" class="compat-light-hint" style="display:none">
+                ℹ️ Для анализа «Взаимность» оба профиля должны быть формата V3 (создаётся автоматически, если заполнена вкладка «💫 Кто мне нужен»).
+            </div>
+
+            ${!hasIdeal ? '<p class="compat-light-hint">⚡ Быстрый чек и 💞 Взаимность доступны после заполнения вкладки "💫 Кто мне нужен?"</p>' : ''}
+
+            <div class="compat-result" id="compatResult"></div>
+        </div>`;
+}
+
+
+// ==================== PROFILE MODE HELPERS ====================
+
+function isCompatProfileMode() {
+    const cb = document.getElementById('compatProfileMode');
+    return cb ? cb.checked : false;
+}
+
+function onCompatProfileModeChange() {
+    const preview = document.getElementById('compatProfilePreview');
+    if (!preview) return;
+
+    if (isCompatProfileMode()) {
+        const info = getCompatProfileInfo();
+        preview.style.display = 'block';
+        preview.innerHTML = info.html;
+    } else {
+        preview.style.display = 'none';
+        preview.innerHTML = '';
+    }
+}
+
+function getCompatProfileInfo() {
+    // Данные юзера
+    const userProfile = getUserProfile();
+    const userGenderText = formatGenderText(userProfile.userGender);
+    const userAge = userProfile.userAge || '?';
+
+    // Данные кандидата из эмбеддинга и полей формы
+    const embedInput = document.getElementById('candidateEmbeddingInput');
+    const embedStr = embedInput?.value?.trim() || '';
+
+    let candidateGender = '?';
+    let candidateAge = '?';
+    let candidateFromFirebase = false;
+
+    // Пробуем получить из Firebase данных (если кандидат из списка)
+    if (window.currentCompatibilityProfileData) {
+        const p = window.currentCompatibilityProfileData;
+        if (p.userGender) candidateGender = formatGenderText(p.userGender);
+        if (p.userAge) candidateAge = p.userAge;
+        candidateFromFirebase = true;
+    }
+
+    // Если нет данных из Firebase, пробуем из описания
+    const descInput = document.getElementById('candidateDescriptionInput');
+    const desc = descInput?.value?.trim() || '';
+
+    let html = `
+        <div class="profile-preview-grid">
+            <div class="profile-preview-col">
+                <div class="profile-preview-title">🧑 Вы:</div>
+                <div class="profile-preview-value">${userGenderText}, ${userAge} лет</div>
+            </div>
+            <div class="profile-preview-col">
+                <div class="profile-preview-title">👤 Кандидат:</div>
+                <div class="profile-preview-value">${candidateGender}, ${candidateAge} лет</div>
+                ${!candidateFromFirebase && candidateGender === '?' ? '<div class="profile-preview-hint">Пол/возраст не определены — укажите в описании</div>' : ''}
+            </div>
+        </div>
+    `;
+
+    return {
+        html,
+        userGender: userProfile.userGender,
+        userAge: userAge,
+        candidateGender: candidateFromFirebase ? window.currentCompatibilityProfileData.userGender : null,
+        candidateAge: candidateFromFirebase ? window.currentCompatibilityProfileData.userAge : null,
+        candidateDescription: desc
+    };
+}
+
+function formatGenderText(gender) {
+    const map = {
+        male: 'Мужчина',
+        female: 'Женщина',
+        unspecified: 'Не указан'
+    };
+    return map[gender] || '?';
+}
+
+function buildProfileContextBlock() {
+    const info = getCompatProfileInfo();
+
+    let block = '\n=== ПРОФИЛИ УЧАСТНИКОВ (ОБЯЗАТЕЛЬНО УЧИТЫВАТЬ!) ===\n';
+    block += `\n👤 ПОЛЬЗОВАТЕЛЬ: ${formatGenderText(info.userGender)}, ${info.userAge} лет`;
+    block += `\n👤 КАНДИДАТ: ${info.candidateGender ? formatGenderText(info.candidateGender) : 'пол неизвестен'}, ${info.candidateAge || 'возраст неизвестен'} лет`;
+
+    if (info.candidateDescription) {
+        block += `\n\n📝 ОПИСАНИЕ КАНДИДАТА:\n${info.candidateDescription}`;
+    }
+
+    block += `\n
+⚠️ КРИТИЧЕСКИ ВАЖНЫЕ ИНСТРУКЦИИ:
+1. Пол и возраст РАДИКАЛЬНО меняют интерпретацию шкал:
+   - Высокая эмпатия у мужчины и у женщины — разные социальные контексты
+   - Амбициозность в 22 и в 48 — совершенно разные жизненные стадии
+   - Спонтанность в 25 — свобода, в 50 — возможно кризис или второе дыхание
+   - Потребность в одиночестве у интроверта-мужчины и экстраверта-женщины — разные причины
+
+2. Учитывай ВОЗРАСТНУЮ ДИНАМИКУ:
+   - Разница в возрасте влияет на баланс сил, жизненные приоритеты, энергию
+   - Одинаковые шкалы при разном возрасте = разный жизненный опыт за ними
+   - Ценности в 20 лет ещё формируются, в 40 — уже проверены жизнью
+
+3. Учитывай ГЕНДЕРНУЮ СПЕЦИФИКУ:
+   - Не стереотипы, а статистические различия в социализации
+   - Как общество воспринимает эту черту у этого пола
+   - Как это влияет на динамику КОНКРЕТНОЙ пары (М+Ж, М+М, Ж+Ж)
+
+4. Если есть ОПИСАНИЕ кандидата — это ЖИВЫЕ данные, они важнее абстрактных шкал:
+   - Используй описание для конкретизации числовых данных
+   - Ищи подтверждения или противоречия между описанием и шкалами
+   - Описание даёт контекст, который шкалы не улавливают
+`;
+
+    return block;
+}
+
+
+// ==================== УСИЛЕННЫЕ ПРОМПТЫ ====================
+
+function buildCompatibilityPromptEnhanced(data) {
+    const {
+        userFacts, userTraits, userTimeline, userSocial,
+        userHypotheses, userStyle, candidateProfile, candidateDescription
+    } = data;
+
+    const langName = getLanguageName();
+    const profileBlock = buildProfileContextBlock();
+
+    let candidateBlock = `=== ПСИХОЛОГИЧЕСКИЙ ПРОФИЛЬ КАНДИДАТА (50 шкал) ===\n${candidateProfile}`;
+
+    let styleBlock = '';
+    if (userStyle && userStyle.trim()) {
+        styleBlock = `\n\n=== СТИЛЬ ОБЩЕНИЯ С ЭТИМ ПОЛЬЗОВАТЕЛЕМ ===\nАдаптируй стиль анализа под этого пользователя:\n${userStyle}`;
+    }
+
+    return `Ты — проницательный аналитик отношений. Пиши на ${langName}.
+${styleBlock}
+${profileBlock}
+
+=== ЗАДАЧА ===
+Проанализируй совместимость пользователя с кандидатом.
+
+ВАЖНО:
+- О пользователе ты знаешь ВСЁ из его данных — используй их
+- О кандидате знаешь эмбеддинг (50 шкал), пол, возраст и возможно описание
+- Каждая шкала: 0 = абсолютно не выражено, 1.0 = крайне ярко выражено
+- Отклонение 0.05 — очень точная оценка, 0.15 — умеренная, 0.25 — неточная
+- И НИЗКИЕ значения важны: 0.4 тревожности = весьма спокойный человек
+- НЕ используй эмбеддинг пользователя — у тебя есть живые данные о нём
+- Пиши ДЛЯ пользователя
+
+=== ВСЁ О ПОЛЬЗОВАТЕЛЕ ===
+
+**Факты:** ${userFacts || '(нет)'}
+**Черты:** ${userTraits || '(нет)'}
+**Хронология:** ${userTimeline || '(нет)'}
+**Социальные связи:** ${userSocial || '(нет)'}
+**Гипотезы:** ${userHypotheses || '(нет)'}
+
+${candidateBlock}
+
+=== СТРУКТУРА АНАЛИЗА ===
+
+1. **Суть** (2-3 предложения) — кто этот кандидат С УЧЁТОМ его пола и возраста. Как эти шкалы выглядят в человеке именно этого пола и возраста?
+2. **Где совпадёте** (3-4 пункта) — учитывай, что совпадение шкал может означать разное для людей разного пола/возраста
+3. **Где будет тереть** (3-4 пункта) — гендерная и возрастная динамика может усиливать или смягчать трения
+3.5 **Интересные комбинации** шкал с учётом того, как они проявляются у людей этого типа
+4. **Главное** (1-2 предложения)
+
+=== ПРАВИЛА ===
+- Используй валидную конкретику из жизни пользователя
+- ОБЯЗАТЕЛЬНО учитывай пол и возраст обоих участников при интерпретации КАЖДОЙ шкалы
+- Если описание кандидата есть — опирайся на него как на первичный источник, шкалы — как уточнение
+- Если у шкалы кандидата большое отклонение (>0.20) — не считай её твёрдым фактом
+- Пиши как умный друг, адаптируй стиль под пользователя`;
+}
+
+function buildLightCompatibilityPromptEnhanced(report, candidateDescription, expectations) {
+    const langName = getLanguageName();
+    const userStyle = localStorage.getItem(STORAGE_KEYS.style) || '';
+    const profileBlock = buildProfileContextBlock();
+
+    let styleBlock = '';
+    if (userStyle && userStyle.trim()) {
+        styleBlock = `\n=== СТИЛЬ ОБЩЕНИЯ ===\nАдаптируй стиль под пользователя:\n${userStyle}\n`;
+    }
+
+    const matchSection = formatMatchReportDetailed(report);
+
+    let userContext = '';
+    if (report.userHighlights.length > 0 || report.userLowlights.length > 0) {
+        userContext = '\n=== КЛЮЧЕВЫЕ ЧЕРТЫ ПОЛЬЗОВАТЕЛЯ ===\n';
+        if (report.userHighlights.length > 0) {
+            userContext += '🔥 Высокие: ' + report.userHighlights.map(e => `${e.emoji} ${e.name} ${e.percent}`).join(', ') + '\n';
+        }
+        if (report.userLowlights.length > 0) {
+            userContext += '🧊 Низкие: ' + report.userLowlights.map(e => `${e.emoji} ${e.name} ${e.percent}`).join(', ') + '\n';
+        }
+    }
+
+    const totalExpected =
+        report.matchedHigh.length + report.failedHigh.length + report.uncertainHigh.length +
+        report.matchedLow.length + report.failedLow.length + report.uncertainLow.length;
+    const totalMatched = report.matchedHigh.length + report.matchedLow.length;
+    const totalUncertain = report.uncertainHigh.length + report.uncertainLow.length;
+
+    return `Ты — аналитик совместимости. Пиши на ${langName}.
+${styleBlock}
+${profileBlock}
+
+=== ЗАДАЧА ===
+Быстрый анализ совместимости на основе ожиданий пользователя и проверки кандидата.
+
+=== ОЖИДАНИЯ ПОЛЬЗОВАТЕЛЯ ОТ ПАРТНЁРА ===
+${expectations}
+
+=== РЕЗУЛЬТАТ ПРОВЕРКИ КАНДИДАТА ===
+Надёжно совпало: ${totalMatched}
+Неопределённых: ${totalUncertain}
+Всего проверенных: ${totalExpected}
+
+${matchSection}
+${userContext}
+
+=== СТРУКТУРА ОТВЕТА ===
+1. **Счёт** — общее впечатление С УЧЁТОМ пола/возраста обоих
+2. **Где повезло** — как совпадения проявятся у людей именно этого пола и возраста
+3. **Цена компромисса** — как несовпадения будут ощущаться с учётом гендерной и возрастной динамики
+4. **Что нельзя утверждать** — размытые шкалы
+5. **Вердикт** — с учётом всего контекста
+
+=== ПРАВИЛА ===
+- КАЖДОЕ совпадение и несовпадение интерпретируй через призму пола и возраста
+- Описание кандидата (если есть) важнее абстрактных шкал
+- Пиши коротко, но с пониманием контекста`;
+}
+
+function buildMutualDynamicsPromptEnhanced(data) {
+    const langName = getLanguageName();
+    const userStyle = localStorage.getItem(STORAGE_KEYS.style) || '';
+    const profileBlock = buildProfileContextBlock();
+
+    let styleBlock = '';
+    if (userStyle && userStyle.trim()) {
+        styleBlock = `\n=== СТИЛЬ ОБЩЕНИЯ ===\nАдаптируй тон анализа под пользователя:\n${userStyle}\n`;
+    }
+
+    const reverseDetailed = formatMatchReportDetailed(data.reverseReport);
+
+    let dynamicsContext = '';
+    if (data.directReport.userHighlights.length > 0 || data.directReport.userLowlights.length > 0) {
+        dynamicsContext += '\n--- Ключевые черты ПОЛЬЗОВАТЕЛЯ ---\n';
+        if (data.directReport.userHighlights.length > 0) {
+            dynamicsContext += '🔥 Высокие: ' + data.directReport.userHighlights.map(e => `${e.emoji} ${e.name} ${e.percent}`).join(', ') + '\n';
+        }
+        if (data.directReport.userLowlights.length > 0) {
+            dynamicsContext += '🧊 Низкие: ' + data.directReport.userLowlights.map(e => `${e.emoji} ${e.name} ${e.percent}`).join(', ') + '\n';
+        }
+    }
+    if (data.reverseReport.userHighlights.length > 0 || data.reverseReport.userLowlights.length > 0) {
+        dynamicsContext += '\n--- Ключевые черты КАНДИДАТА ---\n';
+        if (data.reverseReport.userHighlights.length > 0) {
+            dynamicsContext += '🔥 Высокие: ' + data.reverseReport.userHighlights.map(e => `${e.emoji} ${e.name} ${e.percent}`).join(', ') + '\n';
+        }
+        if (data.reverseReport.userLowlights.length > 0) {
+            dynamicsContext += '🧊 Низкие: ' + data.reverseReport.userLowlights.map(e => `${e.emoji} ${e.name} ${e.percent}`).join(', ') + '\n';
+        }
+    }
+
+    return `Ты — эксперт по динамике отношений. Пиши на ${langName}.
+${styleBlock}
+${profileBlock}
+
+=== КОНТЕКСТ ===
+
+**Что пользователь ищет в партнёре:**
+"${data.userIdealText}"
+
+=== ДАННЫЕ СОВМЕСТИМОСТИ ===
+
+**1. Как КАНДИДАТ подходит пользователю (→):**
+${data.directSummary}
+
+**2. Как ПОЛЬЗОВАТЕЛЬ подходит кандидату (←):**
+${data.reverseSummary}
+
+**Детальный разбор обратного мэтча:**
+${reverseDetailed}
+
+${dynamicsContext}
+
+=== ЗАДАЧА ===
+
+Три части. Каждая — с ОБЯЗАТЕЛЬНЫМ учётом пола и возраста обоих.
+
+---
+
+**Часть 1: Зачем он/она вам (кратко)**
+2-3 предложения. Как кандидат ЭТОГО пола и возраста закрывает ваши потребности?
+
+---
+
+**Часть 2: Зачем вы ему/ей (ГЛАВНАЯ ЧАСТЬ)**
+- В чём вы станете подарком для человека ЭТОГО типа?
+- Где можете разочаровать — с учётом гендерных ожиданий?
+- Асимметрия: кто вкладывает больше?
+- Вердикт взаимности
+
+---
+
+**Часть 3: Динамика (Прогноз)**
+
+🗓 **Первые 2 недели:**
+- Что зацепит? Учитывай: мужчина/женщина в этом возрасте ищут разное в первые дни
+- Какие шкалы создадут магнетизм?
+
+🗓 **Через полгода:**
+- Какие Failed-шкалы вылезут? Как пол и возраст усилят или смягчат это?
+- 1-2 конкретных сценария конфликта
+
+🗓 **Через 3 года:**
+- На чём будет держаться союз людей ЭТОГО типа?
+- Главный риск на длинной дистанции с учётом возрастной динамики
+
+---
+
+**Итог:** Метафора + главный совет.
+
+=== ПРАВИЛА ===
+- Пол и возраст должны ЯВНО влиять на каждый тезис
+- Описание кандидата — первичный источник, шкалы — уточнение
+- О кандидате не додумывай сверх данных
+- Выбирай ключевые шкалы, не перечисляй все
+- Часть 2 — самая подробная`;
+}
+
+
+// ==================== МОДИФИЦИРОВАННЫЕ ФУНКЦИИ АНАЛИЗА ====================
+// Заменяем три функции анализа — добавляем ветвление по режиму
+
+// НАЙТИ существующую runCompatibilityAnalysis и ЗАМЕНИТЬ:
+
+async function runCompatibilityAnalysis() {
+    if (datingState.isAnalyzing) return;
+
+    const embedInput = document.getElementById('candidateEmbeddingInput');
+    const descInput = document.getElementById('candidateDescriptionInput');
+    const resultContainer = document.getElementById('compatResult');
+    const btn = document.getElementById('analyzeBtn');
+
+    if (!embedInput || !resultContainer || !btn) return;
+
+    const candidateEmbedding = parseEmbeddingFromExport(embedInput.value.trim());
+    if (!candidateEmbedding) return;
+
+    const candidateDescription = descInput?.value?.trim() || '';
+    window.currentCandidateDescription = candidateDescription;
+
+    const profileMode = isCompatProfileMode();
+
+    datingState.isAnalyzing = true;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-spinner"></span> Анализирую...';
+
+    resultContainer.innerHTML = `
+        <div class="compat-loading">
+            <div class="dating-spinner"></div>
+            <p>${profileMode ? 'Глубокий анализ с учётом профилей...' : 'Изучаю совместимость...'}</p>
+        </div>`;
+
+    try {
+        const userFacts = getFactsForPrompt(false);
+        const userTraits = getTraitsForPrompt(false);
+        const userTimeline = getTimelineForPrompt();
+        const userSocial = getSocialForPrompt();
+        const userHypotheses = getHypothesesForPrompt(false);
+        const userStyle = localStorage.getItem(STORAGE_KEYS.style) || '';
+        const candidateProfile = decodeCandidateEmbedding(candidateEmbedding);
+
+        const promptData = {
+            userFacts, userTraits, userTimeline, userSocial,
+            userHypotheses, userStyle, candidateProfile, candidateDescription
+        };
+
+        const prompt = profileMode
+            ? buildCompatibilityPromptEnhanced(promptData)
+            : buildCompatibilityPrompt(promptData);
+
+        const streamingDiv = document.createElement('div');
+        streamingDiv.className = 'compat-analysis-text';
+        resultContainer.innerHTML = '';
+        resultContainer.appendChild(streamingDiv);
+
+        await streamResponseOpenRouter(
+            [{ role: "user", content: prompt }],
+            (partialText) => { streamingDiv.innerHTML = formatMessageMarkdown(partialText); },
+            (finalText) => { streamingDiv.innerHTML = formatMessageMarkdown(finalText); },
+            { temperature: 0.7 }
+        );
+
+        appendCompatibilityActions(resultContainer);
+
+    } catch (error) {
+        resultContainer.innerHTML = `
+            <div class="compat-error">
+                <p>❌ Ошибка: ${error.message}</p>
+                <button class="dating-btn" onclick="runCompatibilityAnalysis()">🔄 Попробовать снова</button>
+            </div>`;
+    } finally {
+        datingState.isAnalyzing = false;
+        btn.disabled = false;
+        btn.innerHTML = '🧠 Глубокий разбор';
+    }
+}
+
+// НАЙТИ существующую runLightCompatibilityAnalysis и ЗАМЕНИТЬ:
+
+async function runLightCompatibilityAnalysis() {
+    if (datingState.isAnalyzing) return;
+
+    const embedInput = document.getElementById('candidateEmbeddingInput');
+    const descInput = document.getElementById('candidateDescriptionInput');
+    const resultContainer = document.getElementById('compatResult');
+    const btn = document.getElementById('analyzeLightBtn');
+
+    if (!embedInput || !resultContainer || !btn) return;
+
+    const candidateEmbedding = parseEmbeddingFromExport(embedInput.value.trim());
+    if (!candidateEmbedding) return;
+
+    const userEmbedding = getSavedEmbedding();
+    if (!userEmbedding) return;
+
+    const ideal = getSavedIdeal();
+    if (!ideal || !ideal.searchScales) return;
+
+    const candidateDescription = descInput?.value?.trim() || '';
+    const profileMode = isCompatProfileMode();
+
+    datingState.isAnalyzing = true;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-spinner"></span> Анализирую...';
+
+    resultContainer.innerHTML = `
+        <div class="compat-loading">
+            <div class="dating-spinner"></div>
+            <p>${profileMode ? 'Быстрый чек с учётом профилей...' : 'Быстрый анализ...'}</p>
+        </div>`;
+
+    try {
+        const matchReport = buildMatchReport(userEmbedding, candidateEmbedding, ideal);
+
+        const prompt = profileMode
+            ? buildLightCompatibilityPromptEnhanced(matchReport, candidateDescription, ideal.expectations)
+            : buildLightCompatibilityPrompt(matchReport, candidateDescription, ideal.expectations);
+
+        const streamingDiv = document.createElement('div');
+        streamingDiv.className = 'compat-analysis-text';
+        resultContainer.innerHTML = '';
+        resultContainer.appendChild(streamingDiv);
+
+        await streamResponseOpenRouter(
+            [{ role: "user", content: prompt }],
+            (partialText) => { streamingDiv.innerHTML = formatMessageMarkdown(partialText); },
+            (finalText) => { streamingDiv.innerHTML = formatMessageMarkdown(finalText); },
+            { temperature: 0.7 }
+        );
+    } catch (error) {
+        resultContainer.innerHTML = `
+            <div class="compat-error">
+                <p>❌ Ошибка: ${error.message}</p>
+                <button class="dating-btn" onclick="runLightCompatibilityAnalysis()">🔄 Попробовать снова</button>
+            </div>`;
+    } finally {
+        datingState.isAnalyzing = false;
+        btn.disabled = false;
+        btn.innerHTML = '⚡ Быстрый чек';
+    }
+}
+
+// НАЙТИ существующую runMutualAnalysis и ЗАМЕНИТЬ:
+
+async function runMutualAnalysis() {
+    if (datingState.isAnalyzing) return;
+
+    const embedInput = document.getElementById('candidateEmbeddingInput');
+    const descInput = document.getElementById('candidateDescriptionInput');
+    const resultContainer = document.getElementById('compatResult');
+    const btn = document.getElementById('analyzeMutualBtn');
+
+    if (!embedInput || !resultContainer || !btn) return;
+
+    const candidateEmbedding = parseEmbeddingFromExport(embedInput.value.trim());
+    if (!candidateEmbedding || !candidateEmbedding.requirements) {
+        alert('Ошибка: У кандидата нет требований (нужен V3 эмбеддинг)');
+        return;
+    }
+
+    const userEmbedding = getSavedEmbedding();
+    const userIdeal = getSavedIdeal();
+
+    if (!userEmbedding || !userIdeal || !userIdeal.searchScales) {
+        alert('Ошибка: Заполните свой профиль и вкладку «Кто мне нужен»');
+        return;
+    }
+
+    const profileMode = isCompatProfileMode();
+
+    datingState.isAnalyzing = true;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-spinner"></span> Прогнозирую...';
+
+    resultContainer.innerHTML = `
+        <div class="compat-loading">
+            <div class="dating-spinner"></div>
+            <p>${profileMode ? 'Моделирую динамику с учётом профилей...' : 'Моделирую динамику...'}</p>
+        </div>`;
+
+    try {
+        const directMatchReport = buildMatchReport(userEmbedding, candidateEmbedding, userIdeal);
+        const directSummary = summarizeMatchForPrompt(directMatchReport, 'direct');
+
+        const candidateIdealFake = { searchScales: candidateEmbedding.requirements };
+        const reverseMatchReport = buildMatchReport(candidateEmbedding, userEmbedding, candidateIdealFake);
+        const reverseSummary = summarizeMatchForPrompt(reverseMatchReport, 'reverse');
+
+        const candidateDescription = descInput?.value?.trim() || '';
+        const userFacts = getFactsForPrompt(false);
+        const userTraits = getTraitsForPrompt(false);
+
+        const promptData = {
+            userIdealText: userIdeal.expectations,
+            directSummary, reverseSummary,
+            directReport: directMatchReport,
+            reverseReport: reverseMatchReport,
+            candidateDescription, userFacts, userTraits
+        };
+
+        const prompt = profileMode
+            ? buildMutualDynamicsPromptEnhanced(promptData)
+            : buildMutualDynamicsPrompt(promptData);
+
+        const streamingDiv = document.createElement('div');
+        streamingDiv.className = 'compat-analysis-text';
+        resultContainer.innerHTML = '';
+        resultContainer.appendChild(streamingDiv);
+
+        await streamResponseOpenRouter(
+            [{ role: "user", content: prompt }],
+            (partialText) => { streamingDiv.innerHTML = formatMessageMarkdown(partialText); },
+            (finalText) => { streamingDiv.innerHTML = formatMessageMarkdown(finalText); },
+            { temperature: 0.8 }
+        );
+
+    } catch (error) {
+        resultContainer.innerHTML = `
+            <div class="compat-error">
+                <p>❌ Ошибка: ${error.message}</p>
+                <button class="dating-btn" onclick="runMutualAnalysis()">🔄 Попробовать снова</button>
+            </div>`;
+    } finally {
+        datingState.isAnalyzing = false;
+        btn.disabled = false;
+        btn.innerHTML = '💞 Взаимность и Динамика';
+    }
 }
 // ==================== INIT ====================
 
