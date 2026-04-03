@@ -1264,6 +1264,10 @@ ${langInstruction}`;
 }
 
 // ==================== STYLE UPDATE ====================
+// ==================== STYLE UPDATE ====================
+
+
+
 async function runStyleUpdate() {
     const traits = getTraitsForPrompt();
     
@@ -1271,81 +1275,105 @@ async function runStyleUpdate() {
         console.log('[STYLE] Not enough trait data');
         return;
     }
-
-    const langInstruction = currentLanguage !== 'en' 
-        ? `Write your response in ${getLanguageName()}.` 
-        : '';
-
+    
+    const langInstruction = currentLanguage !== 'en' ?
+        `Write all parameter names, values, and text in ${getLanguageName()}.` :
+        '';
+    
     const prompt = `You are an expert in communication psychology. Carefully read the user personality dossier and formulate recommendations for communication style with them.
 
 === USER DOSSIER (personality traits) ===
 ${traits}
 
 === YOUR TASK ===
-1. Analyze the user's personality deeply
-2. Form hypotheses about what communication style they need
-3. Be insightful and nuanced in this assessment
-4. DON'T jump to quick conclusions
-5. Weigh at least THREE arguments to justify EACH parameter
+1. Analyze the user's personality deeply.
+2. Form hypotheses about what communication style they need.
+3. Weigh at least THREE arguments to justify EACH parameter.
 
 === RESPONSE FORMAT ===
-Provide a detailed list of communication style parameters with ratings:
-
-🎯 RECOMMENDED COMMUNICATION STYLE:
-
-• Formality: [0-100%]
-  - Argument 1: ...
-  - Argument 2: ...
-  - Argument 3: ...
-  
-• Emotionality: [0-100%]
-  - Argument 1: ...
-  - Argument 2: ...
-  - Argument 3: ...
-  
-• Response detail level: [0-100%]
-  - Argument 1: ...
-  - Argument 2: ...
-  - Argument 3: ...
-  
-• Use of humor: [0-100%]
-  - Argument 1: ...
-  - Argument 2: ...
-  - Argument 3: ...
-  
-• Support and empathy: [0-100%]
-  - Argument 1: ...
-  - Argument 2: ...
-  - Argument 3: ...
-  
-• Directness: [0-100%]
-  - Argument 1: ...
-  - Argument 2: ...
-  - Argument 3: ...
-  
-• Information delivery pace: [slow/medium/fast]
-  - Justification: ...
-
-📝 SPECIAL RECOMMENDATIONS:
-(What to consider specifically for this user, what to avoid, what to pay attention to)
-
-🚫 ANTI-PATTERNS:
-(What communication mistakes would be especially bad for this user)
-
-The recommendations should be specific and actionable.
+Return ONLY valid JSON (no markdown outside the JSON block). Use EXACTLY this structure:
+{
+    "parameters": [
+        {
+            "name": "Формальность (Formality)",
+            "value": "30%",
+            "arguments": ["Обоснование 1...", "Обоснование 2...", "Обоснование 3..."]
+        },
+        {
+            "name": "Эмоциональность (Emotionality)",
+            "value": "60%",
+            "arguments": ["...", "...", "..."]
+        },
+        {
+            "name": "Детализация ответов (Detail level)",
+            "value": "Высокая",
+            "arguments": ["...", "...", "..."]
+        },
+        {
+            "name": "Использование юмора (Humor)",
+            "value": "20%",
+            "arguments": ["...", "...", "..."]
+        },
+        {
+            "name": "Поддержка и эмпатия (Empathy)",
+            "value": "90%",
+            "arguments": ["...", "...", "..."]
+        },
+        {
+            "name": "Прямолинейность (Directness)",
+            "value": "40%",
+            "arguments": ["...", "...", "..."]
+        },
+        {
+            "name": "Темп подачи информации (Pace)",
+            "value": "Средний",
+            "arguments": ["...", "...", "..."]
+        }
+    ],
+    "special_recommendations": [
+        "Специфическая рекомендация для этого юзера 1",
+        "Специфическая рекомендация 2"
+    ],
+    "anti_patterns": [
+        "Чего категорически нельзя делать 1",
+        "Чего категорически нельзя делать 2"
+    ]
+}
 ${langInstruction}`;
-
+    
     try {
-        const response = await callAPI([{ role: "user", content: prompt }], null, true);
-        const style = response.content || response;
+        // Используем ту же функцию с retry и парсингом JSON, что и для фактов/гипотез
+        const result = await callAPIWithRetry(prompt, 2, true);
+        const parsed = parseJSON(result);
         
-        localStorage.setItem(STORAGE_KEYS.style, style);
-        console.log('[STYLE] Updated');
+        if (parsed && parsed.parameters) {
+            // Собираем чистый, легковесный текст ТОЛЬКО из нужных полей (без аргументов)
+            let cleanStyle = "🎯 РЕКОМЕНДУЕМЫЙ СТИЛЬ ОБЩЕНИЯ:\n";
+            
+            parsed.parameters.forEach(p => {
+                cleanStyle += `• ${p.name}: ${p.value}\n`;
+            });
+            
+            if (parsed.special_recommendations && parsed.special_recommendations.length > 0) {
+                cleanStyle += "\n📝 ОСОБЫЕ РЕКОМЕНДАЦИИ:\n";
+                parsed.special_recommendations.forEach(r => cleanStyle += `• ${r}\n`);
+            }
+            
+            if (parsed.anti_patterns && parsed.anti_patterns.length > 0) {
+                cleanStyle += "\n🚫 АНТИПАТТЕРНЫ:\n";
+                parsed.anti_patterns.forEach(a => cleanStyle += `• ${a}\n`);
+            }
+            
+            // Сохраняем обрезанный вариант в память (он пойдет в промпты чата)
+            localStorage.setItem(STORAGE_KEYS.style, cleanStyle.trim());
+            console.log('[STYLE] Updated successfully via JSON (arguments dropped)');
+        } else {
+            console.error('[STYLE] Failed to parse JSON structure');
+        }
     } catch (error) {
         console.error('[STYLE] Update failed:', error.message);
     }
 }
-
 // ==================== HYPOTHESES UPDATE ====================
 async function runHypothesesUpdate() {
     const facts = getFactsForPrompt();

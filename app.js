@@ -1169,10 +1169,7 @@ async function callFirebaseLocal(action, data) {
 }
 
 // Функции для использования в dating.js
-async function saveProfileToFirebase(profileData) {
-    const result = await callFirebaseAPI('save', profileData);
-    return result.id;
-}
+
 
 async function getAllProfilesFromFirebase() {
     const result = await callFirebaseAPI('getAll');

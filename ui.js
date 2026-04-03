@@ -79,7 +79,7 @@ function isOverloadError(error) {
 let greetingShown = false;
 
 // Cooldown для приветствий
-const GREETING_COOLDOWN_MS = 1 * 60 * 600 * 1; // 4 часа
+const GREETING_COOLDOWN_MS = 1 * 60 * 60 * 1; // 4 часа
 const GREETING_TIMESTAMP_KEY = 'chatbot_last_greeting';
 const GREETING_HISTORY_KEY = 'chatbot_greeting_history';
 const MAX_GREETING_HISTORY = 5;
@@ -268,22 +268,22 @@ function getRandomGreetingAction(tc) {
 async function showProactiveGreeting() {
     if (greetingShown) return;
     greetingShown = true;
-    
+
     const lastGreeting = localStorage.getItem(GREETING_TIMESTAMP_KEY);
     if (lastGreeting) {
-        const elapsed = Date.now() - parseInt(lastGreeting);
+        const elapsed = Date.now() - parseInt(lastGreeting, 10);
         if (elapsed < GREETING_COOLDOWN_MS) {
             console.log(`[Greeting] Cooldown active. ${Math.round((GREETING_COOLDOWN_MS - elapsed) / 60000)} min remaining`);
             return;
         }
     }
-    
+
     const apiKey = getApiKey();
     if (!apiKey) return;
     if (isLocal && (!apiKey || apiKey.length < 10)) return;
-    
+
     await new Promise(resolve => setTimeout(resolve, 800));
-    
+
     const facts = getFactsForPrompt(true);
     const traits = getTraitsForPrompt(true);
     const hypotheses = getHypothesesForPrompt(true);
@@ -291,37 +291,53 @@ async function showProactiveGreeting() {
     const style = localStorage.getItem(STORAGE_KEYS.style) || '';
     const gaps = getGapsForPrompt();
     const social = getSocialForPrompt();
-    
+
     const timeContext = getTimeContext();
-    const hasData = [facts, traits, timeline].some(k => k && k.length > 30 && !k.includes('(no '));
-    
-    let prompt;
     const langName = getLanguageName();
-    
-    if (!hasData) {
-        prompt = buildIntroductionPrompt(langName, timeContext);
-    } else {
-        prompt = buildPersonalizedGreetingPrompt(langName, timeContext, {
-            facts, traits, timeline, style, gaps, hypotheses, social
-        });
-    }
-    
-    console.log('[Greeting] Generating proactive greeting with streaming...');
-    
-    // ДОБАВЛЕНО: Показываем "действие-размышление" вместо обычного индикатора печати
-    const actionText = getRandomGreetingAction(timeContext);
-    updateThinkingMessage(actionText);
-    
+
+    const context = {
+        facts,
+        traits,
+        hypotheses,
+        timeline,
+        style,
+        gaps,
+        social
+    };
+
+    const hasData = [facts, traits, timeline, hypotheses, social]
+        .some(k => k && k.length > 30 && !k.includes('(no '));
+
+    let prompt;
+
+    // Статус 1: общее "размышление"
+    updateThinkingMessage(getRandomGreetingAction(timeContext));
+
     try {
+        if (!hasData) {
+            prompt = buildIntroductionPrompt(langName, timeContext);
+        } else {
+            // === STAGE 1: Semantic Lens ===
+            const lens = await prepareGreetingLens(langName, timeContext, context);
+
+            // Статус 2: уже после построения линзы
+            updateThinkingMessage(getGreetingThinkingTextFromLens(lens, timeContext));
+
+            // === STAGE 2: Final Greeting Generation ===
+            prompt = buildGreetingFromLensPrompt(langName, timeContext, lens, style);
+        }
+
+        console.log('[Greeting] Generating proactive greeting with semantic lens pipeline...');
+
         const messages = [
             { role: "system", content: prompt.system },
             { role: "user", content: prompt.user }
         ];
-        
+
         const streamingElement = createStreamingMessage();
         let finalGreeting = '';
         const randomSeed = Math.floor(Math.random() * 100000000);
-        
+
         await streamResponseOpenRouter(
             messages,
             (partialText) => {
@@ -329,38 +345,44 @@ async function showProactiveGreeting() {
             },
             (finalText) => {
                 finalGreeting = finalText;
-                // Убираем статус-мысль, когда сообщение полностью сгенерировано
                 removeThinkingMessage();
                 finalizeStreamingMessage(streamingElement, finalText);
             },
-            { temperature: 0.90, seed: randomSeed }
+            { temperature: 0.88, seed: randomSeed }
         );
-        
+
         if (finalGreeting) {
             saveGreetingToHistory(finalGreeting);
         }
+
         localStorage.setItem(GREETING_TIMESTAMP_KEY, Date.now().toString());
-        
+
     } catch (error) {
         removeThinkingMessage();
-        
+
         const streamingMsg = document.getElementById('streamingMessage');
         if (streamingMsg) streamingMsg.remove();
-        
-        console.error('[Greeting] Streaming failed, trying fallback:', error.message);
-        
+
+        console.error('[Greeting] Pipeline failed, trying fallback:', error.message);
+
         try {
+            // Fallback — простой, но уже с анти-попугайной логикой
+            const fallbackLens = buildFallbackGreetingLens(context, timeContext);
+            const fallbackPrompt = hasData
+                ? buildGreetingFromLensPrompt(langName, timeContext, fallbackLens, style)
+                : buildIntroductionPrompt(langName, timeContext);
+
             const response = await callAPI([
-                { role: "system", content: prompt.system },
-                { role: "user", content: prompt.user }
+                { role: "system", content: fallbackPrompt.system },
+                { role: "user", content: fallbackPrompt.user }
             ], null, false);
-            
+
             const greeting = response.content || response;
             appendMessage('assistant', greeting, true);
-            
+
             saveGreetingToHistory(greeting);
             localStorage.setItem(GREETING_TIMESTAMP_KEY, Date.now().toString());
-            
+
         } catch (fallbackError) {
             console.error('[Greeting] Fallback also failed:', fallbackError.message);
         }
@@ -485,97 +507,308 @@ Be warm and concise. Match the cultural context of the language.`,
     };
 }
 
-function buildPersonalizedGreetingPrompt(langName, timeContext, context) {
-    const { facts, traits, timeline, style, gaps, hypotheses, social } = context;
+// ==================== GREETING V2: SEMANTIC LENS ====================
+
+function truncateGreetingText(text, maxLen = 900) {
+    if (!text) return '';
+    const str = String(text).trim();
+    if (str.length <= maxLen) return str;
+    return str.slice(0, maxLen).trim() + ' ...[truncated]';
+}
+
+function getDefaultGreetingTimeHook(timeContext) {
+    if (!timeContext) return '';
+
+    if (timeContext.isLateNight) {
+        return 'Тон должен учитывать ночную тишину и большую внутреннюю глубину момента.';
+    }
+    if (timeContext.isEarlyMorning) {
+        return 'Тон должен быть мягким, собирающим, без резких заходов.';
+    }
+    if (timeContext.timeOfDay === 'morning') {
+        return 'Тон должен слегка ощущаться как начало дня: с потенциалом, но без банального бодряка.';
+    }
+    if (timeContext.timeOfDay === 'afternoon') {
+        return 'Тон должен ощущаться как середина дня: живой, естественный, без лишнего пафоса.';
+    }
+    if (timeContext.timeOfDay === 'evening') {
+        return 'Тон должен быть чуть более тёплым, уютным и рефлексивным.';
+    }
+    return 'Тон должен быть естественным и уместным текущему моменту.';
+}
+
+function buildGreetingMemoryContext(context) {
+    return [
+        `FACTS:\n${truncateGreetingText(context.facts || '(none)', 1000)}`,
+        `TRAITS:\n${truncateGreetingText(context.traits || '(none)', 1000)}`,
+        `TIMELINE:\n${truncateGreetingText(context.timeline || '(none)', 1000)}`,
+        `PEOPLE:\n${truncateGreetingText(context.social || '(none)', 700)}`,
+        `HYPOTHESES:\n${truncateGreetingText(context.hypotheses || '(none)', 1000)}`,
+        `GAPS:\n${truncateGreetingText(context.gaps || '(none)', 700)}`,
+        `STYLE:\n${truncateGreetingText(context.style || '(none)', 1200)}`
+    ].join('\n\n');
+}
+
+function normalizeGreetingLens(rawLens, timeContext) {
+    if (!rawLens || typeof rawLens !== 'object') return null;
+
+    const validStrategies = ['abstract_callback', 'reflective_insight', 'adjacent_angle', 'situational_opening'];
+    const validTones = ['warm', 'reflective', 'curious', 'supportive', 'playful', 'calm'];
+
+    const normStr = (value, fallback = '') => {
+        const v = String(value || '').trim();
+        return v || fallback;
+    };
+
+    const normArray = (arr, max = 6) => {
+        if (!Array.isArray(arr)) return [];
+        return arr
+            .map(x => String(x || '').trim())
+            .filter(Boolean)
+            .slice(0, max);
+    };
+
+    const lens = {
+        strategy: validStrategies.includes(rawLens.strategy) ? rawLens.strategy : 'reflective_insight',
+        tone: validTones.includes(rawLens.tone) ? rawLens.tone : 'warm',
+        mainThread: normStr(rawLens.mainThread, 'Показать понимание пользователя через более широкий смысловой угол, а не через прямое повторение деталей.'),
+        broaderCategory: normStr(rawLens.broaderCategory, 'Более широкий паттерн или категория, стоящая за конкретными деталями пользователя.'),
+        deeperPattern: normStr(rawLens.deeperPattern, 'Что этот более широкий паттерн говорит о стиле человека, его способе жить, думать или переживать.'),
+        adjacentAngle: normStr(rawLens.adjacentAngle, 'Соседний смысловой угол, который не повторяет факт буквально.'),
+        softAnchor: normStr(rawLens.softAnchor, ''),
+        forbiddenConcrete: normArray(rawLens.forbiddenConcrete),
+        questionDirection: normStr(rawLens.questionDirection, 'Сдвинуть разговор к более общей категории, а не к буквальному повтору запомненного факта.'),
+        shouldAskQuestion: typeof rawLens.shouldAskQuestion === 'boolean' ? rawLens.shouldAskQuestion : true,
+        timeHook: normStr(rawLens.timeHook, getDefaultGreetingTimeHook(timeContext))
+    };
+
+    return lens;
+}
+
+function buildFallbackGreetingLens(context, timeContext) {
+    return normalizeGreetingLens({
+        strategy: 'reflective_insight',
+        tone: 'warm',
+        mainThread: 'Начать разговор так, чтобы чувствовалось не перечисление памяти, а понимание внутреннего устройства пользователя.',
+        broaderCategory: 'Повседневные детали нужно поднимать до уровня жизненного ритма, стиля мышления, ценностей или способов саморегуляции.',
+        deeperPattern: 'Пользователю важна не механическая память как таковая, а ощущение, что собеседник видит связи, категории и более широкий смысл.',
+        adjacentAngle: 'Лучше зайти не в сам факт, а в соседнюю плоскость: ритм жизни, энергия, выбор простоты, форма заботы о себе, противоречие между удобством и глубиной.',
+        softAnchor: '',
+        forbiddenConcrete: [],
+        questionDirection: 'Если задавать вопрос, то про текущее внутреннее состояние, ритм дня, интерес или более широкую тему, а не про буквальный запомненный объект.',
+        shouldAskQuestion: true,
+        timeHook: getDefaultGreetingTimeHook(timeContext)
+    }, timeContext);
+}
+
+function buildGreetingLensPrompt(langName, timeContext, context) {
     const timeContextText = formatTimeContextForPrompt(timeContext);
+    const memoryContext = buildGreetingMemoryContext(context);
     const previousGreetings = getGreetingHistoryForPrompt();
-    
-    let styleInstruction = '';
-    if (style && style.trim()) {
-        styleInstruction = `\n\n=== YOUR COMMUNICATION STYLE ===\n${style}`;
-    }
-    
-    let previousGreetingsBlock = '';
-    if (previousGreetings) {
-        previousGreetingsBlock = `
 
-=== YOUR PREVIOUS GREETINGS (DO NOT REPEAT!) ===
-${previousGreetings}
+    const prevBlock = previousGreetings
+        ? `
+=== PREVIOUS GREETINGS ===
+${truncateGreetingText(previousGreetings, 2500)}
 
-⛔ STRICT PROHIBITION:
-- Do NOT ask about the same topics as in previous greetings
-- Do NOT make similar jokes or references
-- Do NOT use the same conversation starters
-- Find a FRESH angle — something you haven't touched before
-- If you mentioned work before → try hobbies, mood, plans, a person from their life
-- If you asked about family → try their interests, current events, hypotheses about them
-`;
-    }
-    
-    let gapsBlock = '';
-    if (gaps && gaps.length > 30 && !gaps.includes('(no ')) {
-        gapsBlock = `
+Do not repeat the same callback logic, same topic, same emotional move, or same remembered detail.
+Freshness matters — but NATURALNESS matters more than novelty.
+`
+        : '';
 
-=== KNOWLEDGE GAPS (great topics to explore!) ===
-${gaps}
+    return `You are NOT writing the final greeting yet.
+You are preparing a SEMANTIC LENS for a greeting to a returning user.
 
-💡 These are things you DON'T know yet about the user. 
-Consider weaving ONE of these into your greeting as a natural question or topic.
-This helps you learn more while keeping the greeting fresh and interesting.
-`;
-    }
-    
-    return {
-        system: `You are a AI assistant with persistent memory. A RETURNING user just opened the chat. You KNOW them! 
-
-IMPORTANT: Respond in ${langName}.
-${styleInstruction}
+IMPORTANT:
+- All enum fields must stay in ENGLISH exactly as specified.
+- All natural-language text fields should be written in ${langName}.
+- Return ONLY valid JSON.
+- No markdown.
+- No code fences.
+- No explanations outside JSON.
 
 === CURRENT TIME CONTEXT ===
 ${timeContextText}
 
-=== WHAT YOU KNOW ABOUT THIS USER ===
+=== USER MEMORY ===
+${memoryContext}
+${prevBlock}
 
-**Facts:** ${facts || '(limited)'}
-**Traits:** ${traits || '(still learning)'}
-**Timeline:** ${timeline || '(no timeline)'}
-**People:** ${social || '(no connections)'}
-**Hypotheses:** ${hypotheses || '(none yet)'}
-${gapsBlock}
+=== CORE GOAL ===
+Transform raw memory into a HUMAN opening angle.
 
+The assistant must NOT sound like a parrot repeating stored nouns or exact remembered phrases.
+Bad memory use:
+- "Ты ел сегодня макароны с сосисками?"
+- "Как там твои макароны с сосисками?"
+- repeating an exact stored preference as the center of the greeting
 
-выбери две области из контекста, которые являются самыми жирными и весомыми - те которые ты бы точно использовал в своем контекстуальности приветствии и не используй их! это защитит тебя от банальностей.
-be natural. Be warm. будь не слишком тривиальным. но и не перегружай приветствие контекстуальными отсылками и следи чтобы в
-нём не было бреда и бредовых фраз. Show you KNOW them from a NEW angle.
-твоё приветствие не должно быть перечнем нескольких абзацев разного контекста. ты должен показать что связываешь контекст, видишь его переплетения и можешь углубляться в его слои. удиви юзера этим, а не просто заполни свой ответ рандомными зацепками о нём 
+Good memory use:
+- move upward from the fact into category
+- infer what the category suggests about the user
+- move sideways into an adjacent angle
+- connect a small remembered detail to a broader pattern, value, tension, life rhythm, or form of self-care
 
+=== SEMANTIC TRANSFORMATION RULE ===
+For any useful remembered detail, think in 4 levels:
+
+Level 1: concrete detail
+Level 2: broader category
+Level 3: implication about the user
+Level 4: adjacent angle for conversation
+
+The FINAL greeting should usually rely on levels 2-4, not level 1.
 
 === YOUR TASK ===
-Create a greeting that:
-1. **Is FRESH** — different from your previous greetings. не повторяй контекст который ты уже использовал в предыдущих приветствиях. 
-2. **Shows you KNOW them**
-3. **Is time-aware** — consider the current moment. но делай это оригинально обыграв время дня, сезон, назови и контекстно обыграй праздники рядом с этой датой и подай все это адаптированном под стиль общения с юзером тексте.
-4. **Optionally explores a gap** — if it fits naturally и если будешь использовать, то построй адекватный и контекстно ловкий и уместный переход к этому вопросу
-5. не более 1000 символов
-6. используй мелкую деталь контекста, чтобы юзер увидел что ты помнишь даже мелочи о нём
+Choose ONE best greeting angle and express it as a semantic lens.
 
-=== VARIETY STRATEGIES ===
-- Rotate between: work, hobbies, people in their life, recent events, mood, plans, observations
-- Use different tones: playful, warm, curious, supportive, reflective
-- Try different structures: question, observation, reference to shared history, hypothesis check
+=== JSON SCHEMA ===
+{
+  "strategy": "abstract_callback|reflective_insight|adjacent_angle|situational_opening",
+  "tone": "warm|reflective|curious|supportive|playful|calm",
+  "mainThread": "One sentence: what the greeting should fundamentally do",
+  "broaderCategory": "Broader category above the raw remembered facts",
+  "deeperPattern": "What that broader category suggests about the user",
+  "adjacentAngle": "A nearby angle that feels intelligent and fresh without parroting specifics",
+  "softAnchor": "Optional subtle anchor detail; leave empty if no subtle anchor is needed",
+  "forbiddenConcrete": ["exact noun/phrase to avoid repeating in the final greeting"],
+  "questionDirection": "If there is a question, what broader direction should it move toward",
+  "shouldAskQuestion": true,
+  "timeHook": "How the current moment/time should lightly color the greeting"
+}
 
-=== WHAT TO AVOID ===
-- REPEATING topics from previous greetings
-- Listing everything you know
-- Being creepy or overly familiar
-- Multiple questions (ONE is enough)
-- Generic greetings ("How are you?")
+=== RULES ===
+1. ONE main thread only
+2. Prefer traits / hypotheses / life phase over raw atomic facts
+3. Put banal or overly literal details into forbiddenConcrete
+4. If a remembered detail is too narrow, too popugai-like, too demonstrative, or too object-centered — forbid it
+5. The final greeting must feel like understanding, not recall
+6. Do not produce the final greeting text here
 
-`,
-        
-        user: `Generate a personalized, time-aware greeting that is DIFFERENT from your previous ones.`
+Return JSON only.`;
+}
+
+async function prepareGreetingLens(langName, timeContext, context) {
+    const prompt = buildGreetingLensPrompt(langName, timeContext, context);
+
+    try {
+        const raw = await callAPIWithRetry(prompt, 2, true);
+        const parsed = parseJSON(raw);
+        const lens = normalizeGreetingLens(parsed, timeContext);
+
+        if (!lens) {
+            console.warn('[Greeting Lens] Parse failed, using fallback lens');
+            return buildFallbackGreetingLens(context, timeContext);
+        }
+
+        localStorage.setItem('chatbot_last_greeting_lens', JSON.stringify(lens, null, 2));
+        console.log('[Greeting Lens] Prepared:', lens);
+        return lens;
+
+    } catch (error) {
+        console.error('[Greeting Lens] Failed:', error.message);
+        return buildFallbackGreetingLens(context, timeContext);
+    }
+}
+
+function getGreetingThinkingTextFromLens(lens, timeContext) {
+    if (!lens) return getRandomGreetingAction(timeContext);
+
+    const variants = {
+        abstract_callback: [
+            '🔍 Поднимаюсь над деталями...',
+            '🔍 Ищу более широкий смысл...',
+            '🔍 Собираю общий рисунок...'
+        ],
+        reflective_insight: [
+            '💭 Вслушиваюсь в твой внутренний ритм...',
+            '💭 Ищу тонкий угол для захода...',
+            '💭 Пытаюсь ухватить суть, а не детали...'
+        ],
+        adjacent_angle: [
+            '⚡ Ищу соседний смысловой ход...',
+            '⚡ Пробую зайти не в лоб...',
+            '⚡ Смещаю фокус чуть в сторону...'
+        ],
+        situational_opening: [
+            '✨ Привязываю момент ко всему контексту...',
+            '✨ Настраиваю приветствие под этот час...',
+            '✨ Ищу живой заход в текущий момент...'
+        ]
+    };
+
+    const list = variants[lens.strategy] || variants.reflective_insight;
+    return list[Math.floor(Math.random() * list.length)];
+}
+
+function buildGreetingFromLensPrompt(langName, timeContext, lens, style = '') {
+    const timeContextText = formatTimeContextForPrompt(timeContext);
+
+    const styleInstruction = style && style.trim()
+        ? `\n=== COMMUNICATION STYLE ===\n${truncateGreetingText(style, 1400)}\n`
+        : '';
+
+    const forbiddenBlock = lens.forbiddenConcrete && lens.forbiddenConcrete.length > 0
+        ? lens.forbiddenConcrete.map(x => `- ${x}`).join('\n')
+        : '(none)';
+
+    return {
+        system: `You are writing the FINAL proactive greeting for a returning user.
+
+IMPORTANT: Respond in ${langName}.
+${styleInstruction}
+=== CURRENT TIME CONTEXT ===
+${timeContextText}
+
+=== SEMANTIC LENS ===
+Strategy: ${lens.strategy}
+Tone: ${lens.tone}
+Main thread: ${lens.mainThread}
+Broader category: ${lens.broaderCategory}
+Deeper pattern: ${lens.deeperPattern}
+Adjacent angle: ${lens.adjacentAngle}
+Soft anchor: ${lens.softAnchor || '(none)'}
+Question direction: ${lens.questionDirection}
+Should ask question: ${lens.shouldAskQuestion ? 'yes' : 'no'}
+Time hook: ${lens.timeHook}
+
+=== FORBIDDEN CONCRETE CALLBACKS ===
+${forbiddenBlock}
+
+=== CORE RULES ===
+1. Do NOT sound like a memory parrot
+2. Do NOT build the greeting around a raw remembered noun or exact stored phrase
+3. Use memory as UNDERSTANDING, not as quotation
+4. Prefer category, implication, adjacent angle, and subtle connection
+5. If you use the soft anchor, transform it and keep it subtle
+6. One main thread only
+7. No lists
+8. No demo-like "look how much I remember"
+9. No creepiness
+10. Time/season/day may lightly color the greeting, but must not dominate it
+11. Maximum 700 characters
+12. At most ONE question
+13. If Should ask question = no, do not ask any question
+
+=== WHAT GOOD OUTPUT FEELS LIKE ===
+- natural
+- warm
+- alive
+- context-aware
+- slightly intelligent
+- not performative
+- not over-written
+
+=== WHAT BAD OUTPUT FEELS LIKE ===
+- parroting exact details
+- showing off memory
+- awkwardly specific callbacks
+- trying too hard to impress
+- sounding like a generated demo`,
+        user: `Write one short proactive opening greeting now. Make the user feel understood, not quoted.`
     };
 }
+
 
 // ==================== SETTINGS MENU ====================
 function initSettingsMenu() {
@@ -2471,6 +2704,94 @@ window.saveLocalKey = function() {
     } else {
         if (status) status.innerText = "⚠️ Key should start with 'sk'";
     }
+}
+
+
+// Вспомогательная функция для красивого формата времени
+function formatMessageTime(ts) {
+    if (!ts) return '';
+    const date = new Date(ts);
+    const now = new Date();
+    const isToday = date.getDate() === now.getDate() &&
+        date.getMonth() === now.getMonth() &&
+        date.getFullYear() === now.getFullYear();
+    
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    
+    if (isToday) {
+        return `${hours}:${minutes}`;
+    } else {
+        const day = date.getDate().toString().padStart(2, '0');
+        const month = (date.getMonth() + 1).toString().padStart(2, '0');
+        return `${day}.${month} ${hours}:${minutes}`;
+    }
+}
+
+// 1. Сохраняем время вместе с сообщением
+function addToHistory(role, content, timestamp = Date.now()) {
+    const history = getChatHistory();
+    history.push({ role, content, timestamp });
+    saveChatHistory(history);
+}
+
+// 2. Загружаем историю с учетом времени
+function loadChatHistory() {
+    const history = getChatHistory();
+    const chatArea = document.getElementById('chatArea');
+    
+    history.forEach(msg => {
+        // Если старое сообщение без времени — ставим текущее, чтобы не было ошибки
+        appendMessage(msg.role, msg.content, false, msg.timestamp || Date.now());
+    });
+    
+    if (chatArea) chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+// 3. Отрисовываем сообщение со временем
+function appendMessage(role, content, save = true, timestamp = Date.now()) {
+    const chatArea = document.getElementById('chatArea');
+    if (!chatArea) return;
+    
+    const msgDiv = document.createElement('div');
+    msgDiv.className = `message ${role}`;
+    
+    // Форматируем markdown только для assistant
+    if (role === 'assistant') {
+        msgDiv.innerHTML = formatMessageMarkdown(content);
+    } else {
+        msgDiv.textContent = content;
+    }
+    
+    // Добавляем метку времени
+    const timeDiv = document.createElement('div');
+    timeDiv.className = 'message-time';
+    timeDiv.textContent = formatMessageTime(timestamp);
+    msgDiv.appendChild(timeDiv);
+    
+    chatArea.appendChild(msgDiv);
+    chatArea.scrollTop = chatArea.scrollHeight;
+    
+    if (save) {
+        addToHistory(role, content, timestamp);
+    }
+}
+
+// 4. Обновляем финализацию стриминга, чтобы там тоже появлялось время
+function finalizeStreamingMessage(element, content) {
+    if (!element) return;
+    
+    element.classList.remove('streaming');
+    element.removeAttribute('id');
+    element.innerHTML = formatMessageMarkdown(content);
+    
+    const timestamp = Date.now();
+    const timeDiv = document.createElement('div');
+    timeDiv.className = 'message-time';
+    timeDiv.textContent = formatMessageTime(timestamp);
+    element.appendChild(timeDiv);
+    
+    addToHistory('assistant', content, timestamp);
 }
 
 // ==================== DEBUG UTILITIES ====================
