@@ -2527,6 +2527,11 @@ async function callAPIWithHydraFallback(messages, tools = null) {
 async function callAPIHydraSpecificModel(messages, modelName, tools = null) {
     const { key } = getHydraInfo();
     
+    // ⬇️ ДОБАВЛЯЕМ ЛОГ ПЕРЕД ОТПРАВКОЙ
+    console.log(`[Hydra Request] Model: ${modelName}`);
+    console.log(`[Hydra Request] Messages:`, messages);
+    if (tools) console.log(`[Hydra Request] Tools:`, tools);
+    
     const headers = {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${key}`,
@@ -2556,6 +2561,10 @@ async function callAPIHydraSpecificModel(messages, modelName, tools = null) {
     }
     
     const data = await response.json();
+    
+    // ⬇️ ДОБАВЛЯЕМ ЛОГ ОТВЕТА (чтобы видеть, что вернула нейронка)
+    console.log(`[Hydra Response]`, data.choices[0].message);
+    
     return data.choices[0].message;
 }
 
