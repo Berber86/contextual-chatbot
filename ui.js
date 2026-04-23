@@ -7,19 +7,23 @@ const isLocal = window.location.hostname.includes('localhost') ||
     window.location.hostname.includes('127.0.0.1');
 
 const CONFIG = {
-    // Hydra модель (единственная, платная)
+    // Основная платная модель (Stage 2 и финальные ответы)
     model_chat: "hydra-gemini-3-pro",
     
-    // OpenRouter модели — fallback цепочка (7 вариантов)
+    // БОЛЕЕ СЛАБАЯ платная модель (для Stage 1 и аналитики в Full Hydra Mode)
+    // Замените на нужную модель Hydra, например: "hydra-flash-1-5" или аналогичную
+    model_analysis: "hydra-gemini",
+    
+    // OpenRouter модели (остаются как fallback или для обычного режима)
     openRouterModels: [
-        "stepfun/step-3.5-flash:free",
         "nvidia/nemotron-3-super-120b-a12b:free",
         "qwen/qwen3.6-plus-preview:free",
         "z-ai/glm-4.5-air:free",
-        "nvidia/nemotron-3-nano-30b-a3b:free",
-        "nvidia/nemotron-3-nano-30b-a3b:free",
         "nvidia/nemotron-3-nano-30b-a3b:free"
     ],
+    // ... остальной конфиг без изменений
+
+
     
     // Текущий индекс в цепочке (сбрасывается при успехе)
     currentModelIndex: 0,
@@ -41,6 +45,27 @@ const CONFIG = {
     showToolCalls: false,
     showContextAnalysis: true
 };
+
+// Функция получения "чистого" ключа и проверки режима
+function getHydraInfo() {
+    const rawKey = localStorage.getItem(STORAGE_KEYS.hydraKey);
+    if (!rawKey) return { key: null, isFullMode: false };
+    
+    const trimmedKey = rawKey.trim();
+    const isFullMode = trimmedKey.endsWith('$$');
+    const cleanKey = isFullMode ? trimmedKey.slice(0, -2) : trimmedKey;
+    
+    return { key: cleanKey, isFullMode };
+}
+
+// Переписываем стандартный геттер для обратной совместимости
+function getHydraKey() {
+    return getHydraInfo().key;
+}
+
+function isFullHydraMode() {
+    return getHydraInfo().isFullMode;
+}
 
 // Геттеры для получения текущей модели
 function getCurrentOpenRouterModel() {
@@ -1992,23 +2017,25 @@ async function streamResponseOpenRouterSingle(messages, model, onChunk, onComple
 // ==================== STREAMING RESPONSE (Hydra или OpenRouter fallback) ====================
 // Стриминг: Hydra (если есть ключ) или OpenRouter с fallback
 async function streamResponse(messages, onChunk, onComplete, options = {}) {
-    const useHydra = hasValidHydraKey();
+    const { key, isFullMode } = getHydraInfo();
+    const useHydra = key && key.startsWith('sk') && key.length > 10;
     
     if (useHydra) {
-        // Hydra — одна модель, без fallback
+        // Для финального ответа (Stage 2) ВСЕГДА используем мощную модель
         const headers = {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${getHydraKey()}`,
+            'Authorization': `Bearer ${key}`, // Здесь уже чистый ключ
             'HTTP-Referer': window.location.href,
             'X-Title': 'Memory Chatbot'
         };
         
         const requestBody = {
-            model: CONFIG.model_chat,
+            model: CONFIG.model_chat, // Платная сильная модель
             messages: messages,
             stream: true,
             ...options
         };
+        // ... остальной код стриминга без изменений ...
         
         console.log(`[Stream] Using Hydra API, model: ${CONFIG.model_chat}`);
         
@@ -2367,7 +2394,17 @@ function buildSystemPromptLegacy() {
 // Вызов API через OpenRouter (для анализа, аналитики, приветствий)
 // Вызов API через OpenRouter с автоматическим fallback по цепочке моделей
 async function callAPIOpenRouter(messages, useAnalysisModel = false, tools = null) {
+    // ⬇️ НОВАЯ ЛОГИКА: Перехват для Full Hydra Mode
+    if (isFullHydraMode()) {
+        console.log(`[Full Hydra Mode] Redirecting analysis/stage1 call to Hydra (${CONFIG.model_analysis})`);
+        // Вызываем Hydra напрямую, подменяя модель на более слабую
+        return await callAPIHydraSpecificModel(messages, CONFIG.model_analysis, tools);
+    }
+    
+    // Стандартная логика OpenRouter (если ключа нет или он без $$)
     const startingIndex = CONFIG.currentModelIndex;
+    // ... далее ваш старый код callAPIOpenRouter ...
+
     let lastError = null;
     
     // Пробуем все модели начиная с текущей
@@ -2485,6 +2522,43 @@ async function callAPIWithHydraFallback(messages, tools = null) {
 }
 
 // Прямой вызов Hydra API
+
+// Универсальный вызов Hydra с указанием конкретной модели
+async function callAPIHydraSpecificModel(messages, modelName, tools = null) {
+    const { key } = getHydraInfo();
+    
+    const headers = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${key}`,
+        'HTTP-Referer': window.location.href,
+        'X-Title': 'Memory Chatbot'
+    };
+    
+    const body = {
+        model: modelName,
+        messages
+    };
+    
+    if (tools && tools.length > 0) {
+        body.tools = tools;
+        body.tool_choice = 'auto';
+    }
+    
+    const response = await fetch(CONFIG.hydraApiUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body)
+    });
+    
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Hydra Error (${modelName}): ${response.status} - ${errorText}`);
+    }
+    
+    const data = await response.json();
+    return data.choices[0].message;
+}
+
 async function callAPIHydra(messages, tools = null) {
     const headers = {
         'Content-Type': 'application/json',
