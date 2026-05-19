@@ -2258,7 +2258,15 @@ Respond in ${langName}. Use EXACTLY these two XML tags:
 // В ui.js заменяем функцию processMessageWithTwoStages
 async function processMessageWithTwoStages(userMessage) {
     const history = getChatHistory();
-    
+
+// NEW: убираем только что отправленное userMessage из истории,
+// потому что ниже мы добавим его отдельным последним сообщением
+let historyWithoutCurrent = history.slice();
+const last = historyWithoutCurrent[historyWithoutCurrent.length - 1];
+if (last && last.role === 'user' && (last.content || '').trim() === (userMessage || '').trim()) {
+    historyWithoutCurrent.pop();
+}
+
     // 1. Показываем ЭХО с прошлого раза в статус-баре (сообщение-мысль)
     let echoText = localStorage.getItem('chatbot_next_echo') || 'Анализирую контекст...';
     if (!echoText.startsWith('💭') && !echoText.startsWith('🔍') && !echoText.startsWith('⚡')) {
@@ -2267,7 +2275,7 @@ async function processMessageWithTwoStages(userMessage) {
     updateThinkingMessage(echoText);
     
     // 2. STAGE 1: Сбор контекста + "Прокашливание"
-    const contextResult = await findRelevantContext(userMessage, history);
+    const contextResult = await findRelevantContext(userMessage, historyWithoutCurrent);
     
     // 3. Обновляем статус-бар на "Прокашливание" (реакцию-мысль)
     if (contextResult.microOpening) {
@@ -2318,7 +2326,7 @@ ${questionRule}
         
         const apiMessages = [
             { role: "system", content: systemPrompt },
-            ...history.slice(-8).map(msg => ({
+            ...historyWithoutCurrent.slice(-8).map(msg => ({
                 role: msg.role === 'user' ? 'user' : 'assistant',
                 content: msg.content
             })),
