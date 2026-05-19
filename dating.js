@@ -1383,34 +1383,42 @@ function getSavedIdeal() {
 
 // ==================== EMBEDDING GENERATION ====================
 
+// ==================== EMBEDDING GENERATION ====================
+
 async function startEmbeddingGeneration() {
     if (datingState.isGenerating) return;
-
+    
     datingState.isGenerating = true;
     datingState.currentPass = 0;
     datingState.passes = [];
     renderGeneratingState();
-
+    
     try {
         for (let i = 1; i <= EMBEDDING_PASSES; i++) {
             datingState.currentPass = i;
             updateGenerationProgress(i);
-
+            
             console.log(`[Dating] Starting pass ${i}/${EMBEDDING_PASSES}`);
-
-            const embedding = await generateSingleEmbedding();
-            if (embedding) datingState.passes.push(embedding);
-            else throw new Error(`Pass ${i} failed`);
-
+            
+            const embedding = await generateSingleEmbedding(i);
+            
+            if (embedding) {
+                datingState.passes.push(embedding);
+            } else {
+                throw new Error(`Проход ${i} не удался после нескольких попыток. Сервер перегружен или ИИ выдал неверный формат.`);
+            }
+            
+            // Увеличиваем паузу между успешными проходами, 
+            // чтобы бесплатные API успевали "остыть" от лимитов (было 1000, стало 3000)
             if (i < EMBEDDING_PASSES) {
-                await new Promise(resolve => setTimeout(resolve, 1000));
+                await new Promise(resolve => setTimeout(resolve, 3000));
             }
         }
-
+        
         const finalEmbedding = calculateFinalEmbedding(datingState.passes);
         saveEmbedding(finalEmbedding);
         renderSavedEmbedding(finalEmbedding);
-
+        
         console.log('[Dating] Embedding generation complete!');
     } catch (error) {
         console.error('[Dating] Generation failed:', error);
@@ -1420,24 +1428,50 @@ async function startEmbeddingGeneration() {
     }
 }
 
-async function generateSingleEmbedding() {
+async function generateSingleEmbedding(passNumber) {
     const facts = getFactsForPrompt(false);
     const traits = getTraitsForPrompt(false);
     const prompt = buildEmbeddingPrompt(facts, traits);
-
-    try {
-        const response = await callAPIForDating(prompt);
-        const parsed = parseEmbeddingResponse(response);
-
-        if (parsed && parsed.length === TOTAL_SCALES) return parsed;
-        console.error('[Dating] Invalid embedding length:', parsed?.length);
-        return null;
-    } catch (error) {
-        console.error('[Dating] API call failed:', error);
-        return null;
+    
+    // Даем 3 попытки на каждый проход
+    const MAX_ATTEMPTS = 3;
+    
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        try {
+            console.log(`[Dating] Pass ${passNumber}, Attempt ${attempt}/${MAX_ATTEMPTS}`);
+            
+            const response = await callAPIForDating(prompt);
+            const parsed = parseEmbeddingResponse(response);
+            
+            // Если парсинг прошел успешно и мы получили все 50 шкал
+            if (parsed && parsed.length === TOTAL_SCALES) {
+                return parsed;
+            }
+            
+            console.warn(`[Dating] Invalid embedding length on attempt ${attempt}:`, parsed?.length);
+            
+            // Если ответ пришел, но формат сломан, принудительно переключаем модель 
+            // на следующую из списка в ui.js (если функция доступна)
+            if (typeof switchToNextModel === 'function' && attempt < MAX_ATTEMPTS) {
+                console.log('[Dating] Bad format received. Forcing model switch...');
+                switchToNextModel();
+            }
+            
+        } catch (error) {
+            console.error(`[Dating] API call failed on attempt ${attempt}:`, error);
+            // Сетевые ошибки (Rate Limit) уже обрабатываются с переключением внутри callAPIOpenRouter в ui.js.
+            // Если ошибка вывалилась сюда — значит исчерпаны все модели, либо проблема глубже.
+        }
+        
+        // Если попытка не удалась, делаем паузу перед следующей (растущую с каждой попыткой: 2с, 4с)
+        if (attempt < MAX_ATTEMPTS) {
+            console.log(`[Dating] Retrying in ${2000 * attempt}ms...`);
+            await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
+        }
     }
+    
+    return null; // Если за 3 попытки так и не удалось собрать вектор
 }
-
 function buildEmbeddingPrompt(facts, traits) {
     const scaleList = SCALES.map(s => `${s.id}. ${s.emoji} ${s.name} — ${s.desc}`).join('\n');
 
