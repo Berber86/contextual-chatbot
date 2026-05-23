@@ -2113,32 +2113,33 @@ async function refreshCandidateList() {
     }
 }
 
-
-// Открыть вкладку совместимости с данными выбранного профиля
 function openCompatibilityWithProfile(profileId) {
     const profile = window.lastProfiles?.find(p => p.id === profileId);
     if (!profile) {
         alert('Профиль не найден');
         return;
     }
-    
+
+    // === ИСПРАВЛЕНИЕ: сохраняем ID и эмбеддинг для диалогов ===
+    window.currentCandidateId = profileId;
+    window.currentCandidateEmbed = profile.embedding || '';
+    // =========================================================
+
     window.currentCompatibilityProfileId = profileId;
     window.currentCompatibilityProfileData = profile || null;
-    
+
     // ДОБАВИТЬ ЭТО: Показываем вкладку совместимости
     const compatBtn = document.getElementById('compatTabBtn');
     if (compatBtn) compatBtn.style.display = 'block';
-    
+
     // Переключаем таб на совместимость
     switchDatingTab('compatibility');
-    
-    // ... остальной код функции (setTimeout и т.д.) оставляем как есть
-    
+
     // Ждём рендеринга вкладки
     setTimeout(() => {
         const embedInput = document.getElementById('candidateEmbeddingInput');
         const descInput = document.getElementById('candidateDescriptionInput');
-        
+
         if (embedInput && profile.embedding) {
             embedInput.value = profile.embedding;
             // Запускаем валидацию, чтобы кнопки разблокировались
@@ -2146,7 +2147,7 @@ function openCompatibilityWithProfile(profileId) {
                 validateCandidateInput();
             }
         }
-        
+
         if (descInput) {
             if (profile.descriptionLevel1 && profile.descriptionLevel1.trim()) {
                 descInput.value = profile.descriptionLevel1;
