@@ -1883,12 +1883,7 @@ function autoResizeTextarea() {
     textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
 }
 
-function handleKeyDown(event) {
-    if (event.key === 'Enter' && !event.shiftKey) {
-        event.preventDefault();
-        sendMessage(event);
-    }
-}
+
 
 // ====================  VIA OPENROUTER (для приветствий и анализа) ====================
 // Стриминг через OpenRouter с fallback по моделям
