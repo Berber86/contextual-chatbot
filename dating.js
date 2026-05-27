@@ -6,6 +6,7 @@
 // + УЧЁТ ДОСТОВЕРНОСТИ ШКАЛ КАНДИДАТА ЧЕРЕЗ ДИАПАЗОНЫ
 // + V3 формат с требованиями к партнёру
 // + Режим "Взаимность и Динамика"
+// + АВТОМАТИЗИРОВАННЫЙ ПОТОК (V2 -> V3) и ФОНОВАЯ СИНХРОНИЗАЦИЯ
 
 // ==================== КОНСТАНТЫ ====================
 const DATING_STORAGE_KEY = 'chatbot_dating_embedding';
@@ -152,14 +153,12 @@ function closeDatingModal() {
         datingState.passes = [];
     }
     
-    // ДОБАВИТЬ ЭТО: Прячем вкладку совместимости при закрытии
     const compatBtn = document.getElementById('compatTabBtn');
     if (compatBtn) compatBtn.style.display = 'none';
     
-    // Возвращаем активный таб на "Мой профиль", чтобы при следующем открытии не было пустой страницы
+    // Возвращаем активный таб на "Мой профиль"
     datingState.activeTab = 'profile';
 }
-
 
 function switchDatingTab(tab) {
     datingState.activeTab = tab;
@@ -279,10 +278,17 @@ function renderSavedEmbedding(embedding) {
                 <button class="dating-btn dating-btn-copy" onclick="copyEmbeddingToClipboard()">📋 Копировать профиль (${exportVersion})</button>
                 <button class="dating-btn dating-btn-details" onclick="toggleFullEmbedding()">📊 Все 50 шкал</button>
                 <button class="dating-btn dating-btn-regenerate" onclick="confirmRegenerate()">🔄 Пересоздать</button>
-             <button class="dating-btn dating-btn-publish" onclick="publishMyProfileToFirebase()" style="background:#4CAF50;">
-    ${getMyProfileId() ? '🔄 Обновить анкету' : '🌍 Опубликовать анкету'}
-</button>
-<button class="dating-btn dating-btn-refresh" onclick="refreshCandidateList()">🔄 Найти кандидатов</button>
+                
+                ${getMyProfileId() 
+                    ? `<button class="dating-btn dating-btn-publish" onclick="publishMyProfileToFirebase()" style="background: transparent; border: 1px solid #4CAF50; color: #4CAF50;">
+                        ✅ Анкета опубликована (Синхронизировать)
+                       </button>` 
+                    : `<button class="dating-btn dating-btn-publish" onclick="publishMyProfileToFirebase()" style="background:#4CAF50; color: white;">
+                        🌍 Опубликовать анкету (Видна в поиске)
+                       </button>`
+                }
+                
+                <button class="dating-btn dating-btn-refresh" onclick="refreshCandidateList()">🔄 Найти кандидатов</button>
             </div>
             <div class="dating-full-embedding" id="fullEmbeddingView" style="display: none;">
                 <h4>Полный профиль (50 шкал):</h4>
@@ -352,7 +358,6 @@ function renderSavedEmbedding(embedding) {
 
 function renderProfileForm(profile, isComplete) {
     if (isComplete) {
-        // Отображаем сохранённые данные с кнопкой редактирования
         const genderText = {
             male: 'Мужской',
             female: 'Женский',
@@ -372,10 +377,17 @@ function renderProfileForm(profile, isComplete) {
                 <div class="profile-field"><strong>Ищете:</strong> ${targetGenderText}</div>
                 <div class="profile-field"><strong>Возраст партнёра:</strong> ${profile.targetAgeMin} – ${profile.targetAgeMax} лет</div>
                 <button class="dating-btn dating-btn-edit-profile" onclick="editProfile()">✏️ Редактировать</button>
+                
+                <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.1);">
+                    <div style="font-size: 12px; color: #aaa; margin-bottom: 8px;">
+                        Ваш ID: <strong>${getMyProfileId() || 'Анкета не опубликована'}</strong><br>
+                        <em>Сохраните этот ID. Если очистите кэш или зайдете с другого устройства, сможете восстановить доступ к чатам.</em>
+                    </div>
+                    <button class="dating-btn" onclick="restoreProfileId()" style="background: transparent; border: 1px solid #6366f1; padding: 6px 12px; font-size: 13px;">🔄 Восстановить по ID</button>
+                </div>
             </div>
         `;
     } else {
-        // Форма для заполнения
         return `
             <div class="profile-edit-form">
                 <div class="profile-field">
@@ -408,8 +420,21 @@ function renderProfileForm(profile, isComplete) {
                     </div>
                 </div>
                 <button class="dating-btn dating-btn-save-profile" onclick="saveProfileData()">💾 Сохранить анкету</button>
+                
+                <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.1);">
+                    <button class="dating-btn" onclick="restoreProfileId()" style="background: transparent; border: 1px solid #6366f1; padding: 6px 12px; font-size: 13px;">🔄 Восстановить старый ID</button>
+                </div>
             </div>
         `;
+    }
+}
+
+function restoreProfileId() {
+    const id = prompt("Введите ваш ID анкеты (его можно найти на старом устройстве в этом же меню):");
+    if (id && id.trim()) {
+        localStorage.setItem('chatbot_firebase_profile_id', id.trim());
+        alert("ID восстановлен! Теперь нажмите кнопку синхронизации, чтобы обновить данные.");
+        checkDatingEligibility();
     }
 }
 
@@ -430,7 +455,6 @@ function saveProfileData() {
     const targetAgeMinVal = parseInt(targetAgeMin.value);
     const targetAgeMaxVal = parseInt(targetAgeMax.value);
     
-    // Валидация
     if (!userGender) {
         alert('Пожалуйста, укажите ваш пол');
         return;
@@ -470,7 +494,6 @@ function saveProfileData() {
     };
     saveUserProfile(profile);
     
-    // Перерисовываем блок анкетных данных
     const container = document.getElementById('profileFormContainer');
     if (container) {
         const updatedProfile = getUserProfile();
@@ -478,6 +501,11 @@ function saveProfileData() {
     }
     
     alert('Анкетные данные сохранены!');
+    
+    // ТИХАЯ АВТО-СИНХРОНИЗАЦИЯ
+    if (getMyProfileId()) {
+        publishMyProfileToFirebase(true);
+    }
 }
 
 function editProfile() {
@@ -485,11 +513,8 @@ function editProfile() {
     const container = document.getElementById('profileFormContainer');
     if (container) {
         container.innerHTML = renderProfileForm(profile, false);
-        // Небольшой хак: после перерисовки нужно привязать обработчики? Нет, кнопка saveProfileData вызовется заново.
     }
 }
-
-
 
 // ==================== SCALE RENDERING ====================
 
@@ -618,8 +643,6 @@ function getTopTraits(embedding, countPerPole = 5) {
 
 // ==================== COMPATIBILITY TAB ====================
 
-
-
 function validateCandidateInput() {
     const input = document.getElementById('candidateEmbeddingInput');
     const status = document.getElementById('embedStatus');
@@ -656,14 +679,11 @@ function validateCandidateInput() {
         status.innerHTML = statusText;
         status.className = 'compat-input-status status-valid';
 
-        // Кнопка 1 — Глубокий разбор — всегда доступна при валидном эмбеддинге
         btn.disabled = false;
 
-        // Кнопка 2 — Быстрый чек — нужен идеал юзера
         const hasUserIdeal = getSavedIdeal()?.searchScales;
         if (btnLight) btnLight.disabled = !hasUserIdeal;
 
-        // Кнопка 3 — Взаимность — нужен V3 у кандидата + идеал юзера
         if (btnMutual) {
             const mutualAvailable = isV3 && hasUserIdeal;
             btnMutual.disabled = !mutualAvailable;
@@ -690,32 +710,16 @@ function validateCandidateInput() {
     }
 }
 
-// ==================== MODE 1: DEEP COMPATIBILITY ANALYSIS ====================
-
-
-// ==================== MODE 2: LIGHT COMPATIBILITY ANALYSIS ====================
-
-
-
-// ==================== MODE 3: MUTUAL ANALYSIS & DYNAMICS ====================
-
-
-
-// ==================== MATCH REPORT BUILDER ====================
-
 function buildMatchReport(userEmbed, candidateEmbed, ideal) {
     const report = {
         matchedHigh: [],
         failedHigh: [],
         uncertainHigh: [],
-
         matchedLow: [],
         failedLow: [],
         uncertainLow: [],
-
         surprises: [],
         uncertainExpected: [],
-
         userHighlights: [],
         userLowlights: []
     };
@@ -854,8 +858,6 @@ function buildMatchReport(userEmbed, candidateEmbed, ideal) {
     return report;
 }
 
-// ==================== MATCH SUMMARY HELPERS ====================
-
 function summarizeMatchForPrompt(report, direction) {
     const good = report.matchedHigh.length + report.matchedLow.length;
     const bad = report.failedHigh.length + report.failedLow.length;
@@ -945,7 +947,6 @@ function formatMatchReportDetailed(report) {
     return sections;
 }
 
-// Показать, опубликована ли анкета
 function getProfilePublishStatus() {
     const profileId = getMyProfileId();
     if (profileId) {
@@ -971,14 +972,6 @@ function appendCompatibilityActions(resultContainer) {
     
     resultContainer.appendChild(actionsDiv);
 }
-
-// ==================== PROMPT BUILDERS ====================
-
-
-
-
-
-// ==================== CANDIDATE DECODER ====================
 
 function decodeCandidateEmbedding(embedding) {
     const allScales = SCALES.map((scale, idx) => {
@@ -1155,7 +1148,7 @@ function confirmRegenerateIdeal() {
 
 // ==================== IDEAL GENERATION ====================
 
-async function startIdealGeneration() {
+async function startIdealGeneration(isAutoFlow = false) {
     if (datingState.isGeneratingIdeal) return;
     datingState.isGeneratingIdeal = true;
 
@@ -1192,6 +1185,19 @@ async function startIdealGeneration() {
 
         localStorage.setItem(DATING_IDEAL_KEY, JSON.stringify(ideal));
         renderSavedIdeal(ideal);
+
+        // ТИХАЯ СИНХРОНИЗАЦИЯ, ЕСЛИ АНКЕТА УЖЕ ЕСТЬ
+        if (getMyProfileId() && isProfileComplete()) {
+            console.log('[Dating] Auto-syncing V3 to server...');
+            publishMyProfileToFirebase(true);
+        }
+
+        // ВОЗВРАТ В ПРОФИЛЬ ПРИ АВТОМАТИЧЕСКОМ ПОТОКЕ
+        if (isAutoFlow) {
+            console.log('[Dating] V3 generated automatically. Returning to Profile tab.');
+            switchDatingTab('profile');
+        }
+
     } catch (error) {
         console.error('[Dating/Ideal] Failed:', error);
         const container = document.getElementById('datingContent');
@@ -1383,8 +1389,6 @@ function getSavedIdeal() {
 
 // ==================== EMBEDDING GENERATION ====================
 
-// ==================== EMBEDDING GENERATION ====================
-
 async function startEmbeddingGeneration() {
     if (datingState.isGenerating) return;
     
@@ -1408,8 +1412,6 @@ async function startEmbeddingGeneration() {
                 throw new Error(`Проход ${i} не удался после нескольких попыток. Сервер перегружен или ИИ выдал неверный формат.`);
             }
             
-            // Увеличиваем паузу между успешными проходами, 
-            // чтобы бесплатные API успевали "остыть" от лимитов (было 1000, стало 3000)
             if (i < EMBEDDING_PASSES) {
                 await new Promise(resolve => setTimeout(resolve, 3000));
             }
@@ -1420,6 +1422,12 @@ async function startEmbeddingGeneration() {
         renderSavedEmbedding(finalEmbedding);
         
         console.log('[Dating] Embedding generation complete!');
+
+        // АВТОМАТИЧЕСКИЙ ПЕРЕХОД И СОЗДАНИЕ ИДЕАЛА (V3)
+        console.log('[Dating] V2 generated. Seamlessly starting V3...');
+        switchDatingTab('ideal');
+        await startIdealGeneration(true); // true = автоматический поток
+        
     } catch (error) {
         console.error('[Dating] Generation failed:', error);
         renderGenerationError(error.message);
@@ -1433,7 +1441,6 @@ async function generateSingleEmbedding(passNumber) {
     const traits = getTraitsForPrompt(false);
     const prompt = buildEmbeddingPrompt(facts, traits);
     
-    // Даем 3 попытки на каждый проход
     const MAX_ATTEMPTS = 3;
     
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
@@ -1443,15 +1450,12 @@ async function generateSingleEmbedding(passNumber) {
             const response = await callAPIForDating(prompt);
             const parsed = parseEmbeddingResponse(response);
             
-            // Если парсинг прошел успешно и мы получили все 50 шкал
             if (parsed && parsed.length === TOTAL_SCALES) {
                 return parsed;
             }
             
             console.warn(`[Dating] Invalid embedding length on attempt ${attempt}:`, parsed?.length);
             
-            // Если ответ пришел, но формат сломан, принудительно переключаем модель 
-            // на следующую из списка в ui.js (если функция доступна)
             if (typeof switchToNextModel === 'function' && attempt < MAX_ATTEMPTS) {
                 console.log('[Dating] Bad format received. Forcing model switch...');
                 switchToNextModel();
@@ -1459,19 +1463,17 @@ async function generateSingleEmbedding(passNumber) {
             
         } catch (error) {
             console.error(`[Dating] API call failed on attempt ${attempt}:`, error);
-            // Сетевые ошибки (Rate Limit) уже обрабатываются с переключением внутри callAPIOpenRouter в ui.js.
-            // Если ошибка вывалилась сюда — значит исчерпаны все модели, либо проблема глубже.
         }
         
-        // Если попытка не удалась, делаем паузу перед следующей (растущую с каждой попыткой: 2с, 4с)
         if (attempt < MAX_ATTEMPTS) {
             console.log(`[Dating] Retrying in ${2000 * attempt}ms...`);
             await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
         }
     }
     
-    return null; // Если за 3 попытки так и не удалось собрать вектор
+    return null;
 }
+
 function buildEmbeddingPrompt(facts, traits) {
     const scaleList = SCALES.map(s => `${s.id}. ${s.emoji} ${s.name} — ${s.desc}`).join('\n');
 
@@ -1588,6 +1590,11 @@ async function generateDescription(level) {
 
         textarea.value = description;
         saveDescription(level, description);
+        
+        // ТИХАЯ АВТО-СИНХРОНИЗАЦИЯ
+        if (getMyProfileId() && isProfileComplete()) {
+            publishMyProfileToFirebase(true);
+        }
     } catch (error) {
         console.error(`[Dating] Description failed:`, error);
         alert('Ошибка генерации. Попробуйте ещё раз.');
@@ -1787,9 +1794,6 @@ function parseEmbeddingFromExport(str) {
     if (isNaN(version) || version < 1 || version > 3) return null;
 
     // Валидация количества частей
-    // V1: 4 части (header|createdAt|factsCount|vectors)
-    // V2: 4 части (header|createdAt|factsCount|vectors)
-    // V3: 6 частей (header|createdAt|factsCount|vectors|highIds|lowIds)
     if (version <= 2 && parts.length !== 4) return null;
     if (version === 3 && parts.length !== 6) return null;
 
@@ -1929,16 +1933,16 @@ function acceptPrivacyDisclaimer() {
 
 // ==================== FIREBASE PUBLIC ACTIONS ====================
 
-async function publishMyProfileToFirebase() {
+async function publishMyProfileToFirebase(isSilent = false) {
     const embedding = getSavedEmbedding();
     if (!embedding) {
-        alert('Сначала создайте личностный профиль (вкладка "Мой профиль")');
+        if (!isSilent) alert('Сначала создайте личностный профиль (вкладка "Мой профиль")');
         return;
     }
     
     const userProfile = getUserProfile();
     if (!isProfileComplete()) {
-        alert('Сначала заполните анкетные данные (пол, возраст, кого ищете)');
+        if (!isSilent) alert('Сначала заполните анкетные данные (пол, возраст, кого ищете)');
         return;
     }
     
@@ -1958,10 +1962,15 @@ async function publishMyProfileToFirebase() {
     
     try {
         await saveProfileToFirebase(profileData);
-        alert('✅ Анкета опубликована на сервере!');
+        if (!isSilent) alert('✅ Анкета опубликована/обновлена!');
+        
+        // Перерисовываем UI, чтобы обновилась кнопка
+        const container = document.getElementById('datingContent');
+        if (container && datingState.activeTab === 'profile') {
+            checkDatingEligibility();
+        }
     } catch (e) {
-        console.error(e);
-        alert('Ошибка публикации. Убедитесь, что Firebase ключ введён в настройках (🔧).');
+        if (!isSilent) alert('Ошибка публикации. Убедитесь, что Firebase инициализирован.');
     }
 }
 
@@ -1988,40 +1997,7 @@ function filterProfiles(profiles, userProfile) {
     });
 }
 
-// ==================== PUBLISH & REFRESH ====================
-async function publishMyProfileToFirebase() {
-    const embedding = getSavedEmbedding();
-    if (!embedding) {
-        alert('Сначала создайте личностный профиль (вкладка "Мой профиль")');
-        return;
-    }
-    const userProfile = getUserProfile();
-    if (!isProfileComplete()) {
-        alert('Сначала заполните анкетные данные (пол, возраст, кого ищете)');
-        return;
-    }
-    const descriptions = getSavedDescriptions();
-    const exportStr = formatEmbeddingForExport(embedding);
-    
-    const profileData = {
-        embedding: exportStr,
-        descriptionLevel1: descriptions.level1?.text || '',
-        descriptionLevel2: descriptions.level2?.text || '',
-        userGender: userProfile.userGender,
-        userAge: userProfile.userAge,
-        targetGender: userProfile.targetGender,
-        targetAgeMin: userProfile.targetAgeMin,
-        targetAgeMax: userProfile.targetAgeMax
-    };
-    
-    try {
-        await saveProfileToFirebase(profileData);
-        alert('✅ Анкета опубликована!');
-    } catch (e) {
-        alert('Ошибка публикации: ' + e.message);
-    }
-}
-
+// ==================== REFRESH CANDIDATES ====================
 async function refreshCandidateList() {
     const container = document.getElementById('datingContent');
     if (!container) return;
@@ -2113,33 +2089,33 @@ async function refreshCandidateList() {
     }
 }
 
+// Открыть вкладку совместимости с данными выбранного профиля
 function openCompatibilityWithProfile(profileId) {
     const profile = window.lastProfiles?.find(p => p.id === profileId);
     if (!profile) {
         alert('Профиль не найден');
         return;
     }
-
-    // === ИСПРАВЛЕНИЕ: сохраняем ID и эмбеддинг для диалогов ===
-    window.currentCandidateId = profileId;
-    window.currentCandidateEmbed = profile.embedding || '';
-    // =========================================================
-
+    
     window.currentCompatibilityProfileId = profileId;
     window.currentCompatibilityProfileData = profile || null;
-
-    // ДОБАВИТЬ ЭТО: Показываем вкладку совместимости
+    
+    // ДОБАВИТЬ ЭТО: Для корректной работы кнопки "Написать"
+    window.currentCandidateId = profileId;
+    window.currentCandidateEmbed = profile.embedding;
+    
+    // Показываем вкладку совместимости
     const compatBtn = document.getElementById('compatTabBtn');
     if (compatBtn) compatBtn.style.display = 'block';
-
+    
     // Переключаем таб на совместимость
     switchDatingTab('compatibility');
-
+    
     // Ждём рендеринга вкладки
     setTimeout(() => {
         const embedInput = document.getElementById('candidateEmbeddingInput');
         const descInput = document.getElementById('candidateDescriptionInput');
-
+        
         if (embedInput && profile.embedding) {
             embedInput.value = profile.embedding;
             // Запускаем валидацию, чтобы кнопки разблокировались
@@ -2147,7 +2123,7 @@ function openCompatibilityWithProfile(profileId) {
                 validateCandidateInput();
             }
         }
-
+        
         if (descInput) {
             if (profile.descriptionLevel1 && profile.descriptionLevel1.trim()) {
                 descInput.value = profile.descriptionLevel1;
@@ -2163,7 +2139,7 @@ function openCompatibilityWithProfile(profileId) {
     }, 150);
 }
 
-// ==================== НАЙТИ функцию renderCompatibilityTab и ЗАМЕНИТЬ ПОЛНОСТЬЮ ====================
+// ==================== COMPATIBILITY TAB RENDER ====================
 
 function renderCompatibilityTab() {
     const container = document.getElementById('datingContent');
@@ -2257,7 +2233,6 @@ function renderCompatibilityTab() {
             <div class="compat-result" id="compatResult"></div>
         </div>`;
 }
-
 
 // ==================== PROFILE MODE HELPERS ====================
 
@@ -2376,7 +2351,6 @@ function buildProfileContextBlock() {
 
     return block;
 }
-
 
 // ==================== УСИЛЕННЫЕ ПРОМПТЫ ====================
 
@@ -2597,11 +2571,7 @@ ${dynamicsContext}
 - Часть 2 — самая подробная`;
 }
 
-
-// ==================== МОДИФИЦИРОВАННЫЕ ФУНКЦИИ АНАЛИЗА ====================
-// Заменяем три функции анализа — добавляем ветвление по режиму
-
-// НАЙТИ существующую runCompatibilityAnalysis и ЗАМЕНИТЬ:
+// ==================== ФУНКЦИИ АНАЛИЗА ====================
 
 async function runCompatibilityAnalysis() {
     if (datingState.isAnalyzing) return;
@@ -2645,9 +2615,7 @@ async function runCompatibilityAnalysis() {
             userHypotheses, userStyle, candidateProfile, candidateDescription
         };
 
-        const prompt = profileMode
-            ? buildCompatibilityPromptEnhanced(promptData)
-            : buildCompatibilityPrompt(promptData);
+        const prompt = buildCompatibilityPromptEnhanced(promptData);
 
         const streamingDiv = document.createElement('div');
         streamingDiv.className = 'compat-analysis-text';
@@ -2675,8 +2643,6 @@ async function runCompatibilityAnalysis() {
         btn.innerHTML = '🧠 Глубокий разбор';
     }
 }
-
-// НАЙТИ существующую runLightCompatibilityAnalysis и ЗАМЕНИТЬ:
 
 async function runLightCompatibilityAnalysis() {
     if (datingState.isAnalyzing) return;
@@ -2713,9 +2679,7 @@ async function runLightCompatibilityAnalysis() {
     try {
         const matchReport = buildMatchReport(userEmbedding, candidateEmbedding, ideal);
 
-        const prompt = profileMode
-            ? buildLightCompatibilityPromptEnhanced(matchReport, candidateDescription, ideal.expectations)
-            : buildLightCompatibilityPrompt(matchReport, candidateDescription, ideal.expectations);
+        const prompt = buildLightCompatibilityPromptEnhanced(matchReport, candidateDescription, ideal.expectations);
 
         const streamingDiv = document.createElement('div');
         streamingDiv.className = 'compat-analysis-text';
@@ -2740,8 +2704,6 @@ async function runLightCompatibilityAnalysis() {
         btn.innerHTML = '⚡ Быстрый чек';
     }
 }
-
-// НАЙТИ существующую runMutualAnalysis и ЗАМЕНИТЬ:
 
 async function runMutualAnalysis() {
     if (datingState.isAnalyzing) return;
@@ -2799,9 +2761,7 @@ async function runMutualAnalysis() {
             candidateDescription, userFacts, userTraits
         };
 
-        const prompt = profileMode
-            ? buildMutualDynamicsPromptEnhanced(promptData)
-            : buildMutualDynamicsPrompt(promptData);
+        const prompt = buildMutualDynamicsPromptEnhanced(promptData);
 
         const streamingDiv = document.createElement('div');
         streamingDiv.className = 'compat-analysis-text';
@@ -2827,6 +2787,7 @@ async function runMutualAnalysis() {
         btn.innerHTML = '💞 Взаимность и Динамика';
     }
 }
+
 // ==================== INIT ====================
 
-console.log('[dating.js] v3.0 loaded. V3 export with requirements. Mutual dynamics analysis enabled.');
+console.log('[dating.js] v3.2 loaded. V2->V3 Autoflow + Silent Sync Patched + Full Code Maintained.');
