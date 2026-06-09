@@ -1244,3 +1244,143 @@ button:disabled {
 .settings-dropdown {
     z-index: var(--z-dropdown, 120);
 }
+
+/* ==========================================================
+   STANDALONE LAYOUT PATCH 3 FOR ?legacy=0
+   Restores display/position primitives that were implicit in old CSS.
+   This fixes mobile header hit areas, the Ask Me switch, and composer layout.
+   ========================================================== */
+
+.header-bar {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+}
+
+.app-brand,
+.header-actions,
+.settings-wrapper {
+    display: flex;
+    align-items: center;
+}
+
+.header-actions {
+    justify-content: flex-end;
+}
+
+.header-btn {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    appearance: none;
+    -webkit-appearance: none;
+    line-height: 1;
+    text-align: center;
+}
+
+.header-btn > span {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+}
+
+.chat-area {
+    display: flex !important;
+    flex-direction: column !important;
+}
+
+.message.user {
+    align-self: flex-end;
+}
+
+.message.assistant,
+.message.tool-call {
+    align-self: flex-start;
+}
+
+.message.system,
+.message.thinking {
+    align-self: center;
+}
+
+.input-container {
+    display: flex !important;
+    flex-direction: column !important;
+}
+
+.ask-me-container {
+    display: flex !important;
+    align-items: center !important;
+}
+
+.ask-me-toggle {
+    position: relative !important;
+    display: block !important;
+    flex-shrink: 0;
+    overflow: hidden;
+}
+
+.ask-me-slider {
+    position: absolute !important;
+    display: block !important;
+    border-radius: 999px;
+}
+
+.input-form {
+    display: flex !important;
+    align-items: flex-end !important;
+}
+
+.message-input {
+    display: block;
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+.send-btn {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex-shrink: 0;
+    line-height: 1;
+}
+
+.counters-container {
+    display: flex;
+}
+
+.typing-indicator {
+    display: flex;
+    align-items: center;
+}
+
+/* Mobile standalone tuning. Keep the composer usable with browser chrome visible. */
+@media (max-width: 760px) {
+    .header-bar {
+        flex-wrap: nowrap;
+    }
+
+    .header-actions {
+        display: flex !important;
+        align-items: center !important;
+        min-width: 0;
+    }
+
+    .input-form {
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: flex-end !important;
+    }
+
+    .message-input {
+        min-width: 0;
+    }
+
+    .send-btn {
+        flex: 0 0 52px;
+    }
+}
