@@ -1,0 +1,469 @@
+/* ==========================================================
+   DIALOGS MODULE REDESIGN PASS
+   Aligns the anonymous messenger with the main chat shell and
+   gives the contact list real information architecture.
+   ========================================================== */
+
+.dialogs-modal-overlay.active {
+    padding: clamp(8px, 2.5vw, 24px);
+    align-items: center;
+}
+
+.dialogs-modal {
+    width: min(100%, 760px);
+    max-width: 760px;
+    height: min(86vh, 760px);
+    border-radius: 24px;
+    background:
+        radial-gradient(circle at 8% 0%, rgba(116, 167, 255, 0.12), transparent 28rem),
+        rgba(23, 27, 37, 0.98);
+    border-color: var(--ui-border-strong);
+    box-shadow: var(--ui-shadow);
+}
+
+.dialogs-header {
+    min-height: 68px;
+    padding: 16px 18px;
+    background: rgba(18, 22, 32, 0.88);
+    border-bottom-color: var(--ui-border);
+}
+
+.dialogs-header h2 {
+    font-size: 18px;
+    font-weight: 760;
+}
+
+.dialogs-header-actions {
+    gap: 8px;
+}
+
+.dialogs-btn-check,
+.dialogs-close-btn,
+.dialogs-back-btn,
+.dialogs-analyze-btn {
+    min-height: 40px;
+    border-radius: 14px;
+    border: 1px solid var(--ui-border);
+    transition: background-color 170ms ease-out, border-color 170ms ease-out, color 170ms ease-out, transform 170ms ease-out;
+}
+
+.dialogs-btn-check {
+    padding: 0 14px;
+    background: rgba(116, 167, 255, 0.10);
+    color: #c7d9ff;
+}
+
+.dialogs-btn-check:hover:not(:disabled) {
+    background: rgba(116, 167, 255, 0.16);
+    border-color: rgba(116, 167, 255, 0.28);
+}
+
+.dialogs-btn-check:disabled {
+    opacity: 0.58;
+    cursor: not-allowed;
+}
+
+.dialogs-close-btn {
+    width: 40px;
+    background: rgba(255,255,255,0.07);
+    color: var(--ui-text-2);
+}
+
+.dialogs-list-content {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px;
+    background: transparent;
+}
+
+.dialogs-list-hero {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 16px;
+    border-radius: var(--radius-lg);
+    border: 1px solid rgba(116, 167, 255, 0.16);
+    background:
+        radial-gradient(circle at 0 0, rgba(116, 167, 255, 0.12), transparent 22rem),
+        rgba(29, 35, 48, 0.64);
+}
+
+.dialogs-list-hero h3 {
+    margin: 0 0 6px;
+    color: var(--ui-text);
+    font-size: 20px;
+    font-weight: 780;
+}
+
+.dialogs-list-hero p {
+    margin: 0;
+    max-width: 58ch;
+    color: var(--ui-text-2);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.dialogs-list-stats {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.dialogs-list-stats span {
+    min-height: 28px;
+    display: inline-flex;
+    align-items: center;
+    padding: 0 10px;
+    border-radius: 999px;
+    background: rgba(8, 10, 15, 0.28);
+    border: 1px solid var(--ui-border);
+    color: var(--ui-muted);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.dialogs-contact-list {
+    display: grid;
+    gap: 10px;
+}
+
+.dialogs-contact-item {
+    width: 100%;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: 12px;
+    padding: 14px;
+    margin: 0;
+    background: rgba(29, 35, 48, 0.70);
+    border: 1px solid var(--ui-border);
+    border-radius: var(--radius-md);
+    color: inherit;
+    text-align: left;
+}
+
+.dialogs-contact-item:hover {
+    background: rgba(36, 43, 58, 0.88);
+    border-color: var(--ui-border-strong);
+    transform: translateY(-1px);
+}
+
+.dialogs-contact-avatar {
+    width: 52px;
+    height: 52px;
+    margin: 0;
+    border-radius: 18px;
+    background: rgba(8, 10, 15, 0.30);
+    border: 1px solid var(--ui-border);
+    font-size: 21px;
+}
+
+.dialogs-contact-info {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.dialogs-contact-top {
+    align-items: baseline;
+    gap: 10px;
+}
+
+.dialogs-contact-top strong {
+    color: var(--ui-text);
+    font-size: 15px;
+}
+
+.dialogs-contact-time {
+    color: var(--ui-muted);
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.dialogs-contact-description {
+    color: var(--ui-muted);
+    font-size: 12px;
+    line-height: 1.35;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dialogs-contact-bottom {
+    gap: 10px;
+}
+
+.dialogs-contact-msg {
+    color: var(--ui-text-2);
+    font-size: 13px;
+}
+
+.dialogs-badge {
+    min-width: 22px;
+    height: 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 7px;
+    background: var(--ui-accent);
+    color: #fff;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 780;
+}
+
+.dialogs-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 34px 18px;
+    background: rgba(29, 35, 48, 0.54);
+    border: 1px dashed var(--ui-border-strong);
+    border-radius: var(--radius-lg);
+    color: var(--ui-muted);
+    font-style: normal;
+    line-height: 1.5;
+}
+
+.dialogs-empty strong {
+    color: var(--ui-text);
+    font-size: 15px;
+}
+
+.dialogs-empty p {
+    max-width: 46ch;
+    margin: 0;
+    color: var(--ui-muted);
+}
+
+.dialogs-empty-icon {
+    font-size: 30px;
+    margin-bottom: 2px;
+}
+
+.dialogs-empty-warning {
+    border-color: rgba(244, 184, 96, 0.26);
+    background: rgba(244, 184, 96, 0.08);
+}
+
+/* Chat screen */
+.dialogs-header.chat-header {
+    justify-content: flex-start;
+    gap: 12px;
+}
+
+.dialogs-back-btn {
+    padding: 0 12px;
+    background: rgba(255,255,255,0.06);
+    color: var(--ui-text-2);
+}
+
+.dialogs-back-btn:hover {
+    background: rgba(255,255,255,0.10);
+    color: #fff;
+}
+
+.dialogs-chat-title {
+    flex: 1;
+    text-align: center;
+    color: var(--ui-text);
+    font-size: 22px;
+    font-weight: 760;
+}
+
+.dialogs-analyze-btn {
+    min-width: 44px;
+    padding: 0 12px;
+    background: rgba(255, 92, 122, 0.12);
+    color: #ffd5dc;
+    border-color: rgba(255, 92, 122, 0.22);
+}
+
+.dialogs-analyze-btn:hover {
+    background: rgba(255, 92, 122, 0.18);
+    border-color: rgba(255, 92, 122, 0.30);
+}
+
+.dialogs-messages-area {
+    padding: 18px;
+    gap: 12px;
+    background:
+        radial-gradient(circle at 10% 0%, rgba(116, 167, 255, 0.08), transparent 24rem),
+        rgba(8, 10, 15, 0.20);
+}
+
+.dialogs-msg-bubble {
+    max-width: min(76%, 58ch);
+    padding: 11px 13px;
+    border-radius: 17px;
+    border: 1px solid transparent;
+    box-shadow: 0 10px 24px rgba(0,0,0,0.14);
+}
+
+.mine .dialogs-msg-bubble {
+    background: linear-gradient(135deg, var(--ui-accent), #d84c92);
+    border-color: rgba(255,255,255,0.14);
+    border-bottom-right-radius: 7px;
+}
+
+.theirs .dialogs-msg-bubble {
+    background: rgba(29, 35, 48, 0.88);
+    border-color: var(--ui-border);
+    border-bottom-left-radius: 7px;
+}
+
+.dialogs-msg-text {
+    color: #fff;
+    font-size: 14.5px;
+    line-height: 1.5;
+}
+
+.theirs .dialogs-msg-text {
+    color: var(--ui-text-2);
+}
+
+.dialogs-msg-time {
+    color: rgba(255,255,255,0.62);
+    font-size: 10.5px;
+    margin-top: 6px;
+}
+
+.theirs .dialogs-msg-time {
+    color: var(--ui-muted);
+}
+
+.dialogs-input-area {
+    padding: 12px;
+    background: rgba(18, 22, 32, 0.90);
+    border-top-color: var(--ui-border);
+}
+
+#dialogsMessageInput {
+    min-height: 58px;
+    max-height: 150px;
+    border-radius: 16px;
+    line-height: 1.5;
+}
+
+.dialogs-input-footer {
+    margin-top: 10px;
+}
+
+#dialogsCharCount {
+    color: var(--ui-muted);
+}
+
+#dialogsSendBtn {
+    min-height: 40px;
+    padding: 0 16px;
+    border-radius: 14px;
+    font-weight: 740;
+}
+
+#dialogsSendBtn:disabled {
+    background: rgba(141, 154, 179, 0.16);
+    color: var(--ui-faint);
+}
+
+.dialogs-chat-empty {
+    align-self: center;
+    margin: auto;
+    width: min(100%, 420px);
+}
+
+@media (max-width: 640px) {
+    .dialogs-modal-overlay.active {
+        padding: 8px;
+        align-items: stretch;
+    }
+
+    .dialogs-modal {
+        height: calc(100vh - 16px);
+        border-radius: 18px;
+    }
+
+    .dialogs-header {
+        min-height: 60px;
+        padding: 12px;
+    }
+
+    .dialogs-header-actions {
+        gap: 6px;
+    }
+
+    .dialogs-btn-check {
+        font-size: 0;
+        min-width: 42px;
+        padding: 0;
+    }
+
+    .dialogs-btn-check::before {
+        content: '🔄';
+        font-size: 16px;
+    }
+
+    .dialogs-list-content,
+    .dialogs-messages-area {
+        padding: 12px;
+    }
+
+    .dialogs-list-hero {
+        flex-direction: column;
+    }
+
+    .dialogs-list-stats {
+        justify-content: flex-start;
+    }
+
+    .dialogs-contact-item {
+        padding: 12px;
+    }
+
+    .dialogs-contact-avatar {
+        width: 46px;
+        height: 46px;
+        border-radius: 16px;
+        font-size: 18px;
+    }
+
+    .dialogs-contact-top {
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .dialogs-contact-description {
+        white-space: normal;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+    }
+
+    .dialogs-back-btn {
+        font-size: 0;
+        min-width: 42px;
+        padding: 0;
+    }
+
+    .dialogs-back-btn::before {
+        content: '←';
+        font-size: 20px;
+    }
+
+    .dialogs-chat-title {
+        font-size: 18px;
+    }
+
+    .dialogs-msg-bubble {
+        max-width: 88%;
+    }
+
+    .dialogs-input-footer {
+        align-items: center;
+    }
+}
