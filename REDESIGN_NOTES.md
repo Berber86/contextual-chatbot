@@ -337,3 +337,19 @@ The Knowledge modal should now stack header → tabs → memory list → info st
 Mobile `?legacy=0` testing exposed a class-name collision: header buttons use classes like `dating-btn` and `reports-btn`, while module action buttons use the same class names. With legacy disabled, module CSS could override top navigation buttons and turn an icon into a wide pill.
 
 Added `styles/final-overrides.css`, loaded last, to lock header buttons to compact square navigation controls. This file is intentionally for cross-module collision fixes only.
+
+## Revert: CSS split / legacy toggle attempt rolled back
+
+The attempt to split the large stylesheet into modules and test with `?legacy=0` caused broad visual regressions on mobile. We reverted to a single `style.css` while keeping the redesign work itself.
+
+What was reverted:
+
+- Removed the CSS loader from `index.html`.
+- Restored `<link rel="stylesheet" href="style.css">`.
+- Restored header button class names to their pre-split form.
+- Rebuilt one large `style.css` from the pre-split legacy styles plus redesign layers.
+- Removed the `styles/` directory and the `?legacy=0` testing mechanism.
+
+Reason:
+
+The old stylesheet still carried too many structural layout assumptions. Splitting safely requires a slower extraction plan with visual regression checks. For now, product stability wins.

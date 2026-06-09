@@ -4,53 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Memory Chatbot</title>
-    <script>
-        // CSS loader with a secret legacy toggle for redesign QA.
-        // Use ?legacy=0 to disable old CSS, ?legacy=1 to enable it again.
-        // Or in console: toggleLegacyCss(false) / toggleLegacyCss(true)
-        (function loadStyles() {
-            const key = 'memory_chatbot_legacy_css';
-            const params = new URLSearchParams(window.location.search);
-            if (params.has('legacy')) {
-                const value = params.get('legacy');
-                const enabled = !(value === '0' || value === 'false' || value === 'off');
-                localStorage.setItem(key, enabled ? 'on' : 'off');
-            }
-            const useLegacy = localStorage.getItem(key) !== 'off';
-            window.toggleLegacyCss = function(enabled) {
-                localStorage.setItem(key, enabled ? 'on' : 'off');
-                window.location.reload();
-            };
-            window.isLegacyCssEnabled = function() {
-                return localStorage.getItem(key) !== 'off';
-            };
-            const sheets = [
-                ...(useLegacy ? ['styles/legacy.css'] : []),
-                'styles/legacy-dependencies.css',
-                'styles/shell-redesign.css',
-                'styles/dating-redesign.css',
-                'styles/knowledge-redesign.css',
-                'styles/reports-redesign.css',
-                'styles/dialogs-redesign.css',
-                'styles/you-redesign.css',
-                'styles/help-invite-redesign.css',
-                'styles/final-overrides.css'
-            ];
-            document.write(sheets.map(href => `<link rel="stylesheet" href="${href}">`).join('\n'));
-        })();
-    </script>
-    <noscript>
-        <link rel="stylesheet" href="styles/legacy.css">
-        <link rel="stylesheet" href="styles/legacy-dependencies.css">
-        <link rel="stylesheet" href="styles/shell-redesign.css">
-        <link rel="stylesheet" href="styles/dating-redesign.css">
-        <link rel="stylesheet" href="styles/knowledge-redesign.css">
-        <link rel="stylesheet" href="styles/reports-redesign.css">
-        <link rel="stylesheet" href="styles/dialogs-redesign.css">
-        <link rel="stylesheet" href="styles/you-redesign.css">
-        <link rel="stylesheet" href="styles/help-invite-redesign.css">
-        <link rel="stylesheet" href="styles/final-overrides.css">
-    </noscript>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <!-- Блок настроек для локальной работы -->
@@ -77,33 +31,33 @@
         </div>
 
         <nav class="header-actions" aria-label="Разделы приложения">
-            <button class="header-btn nav-knowledge-btn" onclick="openKnowledgeModal()" title="База знаний" aria-label="База знаний">
+            <button class="header-btn knowledge-btn" onclick="openKnowledgeModal()" title="База знаний" aria-label="База знаний">
                 <span aria-hidden="true">🧠</span>
             </button>
             
-            <button class="header-btn nav-you-btn" onclick="openYouModal()" title="Самопознание" aria-label="Самопознание">
+            <button class="header-btn you-btn" onclick="openYouModal()" title="Самопознание" aria-label="Самопознание">
                 <span aria-hidden="true">🔮</span>
             </button>
 
-            <button class="header-btn nav-dating-btn" onclick="openDatingModal()" title="Знакомства" aria-label="Профиль знакомств">
+            <button class="header-btn dating-btn" onclick="openDatingModal()" title="Знакомства" aria-label="Профиль знакомств">
                 <span aria-hidden="true">🧲</span>
             </button>
             
-            <button class="header-btn nav-dialogs-btn" onclick="openDialogsModal()" title="Диалоги" id="dialogsHeaderBtn" aria-label="Диалоги">
+            <button class="header-btn dialogs-btn" onclick="openDialogsModal()" title="Диалоги" id="dialogsHeaderBtn" aria-label="Диалоги">
                 <span id="dialogsHeaderEmoji" aria-hidden="true">💬</span>
                 <span id="dialogsUnreadBadge" class="unread-badge" style="display: none;"></span>
             </button>
             
-            <button class="header-btn nav-reports-btn" onclick="openReportsModal()" title="Отчёты" aria-label="Отчёты">
+            <button class="header-btn reports-btn" onclick="openReportsModal()" title="Отчёты" aria-label="Отчёты">
                 <span aria-hidden="true">📊</span>
             </button>
 
-            <button class="header-btn nav-help-btn" onclick="openHelpModal()" title="Справка" aria-label="Справка">
+            <button class="header-btn help-btn" onclick="openHelpModal()" title="Справка" aria-label="Справка">
                 <span aria-hidden="true">?</span>
             </button>
 
             <div class="settings-wrapper">
-                <button class="header-btn nav-settings-btn" onclick="toggleSettingsMenu()" title="Настройки" aria-label="Настройки">
+                <button class="header-btn settings-btn" onclick="toggleSettingsMenu()" title="Настройки" aria-label="Настройки">
                     <span aria-hidden="true">⚙️</span>
                 </button>
                 <div class="settings-dropdown" id="settingsDropdown">
