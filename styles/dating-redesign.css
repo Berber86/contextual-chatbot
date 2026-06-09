@@ -923,3 +923,87 @@
         width: 100%;
     }
 }
+
+/* Standalone coverage for Dating status and Ideal Partner elements when legacy.css is disabled. */
+.dating-ready,
+.dating-not-ready,
+.dating-generating,
+.dating-complete {
+    color: var(--ui-text-2);
+}
+
+.dating-date,
+.text-muted {
+    color: var(--ui-muted);
+}
+
+.dating-btn-publish,
+.dating-btn-refresh {
+    border: 1px solid var(--ui-border) !important;
+}
+
+.ideal-expectations-text {
+    color: var(--ui-text-2);
+    line-height: 1.68;
+}
+
+.ideal-scales-group {
+    margin-top: 14px;
+}
+
+.ideal-scales-label {
+    margin-bottom: 8px;
+    color: var(--ui-text);
+    font-weight: 720;
+}
+
+.ideal-scales-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.ideal-scale-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 34px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(8, 10, 15, 0.26);
+    border: 1px solid var(--ui-border);
+    color: var(--ui-text-2);
+    font-size: 13px;
+}
+
+.ideal-high {
+    border-color: rgba(85, 213, 138, 0.22);
+}
+
+.ideal-low {
+    border-color: rgba(155, 140, 255, 0.24);
+}
+
+.ideal-badge,
+.badge-high,
+.badge-low {
+    display: inline-flex;
+    align-items: center;
+    min-height: 22px;
+    padding: 0 7px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 760;
+}
+
+.badge-high {
+    color: #b8f7cf;
+    background: rgba(85, 213, 138, 0.12);
+    border: 1px solid rgba(85, 213, 138, 0.22);
+}
+
+.badge-low {
+    color: #d8d1ff;
+    background: rgba(155, 140, 255, 0.12);
+    border: 1px solid rgba(155, 140, 255, 0.22);
+}
