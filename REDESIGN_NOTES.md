@@ -301,3 +301,39 @@ Known follow-up:
 
 - The redesign files are not yet complete standalone replacements. Expect breakage with `?legacy=0` at first.
 - Next passes should test screens with legacy disabled, then move missing base rules into the appropriate module.
+
+## Hotfix: legacy-off dropdowns/overlays hidden by default
+
+A mobile test with legacy CSS disabled exposed a structural dependency: old `legacy.css` owned `display: none` for settings dropdowns, language dropdowns and modals. Without it, the settings/language menu appeared immediately on page load.
+
+Patched `styles/shell-redesign.css` with standalone base defaults:
+
+- reset / box sizing;
+- hidden settings dropdown until `.open`;
+- hidden language dropdown until `.open`;
+- hidden modal overlays until `.active`;
+- `body.modal-open .chat-container` behavior.
+
+This keeps `?legacy=0` usable for QA.
+
+## Hotfix: legacy-off layout structure
+
+Mobile testing with `?legacy=0` exposed more dependencies on old CSS:
+
+- main chat needed explicit flex/scroll structure;
+- app overlays needed fixed geometry;
+- Knowledge modal needed `flex-direction: column` and scroll containers;
+- structured memory view was laying out horizontally because the old modal column rules were absent.
+
+Patched:
+
+- `styles/shell-redesign.css`
+- `styles/knowledge-redesign.css`
+
+The Knowledge modal should now stack header → tabs → memory list → info strip instead of spreading sideways.
+
+## Hotfix: cross-module header button collision
+
+Mobile `?legacy=0` testing exposed a class-name collision: header buttons use classes like `dating-btn` and `reports-btn`, while module action buttons use the same class names. With legacy disabled, module CSS could override top navigation buttons and turn an icon into a wide pill.
+
+Added `styles/final-overrides.css`, loaded last, to lock header buttons to compact square navigation controls. This file is intentionally for cross-module collision fixes only.
