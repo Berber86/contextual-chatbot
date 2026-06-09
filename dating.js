@@ -649,6 +649,8 @@ function validateCandidateInput() {
     const btn = document.getElementById('analyzeBtn');
     const btnLight = document.getElementById('analyzeLightBtn');
     const btnMutual = document.getElementById('analyzeMutualBtn');
+    const btnQuestion = document.getElementById('analyzeQuestionBtn');
+    const questionInput = document.getElementById('candidateQuestionInput');
     const mutualHint = document.getElementById('mutualHint');
 
     if (!input || !status || !btn) return;
@@ -661,6 +663,7 @@ function validateCandidateInput() {
         btn.disabled = true;
         if (btnLight) btnLight.disabled = true;
         if (btnMutual) btnMutual.disabled = true;
+        if (btnQuestion) btnQuestion.disabled = true;
         if (mutualHint) mutualHint.style.display = 'none';
         return;
     }
@@ -680,6 +683,13 @@ function validateCandidateInput() {
         status.className = 'compat-input-status status-valid';
 
         btn.disabled = false;
+        if (btnQuestion) {
+            const has50CandidateScales = parsed.vectors && parsed.vectors.length === TOTAL_SCALES;
+            btnQuestion.disabled = !has50CandidateScales || !(questionInput?.value?.trim());
+            btnQuestion.title = has50CandidateScales
+                ? 'Ответить на свободный вопрос по 50 шкалам кандидата'
+                : 'Для 4-го отчёта нужен эмбеддинг V2/V3 с 50 шкалами';
+        }
 
         const hasUserIdeal = getSavedIdeal()?.searchScales;
         if (btnLight) btnLight.disabled = !hasUserIdeal;
@@ -706,6 +716,7 @@ function validateCandidateInput() {
         btn.disabled = true;
         if (btnLight) btnLight.disabled = true;
         if (btnMutual) btnMutual.disabled = true;
+        if (btnQuestion) btnQuestion.disabled = true;
         if (mutualHint) mutualHint.style.display = 'none';
     }
 }
@@ -1037,6 +1048,85 @@ function decodeCandidateEmbedding(embedding) {
     }
 
     return summary;
+}
+
+
+function formatCandidateScalesForQuestion(embedding) {
+    const rows = [];
+
+    SCALES.forEach((scale, idx) => {
+        const range = getScaleRange(embedding.vectors[idx]);
+        const reliability = getReliabilityLevel(range.spread);
+        const reliabilityText = reliability === 'high'
+            ? 'высокая достоверность'
+            : reliability === 'medium'
+                ? 'средняя достоверность'
+                : 'низкая достоверность / трактовать осторожно';
+
+        rows.push(
+            `${scale.id}. ${scale.emoji} ${scale.name}: ${formatPercent(range.value)} ` +
+            `(диапазон ${formatPercent(range.min)}–${formatPercent(range.max)}, ` +
+            `spread ±${range.spread.toFixed(2)}, ${reliabilityText}) — ${scale.desc}`
+        );
+    });
+
+    return rows.join('\n');
+}
+
+function buildCandidateQuestionPrompt(candidateEmbedding, question, candidateDescription, useDescription) {
+    const langName = getLanguageName();
+    const userStyle = localStorage.getItem(STORAGE_KEYS.style) || '';
+    const candidateScales = formatCandidateScalesForQuestion(candidateEmbedding);
+
+    let styleBlock = '';
+    if (userStyle && userStyle.trim()) {
+        styleBlock = `\n=== СТИЛЬ ОТВЕТА ===\nПиши в стиле, подходящем пользователю:\n${userStyle}\n`;
+    }
+
+    let descriptionBlock = '';
+    if (useDescription && candidateDescription && candidateDescription.trim()) {
+        descriptionBlock = `\n=== ОПИСАНИЕ КАНДИДАТА (учитывать как дополнительный контекст) ===\n${candidateDescription.trim()}\n`;
+    } else {
+        descriptionBlock = '\n=== ОПИСАНИЕ КАНДИДАТА ===\nОписание намеренно НЕ учитывается в этом отчёте. Отвечай только по 50 шкалам эмбеддинга.\n';
+    }
+
+    return `Ты — аккуратный психологический аналитик. Пиши на ${langName}.
+${styleBlock}
+
+=== РЕЖИМ ОТЧЁТА ===
+Это 4-й отчёт по кандидату: свободный вопрос пользователя о кандидате.
+КРИТИЧЕСКИ ВАЖНО:
+- НЕ используй эмбеддинг владельца аккаунта / пользователя.
+- НЕ анализируй совместимость с владельцем аккаунта.
+- НЕ используй требования V3 кандидата к партнёру, даже если они есть в экспортной строке.
+- Используй только 50 личностных шкал кандидата ниже (значение + диапазон/достоверность)${useDescription ? ' и, если дано, описание кандидата как дополнительный контекст' : ''}.
+- Не превращай ответ в диагноз и не выдавай вероятности как факты.
+
+=== ВОПРОС ПОЛЬЗОВАТЕЛЯ О КАНДИДАТЕ ===
+${question}
+
+=== 50 ШКАЛ КАНДИДАТА ===
+${candidateScales}
+${descriptionBlock}
+
+=== КАК ОТВЕЧАТЬ ===
+1. Сначала молча хорошо обдумай вопрос: какие именно шкалы релевантны, какие комбинации важны, где данные надёжны, а где нет.
+2. В ответе явно выдели главное предположение/вывод по вопросу.
+3. Обязательно опирайся на затронутые шкалы: называй ключевые шкалы и их примерные проценты.
+4. Обязательно учитывай достоверность: если spread > 0.20, пиши осторожно («это слабый сигнал», «нельзя утверждать твёрдо»). Если диапазон пересекает важный порог — отмечай неопределённость.
+5. Высокие и низкие значения трактуй как отдельные сигналы. Низкое значение — тоже информация, не «отсутствие данных».
+6. Если описание включено и противоречит шкалам — отметь противоречие, но не отменяй шкалы без причины.
+7. Если вопрос невозможно честно ответить по этим данным — скажи, что можно и нельзя вывести, и какие шкалы дают косвенные подсказки.
+8. Пиши обычным текстом, без таблиц.
+
+=== ЖЕЛАТЕЛЬНАЯ СТРУКТУРА ===
+**Короткий ответ** — 2-4 предложения.
+
+**На чём это основано** — ключевые шкалы и комбинации.
+
+**Насколько этому можно верить** — надёжные/сомнительные шкалы и ограничения.
+
+**Практический вывод** — что из этого следует для наблюдения или общения с кандидатом.`;
 }
 
 // ==================== IDEAL PARTNER TAB ====================
@@ -2212,6 +2302,26 @@ function renderCompatibilityTab() {
                 <div class="compat-profile-preview" id="compatProfilePreview" style="display: none;"></div>
             </div>
 
+            <div class="compat-question-block">
+                <label class="compat-label">
+                    <span class="label-icon">❓</span>
+                    <span>Свой вопрос о кандидате</span>
+                    <span class="label-optional">для 4-го отчёта</span>
+                </label>
+                <textarea
+                    id="candidateQuestionInput"
+                    class="compat-description-input compat-question-input"
+                    placeholder="Например: насколько ему/ей можно доверять в долгих отношениях? как он/она будет вести себя в конфликте? что может быть скрытым риском?"
+                    rows="2"
+                    oninput="validateCandidateInput()"
+                ></textarea>
+                <label class="compat-mini-toggle">
+                    <input type="checkbox" id="candidateQuestionUseDescription" checked>
+                    <span>Учитывать описание кандидата в этом ответе</span>
+                </label>
+                <div class="compat-light-hint">Этот отчёт не использует эмбеддинг владельца аккаунта и требования V3 — только 50 шкал кандидата и достоверность затронутых шкал.</div>
+            </div>
+
             <div class="compat-buttons-grid">
                 <button class="dating-generate-btn compat-btn" id="analyzeBtn" onclick="showPrivacyDisclaimer(() => runCompatibilityAnalysis())" disabled>
                     🧠 Глубокий разбор
@@ -2221,6 +2331,9 @@ function renderCompatibilityTab() {
                 </button>
                 <button class="dating-generate-btn compat-btn compat-mutual-btn" id="analyzeMutualBtn" onclick="showPrivacyDisclaimer(() => runMutualAnalysis())" disabled title="Нужен эмбеддинг V3 у обоих">
                     💞 Взаимность и Динамика
+                </button>
+                <button class="dating-generate-btn compat-btn compat-question-btn" id="analyzeQuestionBtn" onclick="showPrivacyDisclaimer(() => runCandidateQuestionAnalysis())" disabled title="Задайте вопрос выше">
+                    ❓ Ответить на вопрос
                 </button>
             </div>
 
@@ -2705,6 +2818,82 @@ async function runLightCompatibilityAnalysis() {
         datingState.isAnalyzing = false;
         btn.disabled = false;
         btn.innerHTML = '⚡ Быстрый чек';
+    }
+}
+
+
+async function runCandidateQuestionAnalysis() {
+    if (datingState.isAnalyzing) return;
+
+    const embedInput = document.getElementById('candidateEmbeddingInput');
+    const descInput = document.getElementById('candidateDescriptionInput');
+    const questionInput = document.getElementById('candidateQuestionInput');
+    const useDescriptionInput = document.getElementById('candidateQuestionUseDescription');
+    const resultContainer = document.getElementById('compatResult');
+    const btn = document.getElementById('analyzeQuestionBtn');
+
+    if (!embedInput || !questionInput || !resultContainer || !btn) return;
+
+    const candidateEmbedding = parseEmbeddingFromExport(embedInput.value.trim());
+    if (!candidateEmbedding) return;
+    if (!candidateEmbedding.vectors || candidateEmbedding.vectors.length !== TOTAL_SCALES) {
+        alert('Для этого отчёта нужен эмбеддинг кандидата V2/V3 с 50 шкалами. Старый формат V1 не подходит.');
+        return;
+    }
+
+    const question = questionInput.value.trim();
+    if (!question) {
+        alert('Введите свой вопрос о кандидате');
+        questionInput.focus();
+        return;
+    }
+
+    const candidateDescription = descInput?.value?.trim() || '';
+    const useDescription = !!useDescriptionInput?.checked;
+
+    datingState.isAnalyzing = true;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-spinner"></span> Думаю...';
+
+    resultContainer.innerHTML = `
+        <div class="compat-loading">
+            <div class="dating-spinner"></div>
+            <p>${useDescription ? 'Отвечаю по 50 шкалам кандидата и описанию...' : 'Отвечаю только по 50 шкалам кандидата...'}</p>
+        </div>`;
+
+    try {
+        const prompt = buildCandidateQuestionPrompt(
+            candidateEmbedding,
+            question,
+            candidateDescription,
+            useDescription
+        );
+
+        const streamingDiv = document.createElement('div');
+        streamingDiv.className = 'compat-analysis-text';
+        resultContainer.innerHTML = '';
+        resultContainer.appendChild(streamingDiv);
+
+        await streamResponseOpenRouter(
+            [{ role: "user", content: prompt }],
+            (partialText) => { streamingDiv.innerHTML = formatMessageMarkdown(partialText); },
+            (finalText) => { streamingDiv.innerHTML = formatMessageMarkdown(finalText); },
+            { temperature: 0.55 }
+        );
+
+        appendCompatibilityActions(resultContainer);
+
+    } catch (error) {
+        resultContainer.innerHTML = `
+            <div class="compat-error">
+                <p>❌ Ошибка: ${error.message}</p>
+                <button class="dating-btn" onclick="runCandidateQuestionAnalysis()">🔄 Попробовать снова</button>
+            </div>`;
+    } finally {
+        datingState.isAnalyzing = false;
+        btn.disabled = false;
+        btn.innerHTML = '❓ Ответить на вопрос';
+        validateCandidateInput();
     }
 }
 

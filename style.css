@@ -6871,3 +6871,54 @@ body.server-mode .input-form {
     opacity: 0.8;
     color: rgba(255, 255, 255, 0.8);
 }
+/* ==================== COMPATIBILITY CUSTOM QUESTION REPORT ==================== */
+.compat-question-block {
+    margin-bottom: 18px;
+    background: #17172a;
+    border: 1px solid #2f2f55;
+    border-radius: 12px;
+    padding: 14px;
+}
+
+.compat-question-input {
+    min-height: 62px;
+}
+
+.compat-mini-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    color: #c0c0d0;
+    font-size: 13px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.compat-mini-toggle input {
+    accent-color: #e94560;
+}
+
+.compat-buttons-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 18px;
+}
+
+.compat-buttons-grid .compat-btn {
+    width: 100%;
+    min-height: 48px;
+    margin: 0;
+    font-size: 14px;
+}
+
+.compat-question-btn {
+    background: linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%);
+}
+
+@media (max-width: 560px) {
+    .compat-buttons-grid {
+        grid-template-columns: 1fr;
+    }
+}
