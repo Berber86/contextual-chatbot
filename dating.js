@@ -2142,6 +2142,50 @@ function filterProfiles(profiles, userProfile) {
     });
 }
 
+function renderCandidateSearchCard(profile, tier) {
+    const genderIcon = profile.userGender === 'male' ? '♂' : profile.userGender === 'female' ? '♀' : '◇';
+    const genderText = profile.userGender === 'male'
+        ? 'Мужчина'
+        : profile.userGender === 'female'
+            ? 'Женщина'
+            : 'Пол не указан';
+    const ageText = profile.userAge ? `${profile.userAge} лет` : 'возраст не указан';
+    const description = profile.descriptionLevel1?.trim()
+        ? profile.descriptionLevel1.trim()
+        : 'Публичное описание пока не заполнено.';
+    const safeDescription = typeof escapeHtml === 'function'
+        ? escapeHtml(description)
+        : description.replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+
+    return `
+        <article class="candidate-card candidate-card-${tier}">
+            <div class="candidate-card-main">
+                <div class="candidate-avatar" aria-hidden="true">${genderIcon}</div>
+                <div class="candidate-info">
+                    <div class="candidate-meta-row">
+                        <span class="candidate-meta-primary">${genderText}, ${ageText}</span>
+                        <span class="candidate-match-badge">${profile.matchCount} совп.</span>
+                    </div>
+                    <p class="candidate-description">${safeDescription}</p>
+                </div>
+            </div>
+            <button class="dating-btn candidate-analyze-btn" onclick="openCompatibilityWithProfile('${profile.id}')">
+                📊 Открыть анализ
+            </button>
+        </article>`;
+}
+
+function renderCandidateGroup(title, profiles, tier) {
+    if (!profiles.length) return '';
+    return `
+        <section class="candidate-group candidate-group-${tier}">
+            <h4>${title}</h4>
+            <div class="candidate-list">
+                ${profiles.map(profile => renderCandidateSearchCard(profile, tier)).join('')}
+            </div>
+        </section>`;
+}
+
 // ==================== REFRESH CANDIDATES ====================
 async function refreshCandidateList() {
     const container = document.getElementById('datingContent');
@@ -2192,42 +2236,25 @@ async function refreshCandidateList() {
         const medium = scored.filter(p => p.matchCount >= 4 && p.matchCount < 7);
         const low = scored.filter(p => p.matchCount < 4);
         
-        let html = `<div class="compat-container"><h3>📋 Найдено анкет: ${scored.length}</h3>`;
-        if (high.length) {
-            html += `<div class="dating-top-traits"><h4>🔥 Сильное совпадение (≥7)</h4>`;
-            high.forEach(p => {
-                html += `<div style="margin-bottom:10px; padding:10px; background:#252540; border-radius:8px;">
-                            <div><strong>${p.userGender === 'male' ? '♂' : '♀'} Возраст: ${p.userAge}</strong> | Совпадений: ${p.matchCount}</div>
-                            <div>${p.descriptionLevel1?.substring(0, 100) || ''}...</div>
-                            <button class="dating-btn" style="margin-top:8px; background:#6366f1;" onclick="openCompatibilityWithProfile('${p.id}')">📊 Анализ совместимости</button>
-                         </div>`;
-            });
-            html += `</div>`;
-        }
-        if (medium.length) {
-            html += `<div class="dating-top-traits"><h4>🟡 Компромисс (4-6)</h4>`;
-            medium.forEach(p => {
-                html += `<div style="margin-bottom:10px; padding:10px; background:#252540; border-radius:8px;">
-                            <div><strong>${p.userGender === 'male' ? '♂' : '♀'} Возраст: ${p.userAge}</strong> | Совпадений: ${p.matchCount}</div>
-                            <div>${p.descriptionLevel1?.substring(0, 100) || ''}...</div>
-                            <button class="dating-btn" style="margin-top:8px; background:#6366f1;" onclick="openCompatibilityWithProfile('${p.id}')">📊 Анализ совместимости</button>
-                         </div>`;
-            });
-            html += `</div>`;
-        }
-        if (low.length) {
-            html += `<div class="dating-top-traits"><h4>⚪ Низкое совпадение (<4)</h4>`;
-            low.forEach(p => {
-                html += `<div style="margin-bottom:10px; padding:10px; background:#252540; border-radius:8px;">
-                            <div><strong>${p.userGender === 'male' ? '♂' : '♀'} Возраст: ${p.userAge}</strong> | Совпадений: ${p.matchCount}</div>
-                            <div>${p.descriptionLevel1?.substring(0, 100) || ''}...</div>
-                            <button class="dating-btn" style="margin-top:8px; background:#6366f1;" onclick="openCompatibilityWithProfile('${p.id}')">📊 Анализ совместимости</button>
-                         </div>`;
-            });
-            html += `</div>`;
-        }
-        if (scored.length === 0) html += `<p>Пока нет подходящих анкет. Опубликуйте свою!</p>`;
-        html += `</div>`;
+        let html = `
+            <div class="compat-container candidate-search-results">
+                <div class="candidate-search-header">
+                    <div>
+                        <h3>📋 Найдено анкет: ${scored.length}</h3>
+                        <p>Сортировка основана на шкалах из вкладки «Кто мне нужен». Откройте кандидата, чтобы выбрать конкретный режим отчёта.</p>
+                    </div>
+                    <button class="dating-btn dating-btn-details" onclick="refreshCandidateList()">🔄 Обновить</button>
+                </div>
+                ${renderCandidateGroup('🔥 Сильное совпадение', high, 'high')}
+                ${renderCandidateGroup('🟡 Компромисс', medium, 'medium')}
+                ${renderCandidateGroup('⚪ Низкое совпадение', low, 'low')}
+                ${scored.length === 0 ? `
+                    <div class="candidate-empty-state">
+                        <div class="dating-icon">🛰️</div>
+                        <h3>Пока нет подходящих анкет</h3>
+                        <p>Опубликуйте свою анкету или попробуйте обновить список позже.</p>
+                    </div>` : ''}
+            </div>`;
         container.innerHTML = html;
     } catch (e) {
         container.innerHTML = `<div class="dating-status dating-error"><div class="dating-icon">❌</div><p>Ошибка: ${e.message}</p><button class="dating-btn" onclick="refreshCandidateList()">🔄 Повторить</button></div>`;
@@ -2307,18 +2334,26 @@ function renderCompatibilityTab() {
     const hasIdeal = savedIdeal && savedIdeal.searchScales;
 
     container.innerHTML = `
-        <div class="compat-container">
-            <div class="compat-intro">
-                <div class="dating-icon">🧲</div>
-                <h3>Анализ совместимости</h3>
-                <p>Вставьте эмбеддинг другого человека. Можете добавить его описание для более глубокого анализа.</p>
-            </div>
+        <div class="compat-container compat-redesign">
+            <section class="compat-intro">
+                <div class="dating-icon" aria-hidden="true">🧲</div>
+                <div>
+                    <h3>Анализ кандидата</h3>
+                    <p>Вставьте эмбеддинг кандидата, добавьте описание при необходимости и выберите один из четырёх режимов отчёта.</p>
+                </div>
+                <div class="compat-mode-summary" aria-label="Режимы анализа">
+                    <span>🧠 глубокий</span>
+                    <span>⚡ быстрый</span>
+                    <span>💞 взаимность</span>
+                    <span>❓ свой вопрос</span>
+                </div>
+            </section>
 
-            <div class="compat-input-block">
-                <label class="compat-label">
+            <section class="compat-panel compat-panel-required">
+                <label class="compat-label" for="candidateEmbeddingInput">
                     <span class="label-icon">🧬</span>
                     <span>Эмбеддинг кандидата</span>
-                    <span class="label-required">*</span>
+                    <span class="label-required">обязательно</span>
                 </label>
                 <input
                     type="text"
@@ -2328,10 +2363,10 @@ function renderCompatibilityTab() {
                     oninput="validateCandidateInput()"
                 >
                 <div class="compat-input-status" id="embedStatus"></div>
-            </div>
+            </section>
 
-            <div class="compat-input-block">
-                <label class="compat-label">
+            <section class="compat-panel">
+                <label class="compat-label" for="candidateDescriptionInput">
                     <span class="label-icon">✍️</span>
                     <span>Описание кандидата</span>
                     <span class="label-optional">необязательно</span>
@@ -2339,60 +2374,65 @@ function renderCompatibilityTab() {
                 <textarea
                     id="candidateDescriptionInput"
                     class="compat-description-input"
-                    placeholder="Любая информация о человеке..."
+                    placeholder="Короткое описание, возраст, пол, важный контекст или самопрезентация кандидата..."
                     rows="4"
                 ></textarea>
-            </div>
+            </section>
 
-            <!-- ПЕРЕКЛЮЧАТЕЛЬ РЕЖИМА -->
-            <div class="compat-profile-toggle">
+            <section class="compat-panel compat-profile-toggle">
                 <label class="compat-toggle-label">
                     <input type="checkbox" id="compatProfileMode" onchange="onCompatProfileModeChange()">
                     <span class="compat-toggle-slider"></span>
                     <span class="compat-toggle-text">
-                        <span class="toggle-title">👤 Учитывать профиль</span>
-                        <span class="toggle-desc">Пол, возраст, описание — сильно влияют на интерпретацию шкал</span>
+                        <span class="toggle-title">Учитывать анкетный профиль в 1–3 отчётах</span>
+                        <span class="toggle-desc">Для глубокого, быстрого и взаимного анализа: пол, возраст и описание меняют трактовку шкал. 4-й отчёт использует только данные кандидата.</span>
                     </span>
                 </label>
                 <div class="compat-profile-preview" id="compatProfilePreview" style="display: none;"></div>
-            </div>
+            </section>
 
-            <div class="compat-question-block">
-                <label class="compat-label">
+            <section class="compat-panel compat-question-block">
+                <label class="compat-label" for="candidateQuestionInput">
                     <span class="label-icon">❓</span>
                     <span>Свой вопрос о кандидате</span>
-                    <span class="label-optional">для 4-го отчёта</span>
+                    <span class="label-optional">4-й отчёт</span>
                 </label>
                 <textarea
                     id="candidateQuestionInput"
                     class="compat-description-input compat-question-input"
-                    placeholder="Например: насколько ему/ей можно доверять в долгих отношениях? как он/она будет вести себя в конфликте? что может быть скрытым риском?"
+                    placeholder="Например: насколько ему/ей можно доверять? как человек будет вести себя в конфликте? где скрытый риск?"
                     rows="2"
                     oninput="validateCandidateInput()"
                 ></textarea>
-                <label class="compat-mini-toggle">
-                    <input type="checkbox" id="candidateQuestionUseDescription" checked>
-                    <span>Учитывать описание кандидата в этом ответе</span>
-                </label>
-                <label class="compat-mini-toggle">
-                    <input type="checkbox" id="candidateQuestionIncludeMedium">
-                    <span>Добавить шкалы средней достоверности</span>
-                </label>
-                <div class="compat-light-hint">По умолчанию отчёт использует только высокодостоверные шкалы кандидата. Средние можно включить галочкой, низкодостоверные не передаются никогда. Эмбеддинг владельца аккаунта и требования V3 не используются.</div>
-            </div>
+                <div class="compat-option-row">
+                    <label class="compat-mini-toggle">
+                        <input type="checkbox" id="candidateQuestionUseDescription" checked>
+                        <span>Учитывать описание кандидата</span>
+                    </label>
+                    <label class="compat-mini-toggle">
+                        <input type="checkbox" id="candidateQuestionIncludeMedium">
+                        <span>Добавить среднюю достоверность</span>
+                    </label>
+                </div>
+                <div class="compat-data-note">По умолчанию используются только высокодостоверные шкалы кандидата. Средние включаются вручную, низкодостоверные не отправляются никогда. Данные владельца аккаунта и V3-требования здесь игнорируются.</div>
+            </section>
 
-            <div class="compat-buttons-grid">
+            <div class="compat-buttons-grid" aria-label="Выбор отчёта">
                 <button class="dating-generate-btn compat-btn" id="analyzeBtn" onclick="showPrivacyDisclaimer(() => runCompatibilityAnalysis())" disabled>
-                    🧠 Глубокий разбор
+                    <span class="compat-btn-title">🧠 Глубокий разбор</span>
+                    <span class="compat-btn-subtitle">Контекст пользователя + кандидат</span>
                 </button>
                 <button class="dating-generate-btn compat-btn compat-light-btn" id="analyzeLightBtn" onclick="showPrivacyDisclaimer(() => runLightCompatibilityAnalysis())" disabled ${!hasIdeal ? 'title="Сначала определите идеал во вкладке 💫"' : ''}>
-                    ⚡ Быстрый чек
+                    <span class="compat-btn-title">⚡ Быстрый чек</span>
+                    <span class="compat-btn-subtitle">Сверка с вашим идеалом</span>
                 </button>
                 <button class="dating-generate-btn compat-btn compat-mutual-btn" id="analyzeMutualBtn" onclick="showPrivacyDisclaimer(() => runMutualAnalysis())" disabled title="Нужен эмбеддинг V3 у обоих">
-                    💞 Взаимность и Динамика
+                    <span class="compat-btn-title">💞 Взаимность</span>
+                    <span class="compat-btn-subtitle">Обе стороны + динамика</span>
                 </button>
                 <button class="dating-generate-btn compat-btn compat-question-btn" id="analyzeQuestionBtn" onclick="showPrivacyDisclaimer(() => runCandidateQuestionAnalysis())" disabled title="Задайте вопрос выше">
-                    ❓ Ответить на вопрос
+                    <span class="compat-btn-title">❓ Ответить на вопрос</span>
+                    <span class="compat-btn-subtitle">Только шкалы кандидата</span>
                 </button>
             </div>
 

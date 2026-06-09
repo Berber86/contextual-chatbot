@@ -1163,6 +1163,65 @@ function switchTab(tab) {
     updateTabPlaceholder();
 }
 
+// ==================== KNOWLEDGE UI HELPERS ====================
+function getKnowledgeTabStats(tab) {
+    if (tab === 'facts') {
+        const data = getFactsData();
+        const active = data.facts.filter(f => !f.superseded).length;
+        const archived = data.facts.filter(f => f.superseded).length;
+        return { icon: '📋', title: t('tabFacts').replace('📋', '').trim(), active, archived, detail: `${active} активных фактов${archived ? ` · ${archived} устарело` : ''}` };
+    }
+    if (tab === 'traits') {
+        const data = getTraitsData();
+        const active = data.traits.filter(t => !t.superseded).length;
+        const archived = data.traits.filter(t => t.superseded).length;
+        return { icon: '🧠', title: t('tabTraits').replace('🧠', '').trim(), active, archived, detail: `${active} активных черт${archived ? ` · ${archived} устарело` : ''}` };
+    }
+    if (tab === 'timeline') {
+        const data = getTimelineData();
+        const activeEvents = data.events.filter(e => !e.superseded);
+        const archived = data.events.filter(e => e.superseded).length;
+        const plans = activeEvents.filter(e => e.type === 'plan').length;
+        const ongoing = activeEvents.filter(e => e.ongoing).length;
+        return { icon: '📅', title: t('tabTimeline').replace('📅', '').trim(), active: activeEvents.length, archived, detail: `${activeEvents.length} событий${plans ? ` · ${plans} планов` : ''}${ongoing ? ` · ${ongoing} ongoing` : ''}` };
+    }
+    if (tab === 'hypotheses') {
+        const data = getHypothesesData();
+        return { icon: '💡', title: t('tabHypotheses').replace('💡', '').trim(), active: data.hypotheses.length, archived: 0, detail: `${data.hypotheses.length} гипотез · обновляются автоматически` };
+    }
+    if (tab === 'gaps') {
+        const data = getGapsData();
+        const high = data.gaps.filter(g => g.priority === 'high').length;
+        return { icon: '🔍', title: t('tabGaps').replace('🔍', '').trim(), active: data.gaps.length, archived: 0, detail: `${data.gaps.length} пробелов${high ? ` · ${high} важных` : ''}` };
+    }
+    if (tab === 'social') {
+        const data = getSocialData();
+        const facts = data.contacts.reduce((sum, c) => sum + (c.facts?.length || 0), 0);
+        const traits = data.contacts.reduce((sum, c) => sum + (c.traits?.length || 0), 0);
+        return { icon: '👥', title: t('tabSocial').replace('👥', '').trim(), active: data.contacts.length, archived: 0, detail: `${data.contacts.length} контактов · ${facts} фактов · ${traits} черт` };
+    }
+    return { icon: '🗂️', title: tab, active: 0, archived: 0, detail: '' };
+}
+
+function renderKnowledgeTabHeader(tab) {
+    const stats = getKnowledgeTabStats(tab);
+    return `
+        <div class="knowledge-tab-header">
+            <div class="knowledge-tab-title-row">
+                <div class="knowledge-tab-icon">${stats.icon}</div>
+                <div>
+                    <h3>${escapeHtml(stats.title)}</h3>
+                    <p>${escapeHtml(stats.detail)}</p>
+                </div>
+            </div>
+            <div class="knowledge-tab-badges">
+                <span class="knowledge-count-badge">${stats.active}</span>
+                ${stats.archived ? `<span class="knowledge-archived-badge">${stats.archived} устар.</span>` : ''}
+            </div>
+        </div>
+    `;
+}
+
 // ==================== STRUCTURED CONTENT RENDERING ====================
 function renderStructuredContent(tab) {
     const container = document.getElementById('structuredContainer');
@@ -1188,7 +1247,8 @@ function renderStructuredContent(tab) {
             break;
     }
 
-    container.innerHTML = html || `<div class="no-data">${t('placeholderEmpty')}</div>`;
+    const body = html || `<div class="no-data">${t('placeholderEmpty')}</div>`;
+    container.innerHTML = renderKnowledgeTabHeader(tab) + body;
 }
 
 function renderFactsList() {
@@ -1478,11 +1538,11 @@ function renderSocialList() {
     if (!container) return;
     
     if (data.contacts.length === 0) {
-        container.innerHTML = `<div class="no-contacts">${t('noContacts')}</div>`;
+        container.innerHTML = renderKnowledgeTabHeader('social') + `<div class="no-contacts">${t('noContacts')}</div>`;
         return;
     }
     
-    container.innerHTML = data.contacts.map(contact => {
+    container.innerHTML = renderKnowledgeTabHeader('social') + data.contacts.map(contact => {
         const sentiment = getSentimentEmoji(contact.sentiment);
         const factsCount = contact.facts?.length || 0;
         const traitsCount = contact.traits?.length || 0;

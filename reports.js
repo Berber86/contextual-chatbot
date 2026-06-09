@@ -234,6 +234,17 @@ function renderUserMode(container) {
             </div>
         </div>
         
+        <section class="reports-hero">
+            <div>
+                <h3>Готовые персональные отчёты</h3>
+                <p>Выберите сценарий. Каждый отчёт берёт только те регистры памяти, которые указаны в карточке, и не стартует без нужных данных.</p>
+            </div>
+            <div class="reports-hero-stats">
+                <span>${PRESET_REPORTS.length} отчётов</span>
+                <span>${Object.values(availability).filter(Boolean).length}/9 источников</span>
+            </div>
+        </section>
+
         <div class="reports-user-content">
             ${PRESET_REPORTS.map(preset => renderPresetCard(preset, availability)).join('')}
         </div>
@@ -265,7 +276,6 @@ function renderPresetCard(preset, availability) {
     };
     
     const canGenerate = preset.requiredContext.every(ctx => contextMap[ctx]);
-    
     const missingData = preset.requiredContext.filter(ctx => !contextMap[ctx]);
     
     const missingHints = {
@@ -279,16 +289,36 @@ function renderPresetCard(preset, availability) {
         'ctx_social': 'Расскажите о людях в вашей жизни',
         'ctx_style': 'Нужно минимум 10 сообщений для определения стиля'
     };
+
+    const contextLabels = {
+        'ctx_embedding': 'эмбеддинг',
+        'ctx_ideal': 'идеал',
+        'ctx_expectations': 'ожидания',
+        'ctx_facts': 'факты',
+        'ctx_traits': 'черты',
+        'ctx_timeline': 'хронология',
+        'ctx_hypotheses': 'гипотезы',
+        'ctx_social': 'социалка',
+        'ctx_style': 'стиль'
+    };
     
     return `
-        <div class="preset-card ${canGenerate ? '' : 'preset-disabled'}">
-            <div class="preset-icon">${preset.icon}</div>
+        <article class="preset-card ${canGenerate ? 'preset-ready' : 'preset-disabled'}">
+            <div class="preset-icon" aria-hidden="true">${preset.icon}</div>
             <div class="preset-info">
-                <h3 class="preset-title">${preset.title}</h3>
+                <div class="preset-title-row">
+                    <h3 class="preset-title">${preset.title}</h3>
+                    <span class="preset-status-chip ${canGenerate ? 'preset-status-ready' : 'preset-status-locked'}">
+                        ${canGenerate ? 'готов' : 'нужны данные'}
+                    </span>
+                </div>
                 <p class="preset-description">${preset.description}</p>
+                <div class="preset-context-chips">
+                    ${preset.requiredContext.map(ctx => `<span class="preset-context-chip ${contextMap[ctx] ? 'available' : 'missing'}">${contextLabels[ctx] || ctx}</span>`).join('')}
+                </div>
                 ${!canGenerate ? `
                     <div class="preset-requirements">
-                        <span class="req-label">⚠️ Требуется:</span>
+                        <span class="req-label">Что нужно добавить:</span>
                         ${missingData.map(ctx => `<span class="req-hint">${missingHints[ctx]}</span>`).join('')}
                     </div>
                 ` : ''}
@@ -298,12 +328,11 @@ function renderPresetCard(preset, availability) {
                 ${canGenerate ? '' : 'disabled'} 
                 onclick="generatePresetReport('${preset.id}')"
             >
-                ${canGenerate ? '🚀 Сгенерировать' : '🔒 Недоступно'}
+                ${canGenerate ? 'Сгенерировать' : 'Недоступно'}
             </button>
-        </div>
+        </article>
     `;
 }
-
 async function generatePresetReport(presetId) {
     const preset = PRESET_REPORTS.find(p => p.id === presetId);
     if (!preset) return;
@@ -423,9 +452,20 @@ function renderTestMode(container) {
             </div>
         </div>
         
+        <section class="reports-hero reports-builder-hero">
+            <div>
+                <h3>Конструктор отчёта</h3>
+                <p>Соберите контекст вручную и задайте собственную задачу. Используйте этот режим для экспериментов, проверки промптов и разовых аналитических запросов.</p>
+            </div>
+            <div class="reports-hero-stats">
+                <span>ручной режим</span>
+                <span>dev</span>
+            </div>
+        </section>
+
         <!-- Контекст -->
         <div class="reports-context-section">
-            <div class="reports-section-title">📎 Присоединить к промпту:</div>
+            <div class="reports-section-title">📎 Источники данных:</div>
             <div class="reports-context-grid">
                 <label class="reports-context-item">
                     <input type="checkbox" id="ctx_facts" checked>

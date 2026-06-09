@@ -21,61 +21,63 @@
     </div>
 
     <!-- Header Bar -->
-    <header class="header-bar">
-        <!-- Кнопка знаний -->
-        <button class="header-btn knowledge-btn" onclick="openKnowledgeModal()" title="User Knowledge" aria-label="База знаний">
-            🧠
-        </button>
-        
-        <!-- Кнопка самопознания YOU -->
-        <button class="header-btn you-btn" onclick="openYouModal()" title="Self-Discovery" aria-label="Самопознание">
-            🔮
-        </button>
+    <header class="header-bar" aria-label="Основная навигация">
+        <div class="app-brand" aria-label="Memory Chatbot">
+            <div class="app-brand-mark" aria-hidden="true">M</div>
+            <div class="app-brand-copy">
+                <div class="app-brand-title">Memory Chatbot</div>
+                <div class="app-brand-subtitle">Личный ИИ с долговременной памятью</div>
+            </div>
+        </div>
 
-        <!-- Кнопка знакомств (магнит) -->
-        <button class="header-btn dating-btn" onclick="openDatingModal()" title="Dating Profile" aria-label="Профиль знакомств">
-            🧲
-        </button>
-        
-        <!-- Кнопка Диалогов -->
-        <button class="header-btn dialogs-btn" onclick="openDialogsModal()" title="Диалоги" id="dialogsHeaderBtn" aria-label="Диалоги">
-            <span id="dialogsHeaderEmoji">💬</span>
-            <span id="dialogsUnreadBadge" class="unread-badge" style="display: none;"></span>
-        </button>
-        
-        <!-- Кнопка отчетов -->
-        <button class="header-btn reports-btn" onclick="openReportsModal()" title="Reports" aria-label="Отчеты">
-            📊
-        </button>
-
-        <!-- Кнопка помощи -->
-        <button class="header-btn help-btn" onclick="openHelpModal()" title="Help" aria-label="Справка">
-            ?
-        </button>
-
-        <!-- Кнопка настроек (шестерёнка) -->
-        <div class="settings-wrapper">
-            <button class="header-btn settings-btn" onclick="toggleSettingsMenu()" title="Settings" aria-label="Настройки">
-                ⚙️
+        <nav class="header-actions" aria-label="Разделы приложения">
+            <button class="header-btn knowledge-btn" onclick="openKnowledgeModal()" title="База знаний" aria-label="База знаний">
+                <span aria-hidden="true">🧠</span>
             </button>
-            <div class="settings-dropdown" id="settingsDropdown">
-                <button class="settings-item" onclick="clearChat()">
-                    <span class="settings-icon">🗑️</span>
-                    <span data-i18n="btnClearChat">Clear Chat</span>
+            
+            <button class="header-btn you-btn" onclick="openYouModal()" title="Самопознание" aria-label="Самопознание">
+                <span aria-hidden="true">🔮</span>
+            </button>
+
+            <button class="header-btn dating-btn" onclick="openDatingModal()" title="Знакомства" aria-label="Профиль знакомств">
+                <span aria-hidden="true">🧲</span>
+            </button>
+            
+            <button class="header-btn dialogs-btn" onclick="openDialogsModal()" title="Диалоги" id="dialogsHeaderBtn" aria-label="Диалоги">
+                <span id="dialogsHeaderEmoji" aria-hidden="true">💬</span>
+                <span id="dialogsUnreadBadge" class="unread-badge" style="display: none;"></span>
+            </button>
+            
+            <button class="header-btn reports-btn" onclick="openReportsModal()" title="Отчёты" aria-label="Отчёты">
+                <span aria-hidden="true">📊</span>
+            </button>
+
+            <button class="header-btn help-btn" onclick="openHelpModal()" title="Справка" aria-label="Справка">
+                <span aria-hidden="true">?</span>
+            </button>
+
+            <div class="settings-wrapper">
+                <button class="header-btn settings-btn" onclick="toggleSettingsMenu()" title="Настройки" aria-label="Настройки">
+                    <span aria-hidden="true">⚙️</span>
                 </button>
-                <button class="settings-item" onclick="clearKnowledge()">
-                    <span class="settings-icon">⚠️</span>
-                    <span data-i18n="btnClearKnowledge">Clear Knowledge</span>
-                </button>
-                <div class="settings-divider"></div>
-                <!-- Языковой селектор в меню -->
-                <div class="language-menu-section">
-                    <div class="language-selector-menu" id="languageSelectorMenu">
-                        <!-- Здесь будет вставлен язык через JS -->
+                <div class="settings-dropdown" id="settingsDropdown">
+                    <button class="settings-item" onclick="clearChat()">
+                        <span class="settings-icon">🗑️</span>
+                        <span data-i18n="btnClearChat">Clear Chat</span>
+                    </button>
+                    <button class="settings-item" onclick="clearKnowledge()">
+                        <span class="settings-icon">⚠️</span>
+                        <span data-i18n="btnClearKnowledge">Clear Knowledge</span>
+                    </button>
+                    <div class="settings-divider"></div>
+                    <div class="language-menu-section">
+                        <div class="language-selector-menu" id="languageSelectorMenu">
+                            <!-- Здесь будет вставлен язык через JS -->
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
+        </nav>
     </header>
 
     <!-- Main Chat Container -->
@@ -581,14 +583,22 @@
                 <div class="privacy-principle">
                     <div class="principle-icon">📊</div>
                     <div class="principle-text">
-                        <strong>Что используется в отчёте?</strong>
-                        <p>Для <em>вашего</em> отчёта бот использует всё, что знает о вас — чтобы говорить на вашем языке и давать конкретные, а не общие советы. Но это видите <em>только вы</em>.</p>
+                        <strong>Что используется в разных отчётах?</strong>
+                        <p><em>Глубокий разбор</em> использует ваши накопленные данные и профиль кандидата. <em>Быстрый чек</em> сверяет кандидата с вашим идеалом. <em>Взаимность</em> смотрит требования обеих сторон, если у обоих есть V3. <em>Свой вопрос</em> использует только данные кандидата: его шкалы, пол/возраст и описание, если вы включили эту галочку.</p>
+                    </div>
+                </div>
+
+                <div class="privacy-principle">
+                    <div class="principle-icon">🎚️</div>
+                    <div class="principle-text">
+                        <strong>Достоверность шкал учитывается до отправки</strong>
+                        <p>В режиме своего вопроса низкодостоверные шкалы кандидата не отправляются никогда. Средние шкалы добавляются только вручную. Это не просьба к модели «быть осторожной», а фильтр на уровне данных.</p>
                     </div>
                 </div>
                 
                 <div class="privacy-summary">
                     <span class="summary-emoji">💡</span>
-                    <p><strong>Если коротко:</strong> эмбеддинг — это рентген вашей личности без подписи. Точный, анонимный, бесполезный для сталкера.</p>
+                    <p><strong>Если коротко:</strong> каждый отчёт показывает, какие данные берёт. Самый приватный режим — свободный вопрос о кандидате: он не использует вашу память, ваш эмбеддинг и ваши личные факты.</p>
                 </div>
             </div>
             
