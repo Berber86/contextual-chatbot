@@ -1137,6 +1137,7 @@ function switchTab(tab) {
     if (textarea) textarea.style.display = isTextarea ? 'block' : 'none';
     if (structuredContainer) structuredContainer.style.display = isStructured ? 'block' : 'none';
     if (socialContainer) socialContainer.style.display = isSocial ? 'flex' : 'none';
+    if (!isTextarea) hideStyleEditorHeader();
 
     const infoId = `${tab}Info`;
     const infoEl = document.getElementById(infoId);
@@ -1156,6 +1157,7 @@ function switchTab(tab) {
         textarea.readOnly = false;
         textarea.classList.remove('readonly');
         originalTabContent = content;
+        renderStyleEditorHeader(content);
         if (readonlyIndicator) readonlyIndicator.style.display = 'none';
         updateEditButtons(false);
     }
@@ -1220,6 +1222,70 @@ function renderKnowledgeTabHeader(tab) {
             </div>
         </div>
     `;
+}
+
+function getStyleEditorStats(text) {
+    const value = String(text || '');
+    const trimmed = value.trim();
+    const chars = value.length;
+    const words = trimmed ? trimmed.split(/\s+/).length : 0;
+    const lines = value ? value.split('\n').length : 0;
+    return { chars, words, lines };
+}
+
+function ensureStyleEditorHeader() {
+    let header = document.getElementById('styleEditorHeader');
+    const textarea = document.getElementById('knowledgeTextarea');
+    if (!textarea || !textarea.parentElement) return null;
+
+    if (!header) {
+        header = document.createElement('div');
+        header.id = 'styleEditorHeader';
+        header.className = 'style-editor-header';
+        textarea.parentElement.insertBefore(header, textarea);
+    }
+
+    return header;
+}
+
+function renderStyleEditorHeader(text) {
+    const header = ensureStyleEditorHeader();
+    if (!header) return;
+
+    const stats = getStyleEditorStats(text);
+    header.style.display = 'flex';
+    header.innerHTML = `
+        <div class="style-editor-title-row">
+            <div class="knowledge-tab-icon">🎭</div>
+            <div>
+                <h3>Стиль общения</h3>
+                <p>Это инструкция, по которой бот подстраивает тон ответов. Можно редактировать вручную.</p>
+            </div>
+        </div>
+        <div class="style-editor-stats">
+            <span id="styleEditorChars">${stats.chars} зн.</span>
+            <span id="styleEditorWords">${stats.words} слов</span>
+            <span id="styleEditorLines">${stats.lines} строк</span>
+        </div>
+    `;
+}
+
+function updateStyleEditorStats() {
+    const textarea = document.getElementById('knowledgeTextarea');
+    const charsEl = document.getElementById('styleEditorChars');
+    const wordsEl = document.getElementById('styleEditorWords');
+    const linesEl = document.getElementById('styleEditorLines');
+    if (!textarea || !charsEl || !wordsEl || !linesEl) return;
+
+    const stats = getStyleEditorStats(textarea.value);
+    charsEl.textContent = `${stats.chars} зн.`;
+    wordsEl.textContent = `${stats.words} слов`;
+    linesEl.textContent = `${stats.lines} строк`;
+}
+
+function hideStyleEditorHeader() {
+    const header = document.getElementById('styleEditorHeader');
+    if (header) header.style.display = 'none';
 }
 
 // ==================== STRUCTURED CONTENT RENDERING ====================
@@ -1638,6 +1704,7 @@ function onTextareaChange() {
     const textarea = document.getElementById('knowledgeTextarea');
     const changed = textarea.value !== originalTabContent;
     hasUnsavedChanges = changed;
+    updateStyleEditorStats();
     updateEditButtons(changed);
 }
 
@@ -1665,6 +1732,7 @@ function saveChanges() {
     localStorage.setItem(STORAGE_KEYS.style, textarea.value);
     originalTabContent = textarea.value;
     hasUnsavedChanges = false;
+    updateStyleEditorStats();
     updateEditButtons(false);
     console.log('[Knowledge] Style saved');
 }
@@ -1673,6 +1741,7 @@ function cancelChanges() {
     const textarea = document.getElementById('knowledgeTextarea');
     textarea.value = originalTabContent;
     hasUnsavedChanges = false;
+    updateStyleEditorStats();
     updateEditButtons(false);
 }
 

@@ -4,7 +4,49 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Memory Chatbot</title>
-    <link rel="stylesheet" href="style.css">
+    <script>
+        // CSS loader with a secret legacy toggle for redesign QA.
+        // Use ?legacy=0 to disable old CSS, ?legacy=1 to enable it again.
+        // Or in console: toggleLegacyCss(false) / toggleLegacyCss(true)
+        (function loadStyles() {
+            const key = 'memory_chatbot_legacy_css';
+            const params = new URLSearchParams(window.location.search);
+            if (params.has('legacy')) {
+                const value = params.get('legacy');
+                const enabled = !(value === '0' || value === 'false' || value === 'off');
+                localStorage.setItem(key, enabled ? 'on' : 'off');
+            }
+            const useLegacy = localStorage.getItem(key) !== 'off';
+            window.toggleLegacyCss = function(enabled) {
+                localStorage.setItem(key, enabled ? 'on' : 'off');
+                window.location.reload();
+            };
+            window.isLegacyCssEnabled = function() {
+                return localStorage.getItem(key) !== 'off';
+            };
+            const sheets = [
+                ...(useLegacy ? ['styles/legacy.css'] : []),
+                'styles/shell-redesign.css',
+                'styles/dating-redesign.css',
+                'styles/knowledge-redesign.css',
+                'styles/reports-redesign.css',
+                'styles/dialogs-redesign.css',
+                'styles/you-redesign.css',
+                'styles/help-invite-redesign.css'
+            ];
+            document.write(sheets.map(href => `<link rel="stylesheet" href="${href}">`).join('\n'));
+        })();
+    </script>
+    <noscript>
+        <link rel="stylesheet" href="styles/legacy.css">
+        <link rel="stylesheet" href="styles/shell-redesign.css">
+        <link rel="stylesheet" href="styles/dating-redesign.css">
+        <link rel="stylesheet" href="styles/knowledge-redesign.css">
+        <link rel="stylesheet" href="styles/reports-redesign.css">
+        <link rel="stylesheet" href="styles/dialogs-redesign.css">
+        <link rel="stylesheet" href="styles/you-redesign.css">
+        <link rel="stylesheet" href="styles/help-invite-redesign.css">
+    </noscript>
 </head>
 <body>
     <!-- Блок настроек для локальной работы -->
@@ -256,67 +298,66 @@
         <div class="help-modal">
             <button class="help-modal-close" onclick="closeHelpModal()">✕</button>
             
-            <h1>🧠 Memory Chatbot</h1>
-            
-            <section class="help-section">
-                <h2>Что это?</h2>
-                <p>Персональный AI-ассистент, который <strong>запоминает</strong> информацию о вас. Чем больше общаетесь — тем лучше он вас понимает.</p>
-            </section>
-
-            <section class="help-section">
-                <h2>Что он запоминает?</h2>
-                <ul>
-                    <li>📋 <strong>Факты</strong> — имя, работа, интересы, предпочтения</li>
-                    <li>🧠 <strong>Черты личности</strong> — как вы думаете, что цените</li>
-                    <li>📅 <strong>Хронология</strong> — события, планы, важные даты</li>
-                    <li>👥 <strong>Люди</strong> — семья, друзья, коллеги из ваших рассказов</li>
-                    <li>💡 <strong>Инсайты</strong> — паттерны и наблюдения о вас</li>
-                </ul>
-            </section>
-
-            <section class="help-section">
-                <h2>🎤 Режим 'Спроси меня'</h2>
-                <p>Включите переключатель — бот будет задавать вопросы, чтобы узнать вас лучше. Вопросы вплетаются естественно в разговор.</p>
+            <section class="help-hero">
+                <div class="help-hero-mark">M</div>
+                <div>
+                    <h1>Memory Chatbot</h1>
+                    <p>Личный ИИ, который не начинает знакомство заново каждый раз. Он хранит память локально, собирает карту вашей личности и помогает делать более точные выводы.</p>
+                </div>
             </section>
             
             <section class="help-section">
-                <h2>🔮 Самопознание</h2>
-                <p>Нажмите на магический шар в шапке — пройдите интерактивный тест личности. Узнайте свои качества, ценности и приоритетные сферы жизни.</p>
+                <h2>Что он запоминает</h2>
+                <div class="help-feature-grid">
+                    <div class="help-feature-card"><strong>📋 Факты</strong><span>Имя, работа, интересы, предпочтения и важные детали.</span></div>
+                    <div class="help-feature-card"><strong>🧠 Черты</strong><span>Как вы думаете, реагируете, выбираете и что цените.</span></div>
+                    <div class="help-feature-card"><strong>📅 Хронология</strong><span>События, периоды жизни, планы и изменения.</span></div>
+                    <div class="help-feature-card"><strong>👥 Люди</strong><span>Контакты из вашей жизни и контекст отношений.</span></div>
+                    <div class="help-feature-card"><strong>💡 Гипотезы</strong><span>Неочевидные паттерны, которые бот уточняет со временем.</span></div>
+                    <div class="help-feature-card"><strong>🔍 Белые пятна</strong><span>Темы, которых пока не хватает для более точной помощи.</span></div>
+                </div>
             </section>
 
             <section class="help-section">
-                <h2>🧲 Профиль для знакомств</h2>
-                <p>Когда накопится достаточно данных (50+ фактов), вы сможете создать свой личностный профиль из 33 измерений. Профиль можно скопировать и использовать для подбора совместимых людей.</p>
+                <h2>Главные разделы</h2>
+                <div class="help-flow-list">
+                    <div><strong>🧠 База знаний</strong><p>Показывает накопленную память: факты, черты, хронологию, людей, гипотезы и стиль общения.</p></div>
+                    <div><strong>🔮 Самопознание</strong><p>Интерактивный тест YOU. Он помогает сформировать портрет личности и обсудить его с ассистентом.</p></div>
+                    <div><strong>🧲 Знакомства</strong><p>Создаёт профиль по 50 шкалам, помогает искать кандидатов и запускать разные режимы анализа.</p></div>
+                    <div><strong>📊 Отчёты</strong><p>Готовые аналитические сценарии по вашей памяти и конструктор собственных отчётов.</p></div>
+                    <div><strong>💬 Диалоги</strong><p>Анонимная переписка с кандидатами после анализа совместимости.</p></div>
+                </div>
             </section>
 
             <section class="help-section">
-                <h2>🔒 Приватность</h2>
-                <p><strong>Все данные хранятся только на вашем устройстве.</strong></p>
-                <p>Мы технически не можем прочитать вашу переписку — она не отправляется на наши серверы.</p>
-                <p>Сообщения обрабатываются через <a href="https://openrouter.ai/privacy" target="_blank">OpenRouter</a> для работы ИИ.</p>
-                <p>Нажмите 'Очистить знания' чтобы удалить всё мгновенно.</p>
+                <h2>Режим «Спроси меня»</h2>
+                <p>Переключатель над строкой ввода включает вопросы от бота. Он использует белые пятна в памяти и мягко уточняет то, что поможет лучше понимать вас.</p>
             </section>
 
             <section class="help-section">
-                <h2>🚀 Что дальше?</h2>
+                <h2>Как работают Dating-отчёты</h2>
                 <ul>
-                    <li>Синхронизация между устройствами (опционально)</li>
-                    <li>Экспорт/импорт базы знаний</li>
-                    <li>Больше настроек персонализации</li>
-                    <li>Мобильное приложение</li>
+                    <li><strong>Глубокий разбор</strong> использует вашу память и профиль кандидата.</li>
+                    <li><strong>Быстрый чек</strong> сверяет кандидата с вашим идеальным партнёром.</li>
+                    <li><strong>Взаимность</strong> смотрит обе стороны, если у обоих есть V3-профили.</li>
+                    <li><strong>Свой вопрос</strong> использует только данные кандидата: его шкалы, пол/возраст и описание, если вы включили галочку.</li>
                 </ul>
             </section>
 
+            <section class="help-section help-privacy-section">
+                <h2>Приватность</h2>
+                <p><strong>Основная память хранится на вашем устройстве.</strong> Факты, черты, хронология и гипотезы не публикуются как текстовая база.</p>
+                <p>Для знакомств наружу уходит только анкета, которую вы публикуете: числовой профиль, возраст/пол и включённые вами описания.</p>
+                <p>Очистить всё можно через настройки: «Очистить чат» и «Очистить знания».</p>
+            </section>
+
             <section class="help-section">
-                <h2>👨‍💻 Автор</h2>
-                <p>Сергей Маслаков</p>
-                <p>
-                    <a href="https://t.me/Nascor" target="_blank">Telegram</a>
-                </p>
+                <h2>Автор</h2>
+                <p>Сергей Маслаков · <a href="https://t.me/Nascor" target="_blank">Telegram</a></p>
             </section>
 
             <div class="help-footer">
-                <p>Версия 1.2 · 2025</p>
+                <p>Закрытая бета · интерфейс обновлён в 2026</p>
             </div>
         </div>
     </div>

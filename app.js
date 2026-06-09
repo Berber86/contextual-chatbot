@@ -1380,87 +1380,75 @@ function showInviteModal() {
     modal.className = 'invite-modal-overlay';
     
     modal.innerHTML = `
-        <div class="invite-modal">
-            <div class="invite-header">
-                <span class="invite-icon">🧠</span>
-                <h2>Memory Chatbot</h2>
-                <p class="invite-tagline">ИИ, с которым не нужно начинать сначала</p>
+        <div class="invite-modal invite-redesign">
+            <div class="invite-hero">
+                <div class="invite-brand-mark">M</div>
+                <div>
+                    <h2>Memory Chatbot</h2>
+                    <p>Личный ИИ с памятью, отчётами и анонимным Dating-профилем.</p>
+                </div>
             </div>
             
             <div class="invite-body">
-                <div class="invite-section">
-                    <h3>🎯 Знакомо?</h3>
-                    <ul class="invite-audience">
-                        <li>🙄 Ты устал каждый раз заново объяснять нейросетям (да и людям) контекст своей жизни и свои ценности.</li>
-                        <li>🌪️ У тебя сложный внутренний мир, ты любишь рефлексировать, но тебе не об кого "постучать мысли".</li>
-                        <li>🥱 Тебя тошнит от поверхностного Тиндера, где выбирают по фото, а не по глубине личности.</li>
-                        <li>🧩 Тебе нужен собеседник для распутывания сложных жизненных узлов.</li>
-                    </ul>
-                </div>
-                
-                <div class="invite-section">
-                    <h3>🔮 Твоя «Вторая голова»</h3>
-                    <p>Это не Siri и не базовый ChatGPT, который забудет тебя через 10 сообщений. Это <strong>настоящий ИИ-союзник с долговременной памятью</strong>. Он непрерывно изучает то, как ты мыслишь, собирает твои черты характера в единый пазл и помогает смотреть на ситуации со стороны, учитывая <em>именно твой</em> контекст.</p>
-                </div>
-                
-                <div class="invite-section">
-                    <h3>🛡️ Параноидальная приватность</h3>
-                    <p>Твои инсайты, слабости и истории принадлежат только тебе. Вся база знаний хранится <strong>строго локально на твоём устройстве</strong>. Наш сервер — это лишь слепой курьер для доставки сообщений (скоро с E2E-шифрованием). Мы физически не можем прочитать твою память.</p>
-                </div>
+                <section class="invite-section invite-positioning">
+                    <h3>Что это за бета</h3>
+                    <p>Это рабочий прототип ассистента, который постепенно собирает вашу локальную карту памяти: факты, черты, хронологию, людей, гипотезы и стиль общения. Чем дольше вы с ним разговариваете, тем меньше нужно объяснять заново.</p>
+                </section>
 
-                <div class="invite-section">
-                    <h3>💎 Что внутри уже сейчас:</h3>
-                    <ul class="invite-audience">
-                        <li><strong>Умные отчёты:</strong> бот анализирует накопленные беседы и выдаёт глубокий разбор твоей личности и скрытых паттернов.</li>
-                        <li><strong>Матрица совместимости:</strong> крутейшая побочная фича. Бот строит твой профиль по 50 шкалам и делает беспощадно точный анализ совместимости с другими участниками беты. Никаких фоток — только математика душ. Плюс встроенный защищённый мессенджер.</li>
-                    </ul>
-                </div>
+                <section class="invite-section">
+                    <h3>Что уже внутри</h3>
+                    <div class="invite-feature-grid">
+                        <div class="invite-feature"><strong>🧠 Память</strong><span>Локальная база знаний о вас и вашей жизни.</span></div>
+                        <div class="invite-feature"><strong>📊 Отчёты</strong><span>Готовые сценарии анализа личности и решений.</span></div>
+                        <div class="invite-feature"><strong>🔮 YOU</strong><span>Самопознание через выбор качеств и ценностей.</span></div>
+                        <div class="invite-feature"><strong>🧲 Dating</strong><span>Профиль по 50 шкалам, кандидаты и отчёты.</span></div>
+                    </div>
+                </section>
 
-                <div class="invite-section">
-                    <h3>🚀 В ближайшем будущем</h3>
-                    <p>ИИ станет твоим навигатором: алгоритмы профориентации, помощь в принятии тяжёлых решений и персональное развитие, основанное на твоей истинной природе, а не на мотивационных цитатах из интернета.</p>
-                </div>
+                <section class="invite-section invite-privacy-card">
+                    <h3>Приватность по умолчанию</h3>
+                    <p>Основная память хранится на вашем устройстве. Для Dating публикуется только то, что вы явно создаёте как анкету: числовой профиль, возраст/пол и включённые описания.</p>
+                </section>
+
+                <section class="invite-section invite-warning">
+                    <h3>Честно про статус</h3>
+                    <p>Это закрытая бета. Возможны баги, шероховатости интерфейса и изменения логики. Инвайты нужны, чтобы не перегрузить инфраструктуру и собирать обратную связь постепенно.</p>
+                </section>
                 
-                <div class="invite-section invite-warning">
-                    <h3>⚠️ Честное предупреждение</h3>
-                    <p>Это <strong>закрытая бета-версия</strong> прототипа. Баги будут. Но если ты готов стать одним из первых исследователей этой технологии — добро пожаловать.</p>
-                </div>
-                
-                <div class="invite-section invite-cta">
-                    <h3>🎟️ Вход по инвайтам</h3>
-                    <p>Нейросети требуют мощностей, поэтому пускаем дозированно.</p>
+                <section class="invite-section invite-cta">
+                    <h3>Вход по инвайту</h3>
+                    <p>Введите код доступа. Если кода нет, напишите автору.</p>
                     <p class="invite-hint">Получить код: <a href="https://t.me/Berberber85" target="_blank">@Berberber85</a> в Telegram</p>
                     
+                    <label class="invite-input-label" for="inviteCodeInput">Код доступа</label>
                     <input 
                         type="text" 
                         id="inviteCodeInput" 
                         class="invite-input" 
-                        placeholder="ВВЕДИ КОД"
+                        placeholder="ВВЕДИТЕ КОД"
                         maxlength="20"
-                        autocomplete="off"
+                        autocomplete="one-time-code"
                     >
                     <div class="invite-error" id="inviteError"></div>
                     <button class="invite-btn" id="inviteSubmitBtn" onclick="submitInviteCode()">
                         Активировать доступ
                     </button>
-                </div>
+                </section>
             </div>
             
             <div class="invite-footer">
-                <p>Все данные хранятся локально. <a href="#" onclick="alert('Автор: Сергей Маслаков\\nTelegram: @Berberber85\\nВерсия: Закрытая бета 1.3'); return false;">О проекте</a></p>
+                <p>Автор: Сергей Маслаков · <a href="#" onclick="alert('Автор: Сергей Маслаков\\nTelegram: @Berberber85\\nВерсия: Закрытая бета'); return false;">О проекте</a></p>
             </div>
         </div>
     `;
     
     document.body.appendChild(modal);
     
-    // Принудительно скроллим в самый верх (важно для мобилок)
     modal.scrollTop = 0;
     setTimeout(() => {
         modal.scrollTop = 0;
     }, 10);
     
-    // Enter для отправки
     document.getElementById('inviteCodeInput')?.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') submitInviteCode();
     });

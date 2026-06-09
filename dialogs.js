@@ -355,12 +355,25 @@ function dialogsUpdateUnreadBadge() {
         const contacts = dialogsGetContacts();
         const list = Object.values(contacts).sort((a, b) => (b.lastTimestamp || 0) - (a.lastTimestamp || 0));
 
-        let html = '';
+        const totalUnread = list.reduce((sum, c) => sum + (c.unread || 0), 0);
+        let html = `
+            <section class="dialogs-list-hero">
+                <div>
+                    <h3>Личные диалоги</h3>
+                    <p>Анонимные чаты с кандидатами из Dating. Имена заменены на emoji-подписи по их профилю.</p>
+                </div>
+                <div class="dialogs-list-stats">
+                    <span>${list.length} чатов</span>
+                    ${totalUnread ? `<span>${totalUnread} новых</span>` : '<span>нет новых</span>'}
+                </div>
+            </section>`;
 
         if (!myId) {
             html += `
-                <div class="dialogs-empty" style="margin-bottom: 12px;">
-                    Чтобы писать и получать сообщения, сначала опубликуйте свою анкету во вкладке знакомств.
+                <div class="dialogs-empty dialogs-empty-warning">
+                    <div class="dialogs-empty-icon">🧲</div>
+                    <strong>Сначала опубликуйте анкету</strong>
+                    <p>Чтобы писать и получать сообщения, нужен опубликованный профиль во вкладке знакомств.</p>
                 </div>
             `;
         }
@@ -368,28 +381,34 @@ function dialogsUpdateUnreadBadge() {
         if (list.length === 0) {
             html += `
                 <div class="dialogs-empty">
-                    Пока нет диалогов. После анализа совместимости можно нажать «Написать кандидату».
+                    <div class="dialogs-empty-icon">💬</div>
+                    <strong>Пока нет диалогов</strong>
+                    <p>После анализа совместимости нажмите «Написать кандидату», и чат появится здесь.</p>
                 </div>
             `;
             container.innerHTML = html;
             return;
         }
 
-        html += list.map(contact => `
-            <div class="dialogs-contact-item" onclick="openChatWith('${dialogsEscapeHtml(contact.id)}')">
-                <div class="dialogs-contact-avatar">${dialogsEscapeHtml(contact.name || '❓❓❓')}</div>
-                <div class="dialogs-contact-info">
-                    <div class="dialogs-contact-top">
-                        <strong>${dialogsEscapeHtml(contact.name || '❓❓❓')}</strong>
-                        <span class="dialogs-contact-time">${contact.lastTimestamp ? dialogsFormatDateTime(contact.lastTimestamp) : ''}</span>
+        html += `<div class="dialogs-contact-list">` + list.map(contact => {
+            const description = dialogsShortText(contact.description || 'Описание кандидата не сохранено', 86);
+            return `
+                <button class="dialogs-contact-item" onclick="openChatWith('${dialogsEscapeHtml(contact.id)}')">
+                    <div class="dialogs-contact-avatar">${dialogsEscapeHtml(contact.name || '❓❓❓')}</div>
+                    <div class="dialogs-contact-info">
+                        <div class="dialogs-contact-top">
+                            <strong>${dialogsEscapeHtml(contact.name || '❓❓❓')}</strong>
+                            <span class="dialogs-contact-time">${contact.lastTimestamp ? dialogsFormatDateTime(contact.lastTimestamp) : 'нет сообщений'}</span>
+                        </div>
+                        <div class="dialogs-contact-description">${dialogsEscapeHtml(description)}</div>
+                        <div class="dialogs-contact-bottom">
+                            <span class="dialogs-contact-msg">${dialogsEscapeHtml(contact.lastMessage || 'Пустой диалог')}</span>
+                            ${contact.unread > 0 ? `<span class="dialogs-badge">${contact.unread}</span>` : ''}
+                        </div>
                     </div>
-                    <div class="dialogs-contact-bottom">
-                        <span class="dialogs-contact-msg">${dialogsEscapeHtml(contact.lastMessage || 'Пустой диалог')}</span>
-                        ${contact.unread > 0 ? `<span class="dialogs-badge">${contact.unread}</span>` : ''}
-                    </div>
-                </div>
-            </div>
-        `).join('');
+                </button>
+            `;
+        }).join('') + `</div>`;
 
         container.innerHTML = html;
     }
@@ -408,7 +427,12 @@ function dialogsUpdateUnreadBadge() {
         }
 
         if (history.length === 0) {
-            area.innerHTML = `<div class="dialogs-empty">Напишите первое сообщение.</div>`;
+            area.innerHTML = `
+                <div class="dialogs-empty dialogs-chat-empty">
+                    <div class="dialogs-empty-icon">✉️</div>
+                    <strong>Напишите первое сообщение</strong>
+                    <p>Чат анонимный: собеседник увидит ваше сообщение от вашего опубликованного профиля.</p>
+                </div>`;
             return;
         }
 
