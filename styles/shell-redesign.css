@@ -1070,3 +1070,91 @@ body.server-mode .input-container {
         padding-bottom: calc(22px + env(safe-area-inset-bottom, 0px)) !important;
     }
 }
+
+/* ==========================================================
+   STANDALONE BASE PATCH FOR ?legacy=0
+   These are structural defaults the old legacy.css used to own.
+   Without them, dropdowns and overlays render open on first load.
+   ========================================================== */
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    display: flex;
+    flex-direction: column;
+}
+
+.settings-wrapper {
+    position: relative;
+}
+
+.settings-dropdown {
+    display: none;
+    position: absolute;
+}
+
+.settings-dropdown.open {
+    display: block;
+}
+
+.language-menu-dropdown {
+    display: none;
+}
+
+.language-menu-dropdown.open {
+    display: block;
+}
+
+body.modal-open .chat-container {
+    display: none;
+}
+
+.translating-overlay,
+.modal-overlay,
+.help-modal-overlay,
+.reports-modal-overlay,
+.dating-modal-overlay,
+.privacy-disclaimer-overlay,
+.dialogs-modal-overlay,
+.you-modal-overlay,
+.you-help-modal-overlay {
+    display: none;
+}
+
+.translating-overlay.active {
+    display: flex;
+}
+
+.modal-overlay.active,
+.you-modal-overlay.active {
+    display: flex;
+}
+
+.help-modal-overlay.active,
+.reports-modal-overlay.active,
+.dating-modal-overlay.active,
+.privacy-disclaimer-overlay.active,
+.you-help-modal-overlay.active {
+    display: flex;
+}
+
+.dialogs-modal-overlay.active {
+    display: flex;
+}
+
+.header-actions {
+    position: relative;
+}
+
+.header-btn.dialogs-btn {
+    position: relative;
+}
