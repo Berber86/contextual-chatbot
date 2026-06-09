@@ -1158,3 +1158,89 @@ body.modal-open .chat-container {
 .header-btn.dialogs-btn {
     position: relative;
 }
+
+/* ==========================================================
+   STANDALONE LAYOUT PATCH 2 FOR ?legacy=0
+   Restores the structural layout that legacy.css used to provide:
+   fixed overlays, column modals, scroll containers, and reliable hit areas.
+   ========================================================== */
+
+button {
+    cursor: pointer;
+}
+
+button:disabled {
+    cursor: not-allowed;
+}
+
+.header-bar {
+    flex-shrink: 0;
+}
+
+.chat-container {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.chat-area {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    display: flex;
+    flex-direction: column;
+}
+
+.input-container {
+    flex-shrink: 0;
+}
+
+/* All app overlays need fixed geometry even without legacy.css */
+.translating-overlay,
+.modal-overlay,
+.help-modal-overlay,
+.reports-modal-overlay,
+.dating-modal-overlay,
+.privacy-disclaimer-overlay,
+.dialogs-modal-overlay,
+.you-modal-overlay,
+.you-help-modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-modal, 1000);
+}
+
+.modal-overlay {
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.modal-overlay.active {
+    display: flex;
+}
+
+.help-modal-overlay,
+.reports-modal-overlay,
+.dating-modal-overlay,
+.privacy-disclaimer-overlay,
+.you-help-modal-overlay {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.header-actions,
+.settings-wrapper,
+.header-btn {
+    flex-shrink: 0;
+}
+
+.header-actions {
+    z-index: 2;
+}
+
+.settings-dropdown {
+    z-index: var(--z-dropdown, 120);
+}

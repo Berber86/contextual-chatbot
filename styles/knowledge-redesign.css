@@ -602,3 +602,126 @@
         justify-content: flex-start;
     }
 }
+
+/* ==========================================================
+   KNOWLEDGE STANDALONE PATCH FOR ?legacy=0
+   Fixes the memory modal when old structural CSS is disabled.
+   ========================================================== */
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+}
+
+.modal-tabs {
+    display: flex;
+    flex-shrink: 0;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.modal-content {
+    flex: 0 0 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: visible;
+}
+
+.structured-container,
+.social-container {
+    width: min(100% - 24px, 920px);
+    margin: 12px auto 0;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.structured-container[style*="display: block"] {
+    display: block !important;
+}
+
+.social-container[style*="display: flex"] {
+    display: flex !important;
+}
+
+/* Keep the info/readonly strip under the list, not as a second column */
+.modal-overlay > .modal-content {
+    width: min(100% - 24px, 920px);
+    margin: 12px auto;
+    flex: 0 0 auto;
+    max-height: 34vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 0;
+    background: transparent;
+}
+
+.modal-content .tab-info,
+.modal-content .readonly-indicator,
+.modal-content .edit-indicator,
+.modal-content .modal-buttons,
+.modal-content .knowledge-textarea,
+.modal-content .style-editor-header {
+    width: 100%;
+}
+
+.modal-content .tab-info {
+    margin-bottom: 10px;
+}
+
+.modal-content .readonly-indicator,
+.modal-content .edit-indicator {
+    width: fit-content;
+    max-width: 100%;
+}
+
+.knowledge-textarea {
+    min-height: 44vh;
+}
+
+.item-text,
+.item-evidence,
+.legacy-content,
+.superseded-item,
+.fact-text {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+@media (max-width: 760px) {
+    .structured-container,
+    .social-container,
+    .modal-overlay > .modal-content {
+        width: calc(100% - 16px);
+        margin-top: 8px;
+    }
+
+    .modal-overlay > .modal-content {
+        max-height: 38vh;
+    }
+
+    .knowledge-tab-header {
+        gap: 10px;
+    }
+
+    .structured-item {
+        padding: 14px;
+    }
+}
+
+/* Style tab uses the modal content as the main editor area. */
+.modal-overlay > .modal-content:has(.knowledge-textarea[style*="display: block"]) {
+    flex: 1 1 auto;
+    max-height: none;
+    padding: clamp(14px, 2.5vw, 24px);
+    background: var(--ui-bg);
+}
+
+.modal-overlay > .modal-content:has(.knowledge-textarea[style*="display: block"]) .knowledge-textarea {
+    flex: 1 1 auto;
+    min-height: 0;
+}
