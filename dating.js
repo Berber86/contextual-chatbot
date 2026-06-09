@@ -1051,17 +1051,30 @@ function decodeCandidateEmbedding(embedding) {
 }
 
 
-function formatCandidateScalesForQuestion(embedding) {
+function formatCandidateScalesForQuestion(embedding, includeMedium = false) {
     const rows = [];
+    const skipped = {
+        medium: [],
+        low: []
+    };
 
     SCALES.forEach((scale, idx) => {
         const range = getScaleRange(embedding.vectors[idx]);
         const reliability = getReliabilityLevel(range.spread);
+
+        if (reliability === 'low') {
+            skipped.low.push(scale.id);
+            return;
+        }
+
+        if (reliability === 'medium' && !includeMedium) {
+            skipped.medium.push(scale.id);
+            return;
+        }
+
         const reliabilityText = reliability === 'high'
             ? 'высокая достоверность'
-            : reliability === 'medium'
-                ? 'средняя достоверность'
-                : 'низкая достоверность / трактовать осторожно';
+            : 'средняя достоверность / использовать осторожно';
 
         rows.push(
             `${scale.id}. ${scale.emoji} ${scale.name}: ${formatPercent(range.value)} ` +
@@ -1070,13 +1083,37 @@ function formatCandidateScalesForQuestion(embedding) {
         );
     });
 
-    return rows.join('\n');
+    return {
+        text: rows.join('\n') || '(нет шкал достаточной достоверности для передачи в отчёт)',
+        includedCount: rows.length,
+        skipped
+    };
 }
+function getCandidateQuestionProfileBlock(useDescription, candidateDescription) {
+    const info = getCompatProfileInfo();
+    const candidateLine = `${info.candidateGender ? formatGenderText(info.candidateGender) : 'пол неизвестен'}, ${info.candidateAge || 'возраст неизвестен'} лет`;
 
-function buildCandidateQuestionPrompt(candidateEmbedding, question, candidateDescription, useDescription) {
+    let block = `=== ПОЛ И ВОЗРАСТ КАНДИДАТА ===\n`;
+    block += `Кандидат: ${candidateLine}\n\n`;
+
+    block += `КРИТИЧЕСКИ ВАЖНО ПРО ПОЛ И ВОЗРАСТ КАНДИДАТА:\n`;
+    block += `- Пол и возраст кандидата — не декоративные данные, а ключ к интерпретации его шкал.\n`;
+    block += `- Одна и та же шкала в 22, 35 и 50 лет может означать разные жизненные проявления.\n`;
+    block += `- Одна и та же шкала у мужчины/женщины/неуказанного пола может иметь разный социальный контекст и разные поведенческие проявления.\n`;
+    block += `- НЕ используй пол, возраст, эмбеддинг или личностные данные владельца аккаунта. Этот отчёт только о кандидате.\n`;
+    block += `- Если пол/возраст кандидата неизвестны, явно отметь это как ограничение и не притворяйся, что знаешь.\n`;
+
+    if (useDescription && candidateDescription && candidateDescription.trim()) {
+        block += `\nЕсли в описании кандидата есть пол/возраст или жизненная стадия — извлеки это и используй при интерпретации.\n`;
+    }
+
+    return block;
+}
+function buildCandidateQuestionPrompt(candidateEmbedding, question, candidateDescription, useDescription, includeMediumReliability = false) {
     const langName = getLanguageName();
     const userStyle = localStorage.getItem(STORAGE_KEYS.style) || '';
-    const candidateScales = formatCandidateScalesForQuestion(candidateEmbedding);
+    const candidateScalesData = formatCandidateScalesForQuestion(candidateEmbedding, includeMediumReliability);
+    const profileBlock = getCandidateQuestionProfileBlock(useDescription, candidateDescription);
 
     let styleBlock = '';
     if (userStyle && userStyle.trim()) {
@@ -1087,8 +1124,11 @@ function buildCandidateQuestionPrompt(candidateEmbedding, question, candidateDes
     if (useDescription && candidateDescription && candidateDescription.trim()) {
         descriptionBlock = `\n=== ОПИСАНИЕ КАНДИДАТА (учитывать как дополнительный контекст) ===\n${candidateDescription.trim()}\n`;
     } else {
-        descriptionBlock = '\n=== ОПИСАНИЕ КАНДИДАТА ===\nОписание намеренно НЕ учитывается в этом отчёте. Отвечай только по 50 шкалам эмбеддинга.\n';
+        descriptionBlock = '\n=== ОПИСАНИЕ КАНДИДАТА ===\nОписание намеренно НЕ учитывается в этом отчёте. Отвечай только по анкетному полу/возрасту, если они известны из профиля, и по переданным шкалам.\n';
     }
+
+    const omittedMediumCount = candidateScalesData.skipped.medium.length;
+    const omittedLowCount = candidateScalesData.skipped.low.length;
 
     return `Ты — аккуратный психологический аналитик. Пиши на ${langName}.
 ${styleBlock}
@@ -1097,38 +1137,53 @@ ${styleBlock}
 Это 4-й отчёт по кандидату: свободный вопрос пользователя о кандидате.
 КРИТИЧЕСКИ ВАЖНО:
 - НЕ используй эмбеддинг владельца аккаунта / пользователя.
-- НЕ анализируй совместимость с владельцем аккаунта.
+- НЕ анализируй совместимость с владельцем аккаунта. Этот отчёт только о кандидате.
 - НЕ используй требования V3 кандидата к партнёру, даже если они есть в экспортной строке.
-- Используй только 50 личностных шкал кандидата ниже (значение + диапазон/достоверность)${useDescription ? ' и, если дано, описание кандидата как дополнительный контекст' : ''}.
+- Используй только переданные ниже шкалы кандидата. Это НЕ все 50 шкал: низкодостоверные шкалы специально исключены, среднедостоверные ${includeMediumReliability ? 'включены по запросу пользователя' : 'тоже исключены по умолчанию'}.
+- Низкодостоверные шкалы НИКОГДА не используй даже как косвенный аргумент.
+- Если для ответа на вопрос не хватает исключённых шкал — прямо скажи, что по доступным достоверным данным ответ ограничен.
 - Не превращай ответ в диагноз и не выдавай вероятности как факты.
+
+${profileBlock}
 
 === ВОПРОС ПОЛЬЗОВАТЕЛЯ О КАНДИДАТЕ ===
 ${question}
 
-=== 50 ШКАЛ КАНДИДАТА ===
-${candidateScales}
+=== ПЕРЕДАННЫЕ ШКАЛЫ КАНДИДАТА ===
+Передано шкал: ${candidateScalesData.includedCount} из ${TOTAL_SCALES}.
+Режим достоверности: ${includeMediumReliability ? 'высокая + средняя достоверность' : 'только высокая достоверность'}.
+
+${candidateScalesData.text}
+
+=== НЕ ПЕРЕДАНО И НЕ ИСПОЛЬЗОВАТЬ ===
+Исключено среднедостоверных шкал: ${includeMediumReliability ? 0 : omittedMediumCount}.
+Исключено низкодостоверных шкал: ${omittedLowCount}.
+Названия, значения и содержание исключённых шкал намеренно не передаются. Не делай выводов на основе их отсутствия.
 ${descriptionBlock}
 
 === КАК ОТВЕЧАТЬ ===
-1. Сначала молча хорошо обдумай вопрос: какие именно шкалы релевантны, какие комбинации важны, где данные надёжны, а где нет.
-2. В ответе явно выдели главное предположение/вывод по вопросу.
-3. Обязательно опирайся на затронутые шкалы: называй ключевые шкалы и их примерные проценты.
-4. Обязательно учитывай достоверность: если spread > 0.20, пиши осторожно («это слабый сигнал», «нельзя утверждать твёрдо»). Если диапазон пересекает важный порог — отмечай неопределённость.
-5. Высокие и низкие значения трактуй как отдельные сигналы. Низкое значение — тоже информация, не «отсутствие данных».
-6. Если описание включено и противоречит шкалам — отметь противоречие, но не отменяй шкалы без причины.
-7. Если вопрос невозможно честно ответить по этим данным — скажи, что можно и нельзя вывести, и какие шкалы дают косвенные подсказки.
-8. Пиши обычным текстом, без таблиц.
+1. Сначала молча хорошо обдумай вопрос: какие из ПЕРЕДАННЫХ шкал релевантны, какие комбинации важны, где данные надёжны, а где даже переданные средние шкалы требуют осторожности.
+2. Пол и возраст кандидата должны явно влиять на интерпретацию. Не добавляй их одной формальной фразой — привяжи к ним ключевые выводы.
+3. Не используй пол, возраст, эмбеддинг, факты или любые личные данные владельца аккаунта. Даже если вопрос сформулирован через «подойдёт ли мне», отвечай только о свойствах кандидата и ограничениях данных.
+4. В ответе явно выдели главное предположение/вывод по вопросу.
+5. Обязательно называй ключевые использованные шкалы и их примерные проценты.
+6. Для среднедостоверных шкал, если они включены, всегда пиши осторожно: «умеренный сигнал», «может проявляться так-то, но не твёрдый факт».
+7. Низкодостоверные шкалы запрещено упоминать как основание. Можно лишь сказать об ограничении данных, если это критично.
+8. Если описание включено и противоречит шкалам — отметь противоречие, но не отменяй шкалы без причины.
+9. Если невозможно честно ответить по этим данным — скажи, что можно и нельзя вывести.
+10. Пиши обычным текстом, без таблиц.
 
 === ЖЕЛАТЕЛЬНАЯ СТРУКТУРА ===
-**Короткий ответ** — 2-4 предложения.
+**Короткий ответ** — 2-4 предложения, сразу по сути вопроса и с учётом пола/возраста.
 
-**На чём это основано** — ключевые шкалы и комбинации.
+**На чём это основано** — ключевые шкалы и комбинации, только из переданного списка.
 
-**Насколько этому можно верить** — надёжные/сомнительные шкалы и ограничения.
+**Пол, возраст и жизненная стадия** — как они меняют трактовку этих шкал у кандидата.
+
+**Насколько этому можно верить** — надёжные/средние сигналы и ограничения из-за исключённых шкал.
 
 **Практический вывод** — что из этого следует для наблюдения или общения с кандидатом.`;
 }
-
 // ==================== IDEAL PARTNER TAB ====================
 
 function renderIdealTab() {
@@ -2319,7 +2374,11 @@ function renderCompatibilityTab() {
                     <input type="checkbox" id="candidateQuestionUseDescription" checked>
                     <span>Учитывать описание кандидата в этом ответе</span>
                 </label>
-                <div class="compat-light-hint">Этот отчёт не использует эмбеддинг владельца аккаунта и требования V3 — только 50 шкал кандидата и достоверность затронутых шкал.</div>
+                <label class="compat-mini-toggle">
+                    <input type="checkbox" id="candidateQuestionIncludeMedium">
+                    <span>Добавить шкалы средней достоверности</span>
+                </label>
+                <div class="compat-light-hint">По умолчанию отчёт использует только высокодостоверные шкалы кандидата. Средние можно включить галочкой, низкодостоверные не передаются никогда. Эмбеддинг владельца аккаунта и требования V3 не используются.</div>
             </div>
 
             <div class="compat-buttons-grid">
@@ -2829,6 +2888,7 @@ async function runCandidateQuestionAnalysis() {
     const descInput = document.getElementById('candidateDescriptionInput');
     const questionInput = document.getElementById('candidateQuestionInput');
     const useDescriptionInput = document.getElementById('candidateQuestionUseDescription');
+    const includeMediumInput = document.getElementById('candidateQuestionIncludeMedium');
     const resultContainer = document.getElementById('compatResult');
     const btn = document.getElementById('analyzeQuestionBtn');
 
@@ -2850,6 +2910,7 @@ async function runCandidateQuestionAnalysis() {
 
     const candidateDescription = descInput?.value?.trim() || '';
     const useDescription = !!useDescriptionInput?.checked;
+    const includeMediumReliability = !!includeMediumInput?.checked;
 
     datingState.isAnalyzing = true;
     btn.disabled = true;
@@ -2858,7 +2919,7 @@ async function runCandidateQuestionAnalysis() {
     resultContainer.innerHTML = `
         <div class="compat-loading">
             <div class="dating-spinner"></div>
-            <p>${useDescription ? 'Отвечаю по 50 шкалам кандидата и описанию...' : 'Отвечаю только по 50 шкалам кандидата...'}</p>
+            <p>${includeMediumReliability ? 'Отвечаю по высоко- и среднедостоверным шкалам...' : 'Отвечаю только по высокодостоверным шкалам...'}</p>
         </div>`;
 
     try {
@@ -2866,7 +2927,8 @@ async function runCandidateQuestionAnalysis() {
             candidateEmbedding,
             question,
             candidateDescription,
-            useDescription
+            useDescription,
+            includeMediumReliability
         );
 
         const streamingDiv = document.createElement('div');
