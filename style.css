@@ -8703,6 +8703,14 @@ body.server-mode .input-form {
     font-family: var(--font-mono);
 }
 
+.item-timestamp {
+    font-size: 10px;
+    color: var(--ui-faint);
+    margin-left: auto;
+    font-family: var(--font-mono);
+    opacity: 0.8;
+}
+
 .confidence-badge,
 .priority-badge {
     width: 24px;

@@ -1512,6 +1512,7 @@ function renderGapsList() {
 
 function renderStructuredItem(item, index, type) {
     const conf = getConfidenceEmoji(item.confidence);
+    const timestamp = item.timestamp ? formatTimestamp(item.timestamp) : '';
     const evidenceHtml = item.evidence?.length > 0 
         ? `<div class="item-evidence">📎 "${item.evidence.map(e => escapeHtml(e)).join('", "')}"</div>`
         : '';
@@ -1521,7 +1522,7 @@ function renderStructuredItem(item, index, type) {
             <div class="item-header">
                 <span class="item-index">[${index}]</span>
                 <span class="confidence-badge">${conf}</span>
-                <span class="confidence-label">${item.confidence}</span>
+                ${timestamp ? `<span class="item-timestamp">${escapeHtml(timestamp)}</span>` : ''}
             </div>
             <div class="item-text">${escapeHtml(item.text)}</div>
             ${evidenceHtml}
