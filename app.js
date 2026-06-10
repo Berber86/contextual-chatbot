@@ -361,6 +361,8 @@ function formatTimestamp(ts) {
         return 'Unknown date';
     }
 }
+
+function generateId(prefix) {
     return `${prefix}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
 
