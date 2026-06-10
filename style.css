@@ -293,6 +293,10 @@ body.modal-open .chat-container {
     background: var(--ui-green);
 }
 
+#insightToggle.active {
+    background: var(--ui-accent-2);
+}
+
 .ask-me-slider {
     width: 22px;
     height: 22px;
@@ -315,6 +319,14 @@ body.modal-open .chat-container {
 
 .ask-me-toggle.active:not(.disabled):hover {
     background: rgba(85, 213, 138, 0.42);
+}
+
+#insightToggle:not(.disabled):hover {
+    background: rgba(155, 140, 255, 0.32);
+}
+
+#insightToggle.active:not(.disabled):hover {
+    background: rgba(155, 140, 255, 0.42);
 }
 
 .input-form {

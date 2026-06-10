@@ -184,6 +184,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     // 6. UI состояния и API-настройки
     updateAskMeModeUI();
+    updateInsightModeUI();
     initApiKeySettings();
     
     // 7. Проактивное приветствие
@@ -951,6 +952,20 @@ async function selectLanguageFromMenu(langCode) {
     await selectLanguage(langCode);
     renderLanguageMenu();
     closeAllLanguageDropdowns();
+}
+
+// ==================== INSIGHT MODE ====================
+function toggleInsightMode() {
+    insightMode = !insightMode;
+    updateInsightModeUI();
+    console.log(`[Insight] Mode ${insightMode ? 'ON' : 'OFF'}`);
+}
+
+function updateInsightModeUI() {
+    const toggle = document.getElementById('insightToggle');
+    if (!toggle) return;
+    
+    toggle.classList.toggle('active', insightMode);
 }
 
 // ==================== ASK ME MODE ====================
@@ -2409,11 +2424,22 @@ if (last && last.role === 'user' && (last.content || '').trim() === (userMessage
             '\nНе задавай вопросов в этом ответе.';
         
         // Заставляем вторую нейросеть выдать Эхо и Ответ в XML
+        // Insight Mode: Associative vs. Archivist
+        const insightModePrompt = insightMode 
+            ? `\n=== 💡 INSIGHT MODE: ON (Associative & Speculative) ===\n` +
+              `Your goal is to use the provided context as your "subconscious" — it should influence your tone, metaphors, and intuition, but NOT be a citation list.\n` +
+              `Strictly FORBIDDEN: repeating raw nouns or exact phrases from memory just to "show off" that you remember them (no "parroting").\n` +
+              `Approach: Move from literal facts → broader categories → implications → adjacent conversational angles.\n` +
+              `The user should feel you UNDERSTAND them, not that you are SEARCHING a database about them.`
+            : `\n=== 📋 ARCHIVIST MODE: ON (Careful & Explicit) ===\n` +
+              `You are a careful archivist. Use concrete facts from memory to provide explicit personalization and accurate callbacks.`;
+
         const systemPrompt = `Ты — персональный ИИ-ассистент, который ЗНАЕТ этого пользователя. Отвечай на ${langName}.
 === ТЕКУЩЕЕ ВРЕМЯ ===
 ${currentTimeInfo}
 
 ${contextBlock}
+${insightModePrompt}
 
 === ⛔️ СТРОГИЙ ЗАПРЕТ: ВРЕМЕННОЙ КОНТЕКСТ ===
 1. ВСЕГДА разрешай относительные даты ("завтра", "вчера", "через неделю") относительно ВРЕМЕНИ ЗАПИСИ (recorded timestamp), а не текущего момента.

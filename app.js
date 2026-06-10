@@ -59,6 +59,7 @@ const DEFAULT_TRANSLATIONS = {
     
     // Modal
     modalTitle: "📚 База знаний",
+    insightMode: "Режим инсайтов",
     
     // Tabs
     tabFacts: "📋 Факты",
@@ -216,6 +217,7 @@ let currentTab = 'facts';
 let originalTabContent = '';
 let hasUnsavedChanges = false;
 let askMeMode = false;
+let insightMode = false;
 
 // ==================== LANGUAGE FUNCTIONS ====================
 function loadLanguage() {
