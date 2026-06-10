@@ -2308,6 +2308,11 @@ Social: ${allSocial || '(none)'}
 Hypotheses: ${allHypotheses || '(none)'}
 Style: ${style || '(none)'}
 
+=== LEGACY DATA HANDLING ===
+Some memories are marked as [LEGACY]. This means they were recorded before the current time-tracking system was implemented. 
+TREAT THEIR RELATIVE TIME REFERENCES (e.g., "tomorrow", "next week", "yesterday") AS LIKELY OUTDATED. 
+Do not assume these events are still current or upcoming.
+
 === OUTPUT FORMAT ===
 Respond in ${langName}. Use EXACTLY these two XML tags:
 
@@ -2406,6 +2411,13 @@ if (last && last.role === 'user' && (last.content || '').trim() === (userMessage
 ${currentTimeInfo}
 
 ${contextBlock}
+
+=== ⚠️ LEGACY DATA WARNING ===
+You may encounter information marked as [LEGACY]. This data is potentially outdated. 
+NEVER assume that relative time markers (like "tomorrow", "next month", "yesterday") in [LEGACY] data are currently accurate. 
+Treat [LEGACY] data as historical context rather than a current plan. 
+If you see such data, be cautious and, if it seems critical to the current conversation, seek clarification or refine the memory.
+
 === ПОДХОД К ОТВЕТУ ===
 Архетип: ${archetype}
 ${questionRule}

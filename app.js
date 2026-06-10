@@ -430,7 +430,8 @@ function getFactsForPrompt(filtered = false) {
     
     return active.map((f, i) => {
         const evidence = f.evidence?.length > 0 ? ` [evidence: "${f.evidence[0]}"]` : '';
-        return `${i + 1}. ${f.text} (${f.confidence})${evidence}`;
+        const timeTag = f.timestamp === 'legacy_version' ? ' [LEGACY]' : '';
+        return `${i + 1}. ${f.text} (${f.confidence})${timeTag}${evidence}`;
     }).join('\n');
 }
 
@@ -611,10 +612,11 @@ function getTimelineForPrompt() {
         if (e.date?.exact) dateStr = e.date.exact;
         else if (e.date?.description) dateStr = e.date.description;
         
+        const timeTag = e.timestamp === 'legacy_version' ? ' [LEGACY]' : '';
         if (e.ongoing) dateStr += ' (ongoing)';
         if (e.type === 'plan') dateStr += ' [PLAN]';
         
-        return `• [${dateStr}] ${e.text} (${e.confidence})`;
+        return `• ${timeTag}[${dateStr}] ${e.text} (${e.confidence})`;
     }).join('\n');
 }
 // ==================== HYPOTHESES STORAGE ====================
