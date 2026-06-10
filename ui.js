@@ -2308,10 +2308,13 @@ Social: ${allSocial || '(none)'}
 Hypotheses: ${allHypotheses || '(none)'}
 Style: ${style || '(none)'}
 
-=== LEGACY DATA HANDLING ===
-Some memories are marked as [LEGACY]. This means they were recorded before the current time-tracking system was implemented. 
-TREAT THEIR RELATIVE TIME REFERENCES (e.g., "tomorrow", "next week", "yesterday") AS LIKELY OUTDATED. 
-Do not assume these events are still current or upcoming.
+=== ⚠️ CRITICAL: TIME & LEGACY DATA SEMANTICS ===
+1. All records now include a recording timestamp (e.g., "[recorded: 10.06.2026 14:30]"). This is the GROUND TRUTH for when the user said the information.
+2. Relative time references (e.g., "tomorrow", "next week", "yesterday", "two days ago") MUST be resolved relative to the RECORD'S timestamp, NOT the current time.
+   - Example: If a record from 10.06 says "Tomorrow I go to the gym", and today is 11.06, the event is TODAY.
+3. [LEGACY] records: These are old memories. Relative time references in [LEGACY] data are ALMOST CERTAINLY OUTDATED.
+4. You MUST preserve the [LEGACY] tag or an explicit "OUTDATED" warning for these items in your <context_dossier>.
+5. If a [LEGACY] event is the only source for a "tomorrow" plan, mark it as "POTENTIALLY OBSOLETE" in the dossier.
 
 === OUTPUT FORMAT ===
 Respond in ${langName}. Use EXACTLY these two XML tags:
@@ -2321,7 +2324,7 @@ Respond in ${langName}. Use EXACTLY these two XML tags:
 </micro_opening>
 
 <context_dossier>
-(Your compressed context analysis here)
+(Your compressed context analysis here. Preserve LEGACY/OUTDATED warnings for relative dates.)
 </context_dossier>`;
 
     try {
@@ -2412,11 +2415,15 @@ ${currentTimeInfo}
 
 ${contextBlock}
 
-=== ⚠️ LEGACY DATA WARNING ===
-You may encounter information marked as [LEGACY]. This data is potentially outdated. 
-NEVER assume that relative time markers (like "tomorrow", "next month", "yesterday") in [LEGACY] data are currently accurate. 
-Treat [LEGACY] data as historical context rather than a current plan. 
-If you see such data, be cautious and, if it seems critical to the current conversation, seek clarification or refine the memory.
+=== ⛔️ СТРОГИЙ ЗАПРЕТ: ВРЕМЕННОЙ КОНТЕКСТ ===
+1. ВСЕГДА разрешай относительные даты ("завтра", "вчера", "через неделю") относительно ВРЕМЕНИ ЗАПИСИ (recorded timestamp), а не текущего момента.
+2. [LEGACY] данные: Относительное время в записях с пометкой [LEGACY] почти наверняка УСТАРЕЛО.
+3. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО воспринимать относительное время из [LEGACY] данных как актуальное.
+4. Если ты видишь план на "завтра" в [LEGACY] данных — это НЕ план на завтра. Это старая запись.
+5. ВМЕСТО того чтобы утверждать, что что-то произойдет завтра, ты ДОЛЖЕН либо:
+   - Игнорировать эту запись.
+   - Осторожно спросить: "В памяти есть старая запись о [событии], это всё еще актуально?".
+6. Ошибка в этом пункте считается критическим сбоем в понимании временного контекста.
 
 === ПОДХОД К ОТВЕТУ ===
 Архетип: ${archetype}

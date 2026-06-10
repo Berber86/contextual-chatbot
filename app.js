@@ -350,8 +350,17 @@ function getApiKey() {
     return 'server-side';
 }
 
-// ==================== UTILITY FUNCTIONS ====================
-function generateId(prefix) {
+function formatTimestamp(ts) {
+    if (!ts) return 'Unknown date';
+    if (ts === 'legacy_version') return 'Legacy';
+    try {
+        const date = new Date(ts);
+        if (isNaN(date.getTime())) return 'Unknown date';
+        return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch (e) {
+        return 'Unknown date';
+    }
+}
     return `${prefix}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
 
@@ -398,10 +407,11 @@ function getFactsForDisplay() {
     
     let result = active.map((f, i) => {
         const conf = getConfidenceEmoji(f.confidence);
+        const time = formatTimestamp(f.timestamp);
         const evidence = f.evidence?.length > 0 
             ? `\n    📎 "${f.evidence.join('", "')}"` 
             : '';
-        return `[${i + 1}] ${conf} ${f.text}${evidence}`;
+        return `[${i + 1}] ${conf} ${f.text} (${time})\n${evidence}`;
     }).join('\n\n');
     
     if (superseded.length > 0) {
@@ -430,7 +440,7 @@ function getFactsForPrompt(filtered = false) {
     
     return active.map((f, i) => {
         const evidence = f.evidence?.length > 0 ? ` [evidence: "${f.evidence[0]}"]` : '';
-        const timeTag = f.timestamp === 'legacy_version' ? ' [LEGACY]' : '';
+        const timeTag = f.timestamp === 'legacy_version' ? ' [LEGACY]' : ` [recorded: ${formatTimestamp(f.timestamp)}]`;
         return `${i + 1}. ${f.text} (${f.confidence})${timeTag}${evidence}`;
     }).join('\n');
 }
@@ -587,11 +597,12 @@ function formatTimelineItem(item) {
         dateStr = `${dateStr} → ${t('labelOngoing')}`;
     }
     
+    const recorded = formatTimestamp(item.timestamp);
     const evidence = item.evidence?.length > 0 
         ? `\n    📎 "${item.evidence[0]}"` 
         : '';
     
-    return `${conf} [${dateStr}] ${item.text}${evidence}`;
+    return `${conf} [${dateStr}] ${item.text} (rec: ${recorded})${evidence}`;
 }
 
 function getTimelineForPrompt() {
@@ -612,7 +623,7 @@ function getTimelineForPrompt() {
         if (e.date?.exact) dateStr = e.date.exact;
         else if (e.date?.description) dateStr = e.date.description;
         
-        const timeTag = e.timestamp === 'legacy_version' ? ' [LEGACY]' : '';
+        const timeTag = e.timestamp === 'legacy_version' ? ' [LEGACY]' : ` [recorded: ${formatTimestamp(e.timestamp)}]`;
         if (e.ongoing) dateStr += ' (ongoing)';
         if (e.type === 'plan') dateStr += ' [PLAN]';
         
