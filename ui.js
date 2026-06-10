@@ -104,7 +104,7 @@ function isOverloadError(error) {
 let greetingShown = false;
 
 // Cooldown для приветствий
-const GREETING_COOLDOWN_MS = 1 * 60 * 60 * 1; // 4 часа
+const GREETING_COOLDOWN_MS = 8 * 60 * 60 * 1000; // 8 часов
 const GREETING_TIMESTAMP_KEY = 'chatbot_last_greeting';
 const GREETING_HISTORY_KEY = 'chatbot_greeting_history';
 const MAX_GREETING_HISTORY = 5;
@@ -120,8 +120,63 @@ function hasValidHydraKey() {
     return key && key.startsWith('sk') && key.length > 10;
 }
 
+    // ... остальной код
+    autoResizeTextarea();
+    initSettingsMenu();
+    
+    // Инициализация счетчиков только в локальном режиме
+    if (isLocal) {
+        updateStyleCounter();
+        updateHypoCounter();
+        updateGapsCounter();
+    } else {
+        const countersContainer = document.getElementById('countersContainer');
+        if (countersContainer) countersContainer.style.display = 'none';
+    }
+    
+    updateAskMeModeUI();
+    
+    // Инициализация розового окошка с ключом (для всех пользователей)
+    initApiKeySettings();
+    
+    // === Инициативное приветствие ===
+    await showProactiveGreeting();
+});
+
+// Вставляем миграцию памяти ПЕРЕД основной инициализацией
+async function runMigration() {
+    console.log('[System] Running memory migration...');
+    const factsData = getFactsData();
+    let factsChanged = false;
+    if (factsData && factsData.facts) {
+        factsData.facts.forEach(f => {
+            if (!f.timestamp) {
+                f.timestamp = 'legacy_version';
+                factsChanged = true;
+            }
+        });
+        if (factsChanged) setFactsData(factsData);
+    }
+    
+    const timelineData = getTimelineData();
+    let timelineChanged = false;
+    if (timelineData && timelineData.events) {
+        timelineData.events.forEach(e => {
+            if (!e.timestamp) {
+                e.timestamp = 'legacy_version';
+                timelineChanged = true;
+            }
+        });
+        if (timelineChanged) setTimelineData(timelineData);
+    }
+    console.log('[System] Memory migration complete.');
+}
+
+// Добавляем вызов runMigration в DOMContentLoaded
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('[UI] DOMContentLoaded started');
+    
+    await runMigration();
     
     // ⬇️ ДОБАВИТЬ: Проверка инвайта (блокирует всё остальное)
     const hasAccess = await checkInviteAccess();
@@ -137,6 +192,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.log('[UI] loadChatHistory done');
     
     // ... остальной код
+
     
     // ... остальной код
     autoResizeTextarea();
@@ -528,7 +584,7 @@ Consider the date, time, day of week, and user's language/culture:
 
 Be warm and concise. Match the cultural context of the language.`,
         
-        user: `Generate a welcoming first message for a new user. Make it time-aware and culturally appropriate.`
+        user: `Generate a welcoming first message for a new user. Make it time-aware and culturally appropriate. Today is ${timeContextText}.`
     };
 }
 
@@ -2250,13 +2306,17 @@ async function findRelevantContext(userMessage, history) {
             compressed: false,
             facts: allFacts, traits: allTraits, timeline: allTimeline,
             social: allSocial, hypotheses: allHypotheses, style: style, gaps: gaps,
-            microOpening: ''
+            microOpening: '',
+            currentTime: timeInfo
         };
     }
     
     const langName = getLanguageName();
     
     const compressionPrompt = `You are a context preparation assistant. 
+
+=== CURRENT TIME ===
+${timeInfo}
 
 === CURRENT USER MESSAGE ===
 "${userMessage}"
@@ -2295,14 +2355,16 @@ Respond in ${langName}. Use EXACTLY these two XML tags:
             fullContext: contextMatch ? contextMatch[1].trim() : responseText,
             microOpening: microMatch ? microMatch[1].trim() : '',
             originalSize: totalContextLength,
-            compressedSize: (contextMatch ? contextMatch[1] : responseText).length
+            compressedSize: (contextMatch ? contextMatch[1] : responseText).length,
+            currentTime: timeInfo
         };
     } catch (error) {
         return {
             compressed: false,
             facts: allFacts, traits: allTraits, timeline: allTimeline,
             social: allSocial, hypotheses: allHypotheses, style: style, gaps: gaps,
-            microOpening: ''
+            microOpening: '',
+            currentTime: timeInfo
         };
     }
 }
@@ -2351,6 +2413,9 @@ if (last && last.role === 'user' && (last.content || '').trim() === (userMessage
         const archetype = pickResponseArchetype();
         const qp = decideQuestionPolicyForThisTurn();
         
+        // Добавляем текущее время в промпт
+        const currentTimeInfo = contextResult.currentTime || 'Unknown';
+        
         let contextBlock = contextResult.compressed && contextResult.fullContext ?
             `\n=== ПОДГОТОВЛЕННЫЙ КОНТЕКСТ ===\n${contextResult.fullContext}\n` :
             `\n=== CONTEXT ===\nFacts: ${contextResult.facts || '(none)'}\nTraits: ${contextResult.traits || '(none)'}`;
@@ -2361,6 +2426,9 @@ if (last && last.role === 'user' && (last.content || '').trim() === (userMessage
         
         // Заставляем вторую нейросеть выдать Эхо и Ответ в XML
         const systemPrompt = `Ты — персональный ИИ-ассистент, который ЗНАЕТ этого пользователя. Отвечай на ${langName}.
+=== ТЕКУЩЕЕ ВРЕМЯ ===
+${currentTimeInfo}
+
 ${contextBlock}
 === ПОДХОД К ОТВЕТУ ===
 Архетип: ${archetype}

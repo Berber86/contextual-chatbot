@@ -157,6 +157,7 @@ ${langInstruction}`;
 
 function integrateFactsData(newFacts, currentData, history) {
     const messageCount = getMessageCounter();
+    const timestamp = Date.now();
     const data = { ...currentData, facts: [...currentData.facts] };
     
     console.log('[FACTS] Integrating', newFacts.length, 'new facts');
@@ -208,6 +209,7 @@ function integrateFactsData(newFacts, currentData, history) {
                     const existingEvidence = data.facts[realIdx].evidence || [];
                     data.facts[realIdx].evidence = [...new Set([...existingEvidence, ...validEvidence])].slice(0, LIMITS.evidencePerItem);
                     data.facts[realIdx].updatedAt = messageCount;
+                    data.facts[realIdx].timestamp = timestamp;
                     
                     if (data.facts[realIdx].evidence.length >= 2 && data.facts[realIdx].confidence === 'low') {
                         data.facts[realIdx].confidence = 'medium';
@@ -248,6 +250,7 @@ function integrateFactsData(newFacts, currentData, history) {
             confidence: newFact.confidence || 'medium',
             createdAt: messageCount,
             updatedAt: messageCount,
+            timestamp: timestamp,
             superseded: false
         };
         
@@ -635,6 +638,7 @@ ${langInstruction}`;
 
 function integrateTimelineData(newEvents, currentData, history) {
     const messageCount = getMessageCounter();
+    const timestamp = Date.now();
     const data = { ...currentData, events: [...currentData.events] };
     
     console.log('[TIMELINE] Integrating', newEvents.length, 'new events');
@@ -669,6 +673,7 @@ function integrateTimelineData(newEvents, currentData, history) {
                     const existingEvidence = data.events[realIdx].evidence || [];
                     data.events[realIdx].evidence = [...new Set([...existingEvidence, ...validEvidence])].slice(0, LIMITS.evidencePerItem);
                     data.events[realIdx].updatedAt = messageCount;
+                    data.events[realIdx].timestamp = timestamp;
                     
                     if (newEvent.date?.exact && !data.events[realIdx].date?.exact) {
                         data.events[realIdx].date = newEvent.date;
@@ -714,6 +719,7 @@ function integrateTimelineData(newEvents, currentData, history) {
             confidence: newEvent.confidence || 'medium',
             createdAt: messageCount,
             updatedAt: messageCount,
+            timestamp: timestamp,
             superseded: false
         };
         
