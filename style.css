@@ -775,7 +775,6 @@ body.modal-open .chat-container {
     flex-direction: column;
     overflow: hidden;
     background: var(--ui-bg);
-    height: calc(100vh - 140px);
 }
 
 /* ==================== KNOWLEDGE TEXTAREA ==================== */
@@ -949,10 +948,10 @@ body.modal-open .chat-container {
 
 /* ==================== RESPONSIVE FOR MODAL ==================== */
 @media (max-width: 768px) {
-    .modal-content {
-        padding: 15px;
-        height: calc(100vh - 120px); /* Меньше на мобильных */
-    }
+.modal-content {
+    padding: 15px;
+    height: auto;
+}
     
     .knowledge-textarea {
         padding: 15px;
@@ -1340,7 +1339,7 @@ body.modal-open .chat-container {
 }
 /* ==================== INPUT CONTAINER (привязан к низу) ==================== */
 .input-container {
-    padding: 10px 15px;
+    padding: 10px 15px 30px;
     background: var(--ui-surface-2);
     border-top: 1px solid var(--ui-border);
     flex-shrink: 0;
@@ -1348,6 +1347,7 @@ body.modal-open .chat-container {
     flex-direction: column;
     position: relative;
     margin-top: auto; /* Прижимаем к низу */
+    margin-bottom: 20px;
 }
 
 .ask-me-container {
