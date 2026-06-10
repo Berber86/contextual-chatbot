@@ -1532,6 +1532,7 @@ function renderStructuredItem(item, index, type) {
 
 function renderTimelineItem(item, index) {
     const conf = getConfidenceEmoji(item.confidence);
+    const timestamp = item.timestamp ? formatTimestamp(item.timestamp) : '';
     
     let dateStr = '';
     if (item.date?.exact) {
@@ -1556,6 +1557,7 @@ function renderTimelineItem(item, index) {
             <div class="item-header">
                 <span class="confidence-badge">${conf}</span>
                 <span class="date-badge">${dateStr || 'no date'}</span>
+                ${timestamp ? `<span class="item-timestamp">${escapeHtml(timestamp)}</span>` : ''}
             </div>
             <div class="item-text">${escapeHtml(item.text)}</div>
             ${evidenceHtml}
