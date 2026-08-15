@@ -91,6 +91,11 @@ function youGetHydraKey() {
 }
 
 function youHasValidHydraKey() {
+    // В умном режиме на проде используем серверный прокси /api/hydra (ключ в env) — ключ в браузере не нужен
+    const isLocalHost = window.location.hostname.includes('localhost') || window.location.hostname.includes('127.0.0.1');
+    if (typeof isSmartMode === 'function' && isSmartMode() && !isLocalHost) {
+        return true;
+    }
     const key = youGetHydraKey();
     return key && key.startsWith('sk') && key.length > 10;
 }
@@ -458,21 +463,34 @@ async function youCallHydra(prompt) {
     const timeoutId = setTimeout(() => controller.abort(), YOU_CONFIG.timeout);
     
     try {
-        const hydraKey = youGetHydraKey();
-        if (!hydraKey) {
-            throw new Error('Hydra key not available');
+        const isLocalHost = window.location.hostname.includes('localhost') || window.location.hostname.includes('127.0.0.1');
+        const smart = (typeof isSmartMode === 'function') ? isSmartMode() : false;
+        let url, headers;
+        if (smart && !isLocalHost) {
+            // серверный прокси с env-ключом
+            url = '/api/hydra';
+            headers = {
+                'Content-Type': 'application/json',
+                'HTTP-Referer': window.location.href,
+                'X-Title': 'Memory Chatbot - YOU'
+            };
+        } else {
+            const hydraKey = youGetHydraKey();
+            if (!hydraKey) {
+                throw new Error('Hydra key not available');
+            }
+            url = YOU_CONFIG.hydraApiUrl;
+            headers = {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${hydraKey}`,
+                'HTTP-Referer': window.location.href,
+                'X-Title': 'Memory Chatbot - YOU'
+            };
         }
         
-        const headers = {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${hydraKey}`,
-            'HTTP-Referer': window.location.href,
-            'X-Title': 'Memory Chatbot - YOU'
-        };
+        console.log(`[YOU] Hydra request (${smart && !isLocalHost ? 'proxy /api/hydra' : 'direct'}), model: ${YOU_CONFIG.hydraModel}`);
         
-        console.log(`[YOU] Hydra request, model: ${YOU_CONFIG.hydraModel}`);
-        
-        const response = await fetch(YOU_CONFIG.hydraApiUrl, {
+        const response = await fetch(url, {
             method: 'POST',
             headers: headers,
             body: JSON.stringify({

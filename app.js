@@ -155,6 +155,8 @@ let translations = { ...DEFAULT_TRANSLATIONS };
 const STORAGE_KEYS = {
     apiKey: 'chatbot_api_key',
     hydraKey: 'chatbot_hydra_key', // ← ДОБАВИТЬ
+    smartMode: 'chatbot_smart_mode', // умный режим (платный провайдер через /api/hydra)
+    insightModePref: 'chatbot_insight_mode', // выбор пользователя для insight mode
     chatHistory: 'chatbot_chat_history',
 
     facts: 'chatbot_knowledge_facts',
@@ -217,7 +219,7 @@ let currentTab = 'facts';
 let originalTabContent = '';
 let hasUnsavedChanges = false;
 let askMeMode = false;
-let insightMode = false;
+let insightMode = localStorage.getItem(STORAGE_KEYS.insightModePref) !== '0'; // по умолчанию ВКЛ
 
 // ==================== LANGUAGE FUNCTIONS ====================
 function loadLanguage() {

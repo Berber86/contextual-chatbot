@@ -67,6 +67,29 @@ function isFullHydraMode() {
     return getHydraInfo().isFullMode;
 }
 
+// ==================== УМНЫЙ РЕЖИМ (платный провайдер через серверный прокси) ====================
+// Включается чекбоксом «Умный режим» в настройках. Ключ Гидры живёт в env HYDRA_API_KEY на Vercel.
+function isSmartMode() {
+    const v = localStorage.getItem(STORAGE_KEYS.smartMode);
+    return v === null ? true : v === '1'; // по умолчанию ВКЛ
+}
+function setSmartMode(on) {
+    localStorage.setItem(STORAGE_KEYS.smartMode, on ? '1' : '0');
+}
+window.toggleSmartMode = function () {
+    const cb = document.getElementById('smartModeToggle');
+    if (cb) setSmartMode(cb.checked);
+    const st = document.getElementById('smartModeStatus');
+    if (st) st.textContent = (cb && cb.checked) ? 'включена платная модель' : 'бесплатная модель';
+};
+// Куда обращаться к Hydra: на проде — серверный прокси (ключ в env), локально — прямой URL + ключ из localStorage
+function hydraRequestInfo() {
+    if (isLocal) {
+        return { url: CONFIG.hydraApiUrl, key: (localStorage.getItem(STORAGE_KEYS.hydraKey) || '').trim() };
+    }
+    return { url: '/api/hydra', key: null };
+}
+
 // Геттеры для получения текущей модели
 function getCurrentOpenRouterModel() {
     return CONFIG.openRouterModels[CONFIG.currentModelIndex] || CONFIG.openRouterModels[0];
@@ -957,15 +980,14 @@ async function selectLanguageFromMenu(langCode) {
 // ==================== INSIGHT MODE ====================
 function toggleInsightMode() {
     insightMode = !insightMode;
+    try { localStorage.setItem(STORAGE_KEYS.insightModePref, insightMode ? '1' : '0'); } catch (_) {}
     updateInsightModeUI();
     console.log(`[Insight] Mode ${insightMode ? 'ON' : 'OFF'}`);
 }
 
 function updateInsightModeUI() {
-    const toggle = document.getElementById('insightToggle');
-    if (!toggle) return;
-    
-    toggle.classList.toggle('active', insightMode);
+    const cb = document.getElementById('insightModeSettingsToggle');
+    if (cb) cb.checked = insightMode;
 }
 
 // ==================== ASK ME MODE ====================
@@ -2119,80 +2141,79 @@ async function streamResponseOpenRouterSingle(messages, model, onChunk, onComple
     return fullText;
 }
 
-// ==================== STREAMING RESPONSE (Hydra или OpenRouter fallback) ====================
-// Стриминг: Hydra (если есть ключ) или OpenRouter с fallback
-async function streamResponse(messages, onChunk, onComplete, options = {}) {
-    const { key, isFullMode } = getHydraInfo();
-    const useHydra = key && key.startsWith('sk') && key.length > 10;
-    
-    if (useHydra) {
-        // Для финального ответа (Stage 2) ВСЕГДА используем мощную модель
-        const headers = {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${key}`, // Здесь уже чистый ключ
-            'HTTP-Referer': window.location.href,
-            'X-Title': 'Memory Chatbot'
-        };
-        
-        const requestBody = {
-            model: CONFIG.model_chat, // Платная сильная модель
-            messages: messages,
-            stream: true,
-            ...options
-        };
-        // ... остальной код стриминга без изменений ...
-        
-        console.log(`[Stream] Using Hydra API, model: ${CONFIG.model_chat}`);
-        
-        const response = await fetch(CONFIG.hydraApiUrl, {
-            method: 'POST',
-            headers: headers,
-            body: JSON.stringify(requestBody)
-        });
-        
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`HTTP ${response.status}: ${errorText}`);
-        }
-        
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let fullText = '';
-        let buffer = '';
-        
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || '';
-            
-            for (const line of lines) {
-                const trimmed = line.trim();
-                if (!trimmed || trimmed === 'data: [DONE]') continue;
-                
-                if (trimmed.startsWith('data: ')) {
-                    try {
-                        const json = JSON.parse(trimmed.slice(6));
-                        const content = json.choices?.[0]?.delta?.content;
-                        if (content) {
-                            fullText += content;
-                            onChunk(fullText);
-                        }
-                    } catch (e) {}
+// ==================== STREAMING RESPONSE (умный режим → Hydra через прокси, иначе OpenRouter) ====================
+// Стриминг финального ответа. В умном режиме — платная Hydra (/api/hydra, ключ в env),
+// при ошибке — откат на бесплатный OpenRouter.
+async function streamHydraSmart(messages, onChunk, onComplete, options = {}) {
+    const info = hydraRequestInfo();
+    const headers = {
+        'Content-Type': 'application/json',
+        'HTTP-Referer': window.location.href,
+        'X-Title': 'Memory Chatbot'
+    };
+    if (info.key) headers['Authorization'] = 'Bearer ' + info.key;
+
+    const requestBody = { model: CONFIG.model_chat, messages: messages, stream: true, ...options };
+    console.log('[Stream] Умный режим → Hydra (' + (info.url.startsWith('/api') ? 'прокси /api/hydra' : 'direct') + '), model: ' + CONFIG.model_chat);
+
+    const response = await fetch(info.url, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify(requestBody)
+    });
+
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error('HTTP ' + response.status + ': ' + errorText);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let fullText = '';
+    let buffer = '';
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || trimmed === 'data: [DONE]') continue;
+
+            if (trimmed.startsWith('data: ')) {
+                try {
+                    const json = JSON.parse(trimmed.slice(6));
+                    if (json.error) throw new Error(json.error.message || JSON.stringify(json.error));
+                    const content = json.choices?.[0]?.delta?.content;
+                    if (content) {
+                        fullText += content;
+                        onChunk(fullText);
+                    }
+                } catch (e) {
+                    if (e.message && !e.message.includes('JSON')) throw e;
                 }
             }
         }
-        
-        onComplete(fullText);
-        return fullText;
-        
-    } else {
-        // OpenRouter с fallback цепочкой
-        console.log('[Stream] Using OpenRouter with fallback chain');
-        return await streamResponseOpenRouter(messages, onChunk, onComplete, options);
     }
+
+    onComplete(fullText);
+    return fullText;
+}
+
+async function streamResponse(messages, onChunk, onComplete, options = {}) {
+    if (isSmartMode()) {
+        try {
+            return await streamHydraSmart(messages, onChunk, onComplete, options);
+        } catch (e) {
+            console.warn('[Stream] Умный режим (Hydra) недоступен, откат на OpenRouter:', e.message);
+        }
+    }
+    console.log('[Stream] Using OpenRouter with fallback chain');
+    return await streamResponseOpenRouter(messages, onChunk, onComplete, options);
 }
 
 function createStreamingMessage() {
@@ -2846,7 +2867,7 @@ async function sendMessage(event) {
     input.value = '';
     input.style.height = 'auto';
     
-    appendMessage('user', message);
+    appendMessage('user', message, true, Date.now(), !!window.dictatedMessageFlag);
     
     try {
         // ===== TWO-STAGE PROCESSING WITH STREAMING =====
@@ -2914,22 +2935,10 @@ document.addEventListener('keydown', (e) => {
 
 // ==================== API KEY SETTINGS (для всех пользователей) ====================
 function initApiKeySettings() {
-    const devBox = document.getElementById('dev-settings');
-    if (!devBox) return;
-    
-
-  //  devBox.style.display = 'block';
-    
-    const savedKey = localStorage.getItem(STORAGE_KEYS.hydraKey);
-    const statusSpan = document.getElementById('key-status');
-    const input = document.getElementById('local-api-key');
-    
-    if (savedKey && input) {
-        input.value = savedKey;
-        if (statusSpan) statusSpan.innerText = "✅ Hydra key loaded";
-    } else {
-        if (statusSpan) statusSpan.innerText = "ℹ️ Using free model";
-    }
+    const cb = document.getElementById('smartModeToggle');
+    if (cb) cb.checked = isSmartMode();
+    const st = document.getElementById('smartModeStatus');
+    if (st) st.textContent = isSmartMode() ? 'включена платная модель' : 'бесплатная модель';
 }
 
 window.saveLocalKey = function() {
@@ -2977,9 +2986,9 @@ function formatMessageTime(ts) {
 }
 
 // 1. Сохраняем время вместе с сообщением
-function addToHistory(role, content, timestamp = Date.now()) {
+function addToHistory(role, content, timestamp = Date.now(), audio = false) {
     const history = getChatHistory();
-    history.push({ role, content, timestamp });
+    history.push({ role, content, timestamp, audio: !!audio });
     saveChatHistory(history);
 }
 
@@ -2990,22 +2999,36 @@ function loadChatHistory() {
     
     history.forEach(msg => {
         // Если старое сообщение без времени — ставим текущее, чтобы не было ошибки
-        appendMessage(msg.role, msg.content, false, msg.timestamp || Date.now());
+        appendMessage(msg.role, msg.content, false, msg.timestamp || Date.now(), !!msg.audio);
     });
     
     if (chatArea) chatArea.scrollTop = chatArea.scrollHeight;
 }
 
-// 3. Отрисовываем сообщение со временем
-function appendMessage(role, content, save = true, timestamp = Date.now()) {
+// 3. Отрисовываем сообщение со временем. audio=true → голосовое: свёрнутый значок с раскрываемым текстом.
+function appendMessage(role, content, save = true, timestamp = Date.now(), audio = false) {
     const chatArea = document.getElementById('chatArea');
     if (!chatArea) return;
     
     const msgDiv = document.createElement('div');
     msgDiv.className = `message ${role}`;
     
-    // Форматируем markdown только для assistant
-    if (role === 'assistant') {
+    if (audio && role === 'user') {
+        // Голосовое сообщение: по умолчанию только значок, текст раскрывается по клику
+        msgDiv.classList.add('audio-msg');
+        const bubble = document.createElement('div');
+        bubble.className = 'audio-bubble';
+        bubble.innerHTML = '<span class="audio-ic">🎙️</span>'
+            + '<span class="audio-wave"><span></span><span></span><span></span><span></span></span>'
+            + '<span class="audio-label">Голосовое сообщение</span>'
+            + '<span class="audio-toggle">показать текст ▾</span>';
+        bubble.onclick = function () { toggleAudioTranscript(this); };
+        msgDiv.appendChild(bubble);
+        const transcript = document.createElement('div');
+        transcript.className = 'audio-transcript';
+        transcript.textContent = content;
+        msgDiv.appendChild(transcript);
+    } else if (role === 'assistant') {
         msgDiv.innerHTML = formatMessageMarkdown(content);
     } else {
         msgDiv.textContent = content;
@@ -3021,9 +3044,21 @@ function appendMessage(role, content, save = true, timestamp = Date.now()) {
     chatArea.scrollTop = chatArea.scrollHeight;
     
     if (save) {
-        addToHistory(role, content, timestamp);
+        addToHistory(role, content, timestamp, audio);
     }
 }
+
+// Раскрытие/скрытие текста голосового сообщения
+window.toggleAudioTranscript = function (bubble) {
+    const msg = bubble.closest('.audio-msg');
+    if (!msg) return;
+    const tr = msg.querySelector('.audio-transcript');
+    if (!tr) return;
+    const open = tr.style.display === 'block';
+    tr.style.display = open ? 'none' : 'block';
+    const tog = bubble.querySelector('.audio-toggle');
+    if (tog) tog.textContent = open ? 'показать текст ▾' : 'скрыть текст ▴';
+};
 
 // 4. Обновляем финализацию стриминга, чтобы там тоже появлялось время
 function finalizeStreamingMessage(element, content) {

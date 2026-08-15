@@ -36,45 +36,82 @@
         .voice-btn:hover:not(:disabled) { filter: brightness(1.08); }
         .voice-btn:disabled { opacity: .5; cursor: not-allowed; }
 
-        /* Большая кнопка «Остановить и отправить» во время записи — ~1/3 экрана */
-        .voice-stop-overlay {
+        /* Панель голосовой записи: во время записи — большая кнопка «Стоп», после — Отправить/Удалить */
+        .voice-panel {
             display: none;
             position: fixed;
             left: 0; right: 0; bottom: 0;
-            height: 32vh; min-height: 170px; max-height: 300px;
-            width: 100%;
             z-index: 9999;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
-            border: none;
-            border-radius: 24px 24px 0 0;
-            cursor: pointer;
-            color: #fff;
+            padding: 10px 14px calc(16px + env(safe-area-inset-bottom, 10px));
+            background: linear-gradient(180deg, rgba(15,17,23,0), rgba(15,17,23,.55));
+        }
+        .voice-panel.show { display: block; }
+        .voice-panel .vp-stop {
+            width: 100%;
+            height: 32vh; min-height: 170px; max-height: 300px;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+            border: none; border-radius: 24px;
+            cursor: pointer; color: #fff;
             background: linear-gradient(180deg, #f0455f, #c81e3a);
-            box-shadow: 0 -8px 28px rgba(0,0,0,.4);
+            box-shadow: 0 -2px 28px rgba(0,0,0,.4);
             animation: voicePulseBig 1.5s infinite;
-            padding-bottom: env(safe-area-inset-bottom, 10px);
             -webkit-tap-highlight-color: transparent;
         }
-        .voice-stop-overlay.show { display: flex; }
-        .voice-stop-overlay .vs-icon { font-size: 30px; line-height: 1; }
-        .voice-stop-overlay .vs-main { font-size: clamp(24px, 7vw, 38px); font-weight: 800; letter-spacing: .3px; }
-        .voice-stop-overlay .vs-sub { font-size: 13px; opacity: .92; font-variant-numeric: tabular-nums; }
-        @keyframes voicePulseBig {
-            0%, 100% { box-shadow: 0 -8px 28px rgba(0,0,0,.4); }
-            50%      { box-shadow: 0 -8px 38px rgba(233,69,96,.55); }
+        .voice-panel .vp-stop .vp-icon { font-size: 30px; line-height: 1; }
+        .voice-panel .vp-stop .vp-main { font-size: clamp(22px, 6vw, 34px); font-weight: 800; }
+        .voice-panel .vp-stop .vp-sub { font-size: 14px; opacity: .92; font-variant-numeric: tabular-nums; }
+        .voice-panel .vp-actions { display: none; gap: 12px; }
+        .voice-panel.ready .vp-stop { display: none; }
+        .voice-panel.ready .vp-actions { display: flex; }
+        .vp-btn {
+            flex: 1; min-height: 96px;
+            border: none; border-radius: 18px;
+            font-size: 19px; font-weight: 700; color: #fff; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            -webkit-tap-highlight-color: transparent; transition: .12s;
         }
+        .vp-send { background: linear-gradient(180deg, #22c55e, #16a34a); }
+        .vp-del  { background: linear-gradient(180deg, #6b7280, #4b5563); }
+        .vp-btn:disabled { opacity: .45; cursor: not-allowed; }
+        .vp-hint { text-align: center; color: #cbd5e1; font-size: 13px; margin-top: 8px; min-height: 16px; }
+        @keyframes voicePulseBig {
+            0%, 100% { box-shadow: 0 -2px 28px rgba(0,0,0,.4); }
+            50%      { box-shadow: 0 -2px 38px rgba(233,69,96,.55); }
+        }
+
+        /* Чекбокс insight в настройках */
+        .settings-check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+        .settings-check input { accent-color: #e94560; width: 16px; height: 16px; }
+
+        /* Голосовое сообщение в чате: свёрнутый значок с раскрываемым текстом */
+        .message.audio-msg .audio-bubble {
+            display: inline-flex; align-items: center; gap: 8px;
+            background: rgba(233,69,96,.12);
+            border: 1px solid rgba(233,69,96,.35);
+            color: #ffd3db;
+            padding: 8px 14px; border-radius: 18px;
+            cursor: pointer; user-select: none; max-width: 100%;
+        }
+        .message.audio-msg .audio-ic { font-size: 18px; }
+        .message.audio-msg .audio-wave { display: inline-flex; align-items: flex-end; gap: 2px; height: 16px; }
+        .message.audio-msg .audio-wave span { width: 3px; background: #e94560; border-radius: 2px; display: inline-block; height: 8px; }
+        .message.audio-msg .audio-wave span:nth-child(2) { height: 14px; }
+        .message.audio-msg .audio-wave span:nth-child(3) { height: 10px; }
+        .message.audio-msg .audio-wave span:nth-child(4) { height: 16px; }
+        .message.audio-msg .audio-label { font-size: 13px; font-weight: 600; }
+        .message.audio-msg .audio-toggle { font-size: 11px; opacity: .8; margin-left: 4px; }
+        .message.audio-msg .audio-transcript { display: none; margin-top: 8px; white-space: pre-wrap; word-break: break-word; }
     </style>
 </head>
 <body>
     <!-- Блок настроек для локальной работы -->
     <div id="dev-settings" style="display: none; padding: 10px; background: #ffe4e4; border: 1px solid red; margin-bottom: 10px;">
         <p style="margin: 0 0 5px 0;">🔧 <b>Режим разработчика</b></p>
-        <input type="password" id="local-api-key" placeholder="Вставьте ключ sk-or-..." style="width: 70%;">
-        <button onclick="saveLocalKey()">Сохранить</button>
-        <span id="key-status"></span>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:4px;">
+            <input type="checkbox" id="smartModeToggle" onchange="toggleSmartMode()">
+            <span>🧠 Умный режим (платная модель)</span>
+        </label>
+        <span id="smartModeStatus" style="font-size:12px;color:#444;display:block;margin-bottom:4px;"></span>
         <div style="margin-top: 8px;">
             <input type="password" id="firebase-api-key" placeholder="Firebase API Key" style="width: 70%;">
             <button onclick="saveFirebaseKey()">Сохранить Firebase ключ</button>
@@ -131,6 +168,11 @@
                         <span class="settings-icon">⚠️</span>
                         <span data-i18n="btnClearKnowledge">Clear Knowledge</span>
                     </button>
+                    <label class="settings-item settings-check" title="Ассоциативный, более глубокий режим ответов">
+                        <span class="settings-icon">💡</span>
+                        <input type="checkbox" id="insightModeSettingsToggle" onchange="toggleInsightMode()">
+                        <span>Insight mode</span>
+                    </label>
                     <div class="settings-divider"></div>
                     <div class="language-menu-section">
                         <div class="language-selector-menu" id="languageSelectorMenu">
@@ -161,13 +203,7 @@
                 </div>
             </div>
 
-            <!-- Insight Mode Toggle -->
-            <div class="ask-me-container">
-                <span class="ask-me-label" data-i18n="insightMode">Insight Mode</span>
-                <div class="ask-me-toggle" id="insightToggle" onclick="toggleInsightMode()" title="">
-                    <div class="ask-me-slider" id="insightSlider"></div>
-                </div>
-            </div>
+            <!-- Insight Mode перенесён в «Настройки» (включён по умолчанию) -->
 
             <!-- Статус голосового ввода -->
             <div class="voice-status-row" id="voiceStatusRow"><span id="voiceStatus"></span></div>
@@ -190,12 +226,19 @@
                 </button>
             </form>
 
-            <!-- Большая кнопка «Остановить и отправить» (показывается во время записи) -->
-            <button type="button" class="voice-stop-overlay" id="voiceStopBtn" onclick="toggleVoiceInput()" aria-label="Остановить запись и отправить">
-                <span class="vs-icon">⏹</span>
-                <span class="vs-main">Отправить</span>
-                <span class="vs-sub" id="voiceStopSub">остановить запись · 0:00</span>
-            </button>
+            <!-- Панель голосовой записи: запись → большая кнопка «Стоп», после — Отправить/Удалить -->
+            <div class="voice-panel" id="voicePanel">
+                <button type="button" class="vp-stop" id="voiceStopBtn" onclick="toggleVoiceInput()" aria-label="Остановить запись">
+                    <span class="vp-icon">⏹</span>
+                    <span class="vp-main">Остановить запись</span>
+                    <span class="vp-sub" id="voiceTimer">0:00</span>
+                </button>
+                <div class="vp-actions" id="voiceActions">
+                    <button type="button" class="vp-btn vp-send" id="voiceSendBtn" onclick="voiceSend()">Отправить</button>
+                    <button type="button" class="vp-btn vp-del" onclick="voiceDelete()">Удалить</button>
+                </div>
+                <div class="vp-hint" id="voiceHint"></div>
+            </div>
 
             <!-- Counters (только для локальной разработки) -->
             <div class="counters-container" id="countersContainer">
