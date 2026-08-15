@@ -1,4 +1,4 @@
-// /api/transcribe — прокси к RouterAI (Whisper Large V3 Turbo)
+// /api/transcribe — прокси к RouterAI (Whisper Large V3)
 // Ключ хранится на сервере в переменной окружения ROUTERAI_API_KEY.
 // Браузер присылает аудио в base64, сервер пересылает его в RouterAI как multipart/form-data.
 export default async function handler(req, res) {
@@ -36,7 +36,7 @@ export default async function handler(req, res) {
         const boundary = '----VoiceBoundary' + Math.random().toString(16).slice(2);
 
         const headerParts = [];
-        headerParts.push(`--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\nopenai/whisper-large-v3-turbo\r\n`);
+        headerParts.push(`--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\nopenai/whisper-large-v3\r\n`);
         headerParts.push(`--${boundary}\r\nContent-Disposition: form-data; name="response_format"\r\n\r\njson\r\n`);
         headerParts.push(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="recording.${ext}"\r\nContent-Type: ${mime}\r\n\r\n`);
 
