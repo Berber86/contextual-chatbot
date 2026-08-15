@@ -7,37 +7,16 @@
     <link rel="stylesheet" href="style.css">
     <style>
         /* === Голосовой ввод === */
-        .voice-row {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 8px;
-            flex-wrap: wrap;
+        /* Поднять область ввода над нижней кромкой/безопасной зоной экрана */
+        .input-container {
+            padding-bottom: calc(28px + env(safe-area-inset-bottom, 12px)) !important;
         }
-        .voice-edit-toggle {
-            background: transparent;
-            border: 1px solid rgba(203, 213, 225, 0.25);
-            color: #cbd5e1;
-            border-radius: 20px;
-            padding: 5px 13px;
-            font-size: 12.5px;
-            cursor: pointer;
-            transition: .15s;
-            white-space: nowrap;
-        }
-        .voice-edit-toggle:hover { border-color: #e94560; }
-        .voice-edit-toggle.active {
-            background: rgba(233, 69, 96, 0.15);
-            border-color: #e94560;
-            color: #ff8a9b;
-        }
-        .voice-status { font-size: 12px; color: #9aa3b2; flex: 1; min-width: 120px; }
-        .voice-timer {
+        .voice-status-row {
+            display: none;
             font-size: 12px;
-            color: #e94560;
-            font-variant-numeric: tabular-nums;
-            font-weight: 700;
-            margin-left: auto;
+            color: #9aa3b2;
+            text-align: center;
+            margin-bottom: 4px;
         }
         .voice-btn {
             flex: 0 0 auto;
@@ -56,13 +35,36 @@
         }
         .voice-btn:hover:not(:disabled) { filter: brightness(1.08); }
         .voice-btn:disabled { opacity: .5; cursor: not-allowed; }
-        .voice-btn.recording {
-            background: #22c55e;
-            animation: voicePulse 1.2s infinite;
+
+        /* Большая кнопка «Остановить и отправить» во время записи — ~1/3 экрана */
+        .voice-stop-overlay {
+            display: none;
+            position: fixed;
+            left: 0; right: 0; bottom: 0;
+            height: 32vh; min-height: 170px; max-height: 300px;
+            width: 100%;
+            z-index: 9999;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            border: none;
+            border-radius: 24px 24px 0 0;
+            cursor: pointer;
+            color: #fff;
+            background: linear-gradient(180deg, #f0455f, #c81e3a);
+            box-shadow: 0 -8px 28px rgba(0,0,0,.4);
+            animation: voicePulseBig 1.5s infinite;
+            padding-bottom: env(safe-area-inset-bottom, 10px);
+            -webkit-tap-highlight-color: transparent;
         }
-        @keyframes voicePulse {
-            0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(34,197,94,.5); }
-            50%      { transform: scale(1.06); box-shadow: 0 0 0 8px rgba(34,197,94,0); }
+        .voice-stop-overlay.show { display: flex; }
+        .voice-stop-overlay .vs-icon { font-size: 30px; line-height: 1; }
+        .voice-stop-overlay .vs-main { font-size: clamp(24px, 7vw, 38px); font-weight: 800; letter-spacing: .3px; }
+        .voice-stop-overlay .vs-sub { font-size: 13px; opacity: .92; font-variant-numeric: tabular-nums; }
+        @keyframes voicePulseBig {
+            0%, 100% { box-shadow: 0 -8px 28px rgba(0,0,0,.4); }
+            50%      { box-shadow: 0 -8px 38px rgba(233,69,96,.55); }
         }
     </style>
 </head>
@@ -167,14 +169,8 @@
                 </div>
             </div>
 
-            <!-- Голосовой ввод: тумблер режима правки + статус -->
-            <div class="voice-row">
-                <button type="button" class="voice-edit-toggle" id="voiceEditToggle" onclick="toggleVoiceEditMode()" title="Если включено — после записи расшифровка попадёт в поле ввода для проверки/правки, а не отправится сразу">
-                    ✏️ Редактировать речь
-                </button>
-                <span class="voice-status" id="voiceStatus"></span>
-                <span class="voice-timer" id="voiceTimer"></span>
-            </div>
+            <!-- Статус голосового ввода -->
+            <div class="voice-status-row" id="voiceStatusRow"><span id="voiceStatus"></span></div>
 
             <!-- Форма ввода -->
             <form class="input-form" onsubmit="sendMessage(event)">
@@ -193,6 +189,13 @@
                     Send
                 </button>
             </form>
+
+            <!-- Большая кнопка «Остановить и отправить» (показывается во время записи) -->
+            <button type="button" class="voice-stop-overlay" id="voiceStopBtn" onclick="toggleVoiceInput()" aria-label="Остановить запись и отправить">
+                <span class="vs-icon">⏹</span>
+                <span class="vs-main">Отправить</span>
+                <span class="vs-sub" id="voiceStopSub">остановить запись · 0:00</span>
+            </button>
 
             <!-- Counters (только для локальной разработки) -->
             <div class="counters-container" id="countersContainer">
