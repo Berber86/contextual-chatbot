@@ -156,6 +156,7 @@ const STORAGE_KEYS = {
     apiKey: 'chatbot_api_key',
     hydraKey: 'chatbot_hydra_key', // ← ДОБАВИТЬ
     smartMode: 'chatbot_smart_mode', // умный режим (платный провайдер через /api/hydra)
+    chatModel: 'chatbot_chat_model', // выбранная платная модель (hydra-gemini-3-pro | glm-5.2)
     insightModePref: 'chatbot_insight_mode', // выбор пользователя для insight mode
     chatHistory: 'chatbot_chat_history',
 

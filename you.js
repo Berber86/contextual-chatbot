@@ -488,13 +488,14 @@ async function youCallHydra(prompt) {
             };
         }
         
-        console.log(`[YOU] Hydra request (${smart && !isLocalHost ? 'proxy /api/hydra' : 'direct'}), model: ${YOU_CONFIG.hydraModel}`);
-        
+        const youModel = (typeof getChatModel === 'function') ? getChatModel() : YOU_CONFIG.hydraModel;
+        console.log(`[YOU] Hydra request (${smart && !isLocalHost ? 'proxy /api/hydra' : 'direct'}), model: ${youModel}`);
+
         const response = await fetch(url, {
             method: 'POST',
             headers: headers,
             body: JSON.stringify({
-                model: YOU_CONFIG.hydraModel,
+                model: youModel,
                 messages: [{ role: 'user', content: prompt }]
             }),
             signal: controller.signal

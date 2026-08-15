@@ -90,6 +90,23 @@ function hydraRequestInfo() {
     return { url: '/api/hydra', key: null };
 }
 
+// ==================== ВЫБОР ПЛАТНОЙ МОДЕЛИ ====================
+// Переключатель в настройках между моделями провайдера Hydra.
+const CHAT_MODEL_OPTIONS = [
+    { id: 'hydra-gemini-3-pro', label: 'Gemini 3 Pro' },
+    { id: 'glm-5.2', label: 'GLM-5.2' }
+];
+function getChatModel() {
+    const m = localStorage.getItem(STORAGE_KEYS.chatModel);
+    return (m && CHAT_MODEL_OPTIONS.some(o => o.id === m)) ? m : CONFIG.model_chat;
+}
+window.selectChatModel = function (id) {
+    if (!CHAT_MODEL_OPTIONS.some(o => o.id === id)) return;
+    localStorage.setItem(STORAGE_KEYS.chatModel, id);
+    document.querySelectorAll('.model-switch .ms-opt').forEach(b => b.classList.toggle('active', b.dataset.model === id));
+    console.log('[Model] Выбрана платная модель:', id);
+};
+
 // Геттеры для получения текущей модели
 function getCurrentOpenRouterModel() {
     return CONFIG.openRouterModels[CONFIG.currentModelIndex] || CONFIG.openRouterModels[0];
@@ -2153,8 +2170,8 @@ async function streamHydraSmart(messages, onChunk, onComplete, options = {}) {
     };
     if (info.key) headers['Authorization'] = 'Bearer ' + info.key;
 
-    const requestBody = { model: CONFIG.model_chat, messages: messages, stream: true, ...options };
-    console.log('[Stream] Умный режим → Hydra (' + (info.url.startsWith('/api') ? 'прокси /api/hydra' : 'direct') + '), model: ' + CONFIG.model_chat);
+    const requestBody = { model: getChatModel(), messages: messages, stream: true, ...options };
+    console.log('[Stream] Умный режим → Hydra (' + (info.url.startsWith('/api') ? 'прокси /api/hydra' : 'direct') + '), model: ' + getChatModel());
 
     const response = await fetch(info.url, {
         method: 'POST',
@@ -2939,6 +2956,9 @@ function initApiKeySettings() {
     if (cb) cb.checked = isSmartMode();
     const st = document.getElementById('smartModeStatus');
     if (st) st.textContent = isSmartMode() ? 'включена платная модель' : 'бесплатная модель';
+    // активная платная модель в переключателе
+    const activeModel = getChatModel();
+    document.querySelectorAll('.model-switch .ms-opt').forEach(b => b.classList.toggle('active', b.dataset.model === activeModel));
 }
 
 window.saveLocalKey = function() {

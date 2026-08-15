@@ -83,6 +83,22 @@
         .settings-check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
         .settings-check input { accent-color: #e94560; width: 16px; height: 16px; }
 
+        /* Переключатель платной модели */
+        .model-switch { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+        .model-switch .ms-label { font-size: 13px; color: var(--ui-muted, #9aa3b2); margin-right: 4px; }
+        .model-switch .ms-opt {
+            background: transparent;
+            border: 1px solid var(--ui-border, #2a2f40);
+            color: var(--ui-text, #e7e9ee);
+            border-radius: 20px;
+            padding: 6px 14px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: .15s;
+        }
+        .model-switch .ms-opt:hover { border-color: #e94560; }
+        .model-switch .ms-opt.active { background: rgba(233,69,96,.15); border-color: #e94560; color: #ff8a9b; }
+
         /* Голосовое сообщение в чате: свёрнутый значок с раскрываемым текстом */
         .message.audio-msg .audio-bubble {
             display: inline-flex; align-items: center; gap: 8px;
@@ -105,14 +121,23 @@
 </head>
 <body>
     <!-- Блок настроек для локальной работы -->
-    <div id="dev-settings" style="display: none; padding: 10px; background: #ffe4e4; border: 1px solid red; margin-bottom: 10px;">
-        <p style="margin: 0 0 5px 0;">🔧 <b>Режим разработчика</b></p>
+    <div id="dev-settings" style="display: none; padding: 14px 16px; background: var(--ui-surface-2, #171a23); border: 1px solid var(--ui-border, #2a2f40); border-radius: 14px; margin: 12px; color: var(--ui-text, #e7e9ee);">
+        <p style="margin: 0 0 10px 0; font-weight: 700;">⚙️ Настройки</p>
+
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:4px;">
             <input type="checkbox" id="smartModeToggle" onchange="toggleSmartMode()">
             <span>🧠 Умный режим (платная модель)</span>
         </label>
-        <span id="smartModeStatus" style="font-size:12px;color:#444;display:block;margin-bottom:4px;"></span>
-        <div style="margin-top: 8px;">
+        <span id="smartModeStatus" style="font-size:12px;color:var(--ui-muted,#9aa3b2);display:block;margin-bottom:12px;"></span>
+
+        <div class="model-switch">
+            <span class="ms-label">Модель:</span>
+            <button type="button" class="ms-opt" data-model="hydra-gemini-3-pro" onclick="selectChatModel('hydra-gemini-3-pro')">Gemini 3 Pro</button>
+            <button type="button" class="ms-opt" data-model="glm-5.2" onclick="selectChatModel('glm-5.2')">GLM-5.2</button>
+        </div>
+        <span style="font-size:11px;color:var(--ui-muted,#9aa3b2);display:block;margin-top:4px;">применяется в умном режиме</span>
+
+        <div style="margin-top: 12px;">
             <input type="password" id="firebase-api-key" placeholder="Firebase API Key" style="width: 70%;">
             <button onclick="saveFirebaseKey()">Сохранить Firebase ключ</button>
             <span id="firebase-key-status"></span>
