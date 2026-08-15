@@ -2437,7 +2437,11 @@ if (last && last.role === 'user' && (last.content || '').trim() === (userMessage
             : `\n=== 📋 ARCHIVIST MODE: ON (Careful & Explicit) ===\n` +
               `You are a careful archivist. Use concrete facts from memory to provide explicit personalization and accurate callbacks.`;
 
-        const systemPrompt = `Ты — персональный ИИ-ассистент, который ЗНАЕТ этого пользователя. Отвечай на ${langName}.
+        const dictatedNote = (typeof window !== 'undefined' && window.dictatedMessageFlag)
+            ? `=== ⚠️ СООБЩЕНИЕ НАДИКТАНО ГОЛОСОМ ===\nЭто сообщение пользователя получено через распознавание речи (voice-to-text, Whisper). В нём возможны:\n- ошибки распознавания речи (неверно услышанные слова, омофоны, опечатки, перестановки);\n- слова-паразиты и повторы («ээ», «ну», «типа», «короче», «как бы»);\n- неточности в пунктуации или регистре.\nУчитывай именно СМЫСЛ сказанного, а не букву текста. Не придавай значения мелким огрехам распознавания, не исправляй их формально и не делай выводов из артефактов автоматического транскрибирования.\n\n`
+            : '';
+
+        const systemPrompt = `${dictatedNote}Ты — персональный ИИ-ассистент, который ЗНАЕТ этого пользователя. Отвечай на ${langName}.
 === ТЕКУЩЕЕ ВРЕМЯ ===
 ${currentTimeInfo}
 
@@ -2824,9 +2828,12 @@ function parseJSON(text) {
 
 // ==================== SEND MESSAGE ====================
 async function sendMessage(event) {
-    event.preventDefault();
+    if (event && event.preventDefault) event.preventDefault();
     
-    if (isProcessing) return;
+    if (isProcessing) { window.dictatedMessageFlag = false; return; }
+    
+    // Если в поле ввода лежит голосовой текст (режим правки) — помечаем сообщение как надиктованное
+    if (window._dictatedInput) window.dictatedMessageFlag = true;
     
     const input = document.getElementById('messageInput');
     const message = input.value.trim();
@@ -2878,6 +2885,9 @@ async function sendMessage(event) {
     } finally {
         isProcessing = false;
         if (sendBtn) sendBtn.disabled = false;
+        // Сбрасываем голосовые флаги после отправки
+        window.dictatedMessageFlag = false;
+        window._dictatedInput = false;
     }
 }
 

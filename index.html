@@ -5,6 +5,66 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Memory Chatbot</title>
     <link rel="stylesheet" href="style.css">
+    <style>
+        /* === Голосовой ввод === */
+        .voice-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+            flex-wrap: wrap;
+        }
+        .voice-edit-toggle {
+            background: transparent;
+            border: 1px solid rgba(203, 213, 225, 0.25);
+            color: #cbd5e1;
+            border-radius: 20px;
+            padding: 5px 13px;
+            font-size: 12.5px;
+            cursor: pointer;
+            transition: .15s;
+            white-space: nowrap;
+        }
+        .voice-edit-toggle:hover { border-color: #e94560; }
+        .voice-edit-toggle.active {
+            background: rgba(233, 69, 96, 0.15);
+            border-color: #e94560;
+            color: #ff8a9b;
+        }
+        .voice-status { font-size: 12px; color: #9aa3b2; flex: 1; min-width: 120px; }
+        .voice-timer {
+            font-size: 12px;
+            color: #e94560;
+            font-variant-numeric: tabular-nums;
+            font-weight: 700;
+            margin-left: auto;
+        }
+        .voice-btn {
+            flex: 0 0 auto;
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            border: none;
+            cursor: pointer;
+            background: #e94560;
+            color: #fff;
+            font-size: 17px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: .15s;
+        }
+        .voice-btn:hover:not(:disabled) { filter: brightness(1.08); }
+        .voice-btn:disabled { opacity: .5; cursor: not-allowed; }
+        .voice-btn.recording {
+            background: #22c55e;
+            animation: voicePulse 1.2s infinite;
+        }
+        @keyframes voicePulse {
+            0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(34,197,94,.5); }
+            50%      { transform: scale(1.06); box-shadow: 0 0 0 8px rgba(34,197,94,0); }
+        }
+    </style>
 </head>
 <body>
     <!-- Блок настроек для локальной работы -->
@@ -107,8 +167,20 @@
                 </div>
             </div>
 
+            <!-- Голосовой ввод: тумблер режима правки + статус -->
+            <div class="voice-row">
+                <button type="button" class="voice-edit-toggle" id="voiceEditToggle" onclick="toggleVoiceEditMode()" title="Если включено — после записи расшифровка попадёт в поле ввода для проверки/правки, а не отправится сразу">
+                    ✏️ Редактировать речь
+                </button>
+                <span class="voice-status" id="voiceStatus"></span>
+                <span class="voice-timer" id="voiceTimer"></span>
+            </div>
+
             <!-- Форма ввода -->
             <form class="input-form" onsubmit="sendMessage(event)">
+                <button type="button" class="voice-btn" id="voiceBtn" onclick="toggleVoiceInput()" title="Голосовой ввод (до 10 минут)" aria-label="Голосовой ввод">
+                    🎤
+                </button>
                 <textarea 
                     class="message-input" 
                     id="messageInput" 
@@ -663,5 +735,6 @@
     <script src="dating.js"></script>     <!-- 5. Модуль знакомств -->
     <script src="reports.js"></script>    <!-- 6. Модуль отчётов -->
     <script src="dialogs.js"></script>    <!-- 7. Модуль диалогов -->
+    <script src="voice.js"></script>      <!-- 8. Голосовой ввод (Whisper Large V3 Turbo) -->
 </body>
 </html>
