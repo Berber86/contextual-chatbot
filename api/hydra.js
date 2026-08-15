@@ -18,7 +18,7 @@ export default async function handler(req, res) {
     const { messages, tools, model, stream, temperature, seed } = req.body || {};
 
     try {
-        let selectedModel = model || 'hydra-gemini-3-pro';
+        let selectedModel = model || 'glm-5.2';
         console.log(`[Hydra] Model: ${selectedModel}, Temp: ${temperature}, Seed: ${seed}, Stream: ${!!stream}`);
 
         const requestBody = { model: selectedModel, messages };
