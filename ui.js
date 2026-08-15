@@ -8,7 +8,7 @@ const isLocal = window.location.hostname.includes('localhost') ||
 
 const CONFIG = {
     // Основная платная модель (Stage 2 и финальные ответы)
-    model_chat: "hydra-gemini-3-pro",
+    model_chat: "glm-5.2",
     
     // БОЛЕЕ СЛАБАЯ платная модель (для Stage 1 и аналитики в Full Hydra Mode)
     // Замените на нужную модель Hydra, например: "hydra-flash-1-5" или аналогичную

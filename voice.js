@@ -1,6 +1,6 @@
 // voice.js — голосовой ввод для Memory Chatbot.
 // Поток: жми 🎤 → запись (большая кнопка «Остановить запись») → после останова «Отправить» / «Удалить».
-// Запись короче 2 секунд отправить нельзя. При отправке: /api/transcribe (Whisper Large V3 Turbo)
+// Запись короче 2 секунд отправить нельзя. При отправке: /api/transcribe (Whisper Large V3)
 // → текст уходит боту как голосовое сообщение (помечается window.dictatedMessageFlag,
 // в чате показывается свёрнутым значком с раскрываемым текстом).
 (function () {
@@ -179,7 +179,7 @@
         setMicDisabled(true);
         if (sendBtn()) sendBtn().disabled = true;
         setPanel('hidden');
-        setStatus('🎧 Расшифровываю речь (Whisper Large V3 Turbo)…');
+        setStatus('🎧 Расшифровываю речь (Whisper Large V3)…');
         try {
             const b64 = await blobToBase64(pendingBlob);
             const resp = await fetch(TRANSCRIBE_URL, {
@@ -236,5 +236,5 @@
         }
     }
 
-    console.log('[voice.js] Загружен. Голосовой ввод: Whisper Large V3 Turbo через /api/transcribe');
+    console.log('[voice.js] Загружен. Голосовой ввод: Whisper Large V3 через /api/transcribe');
 })();
