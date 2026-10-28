@@ -197,22 +197,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 1. Миграция старых записей памяти
     await runMigration();
     
-    // 2. Проверка доступа (инвайт)
-    const hasAccess = await checkInviteAccess();
-    if (!hasAccess) {
-        console.log('[UI] Waiting for invite code...');
-        return; // Останавливаем инициализацию, если нет доступа
-    }
-    
-    // 3. Базовая загрузка ресурсов
+    // 2. Базовая загрузка ресурсов
     loadLanguage();
     loadChatHistory();
     
-    // 4. Инициализация интерфейса
+    // 3. Инициализация интерфейса
     autoResizeTextarea();
     initSettingsMenu();
     
-    // 5. Инициализация счетчиков (только локально)
+    // 4. Инициализация счетчиков (только локально)
     if (isLocal) {
         updateStyleCounter();
         updateHypoCounter();
@@ -222,12 +215,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (countersContainer) countersContainer.style.display = 'none';
     }
     
-    // 6. UI состояния и API-настройки
+    // 5. UI состояния и API-настройки
     updateAskMeModeUI();
     updateInsightModeUI();
     initApiKeySettings();
     
-    // 7. Проактивное приветствие
+    // 6. Проактивное приветствие
     await showProactiveGreeting();
     
     console.log('[UI] DOMContentLoaded complete');
