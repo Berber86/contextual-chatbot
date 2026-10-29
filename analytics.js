@@ -139,7 +139,7 @@ If no new facts found: {"facts": []}
 ${langInstruction}`;
 
     try {
-        const result = await callAPIWithRetry(prompt, 2, true);
+        const result = await callMemoryAPIWithRetry(prompt, 2);
         console.log('[FACTS] Raw response:', result.substring(0, 500));
         
         const parsed = parseJSON(result);
@@ -383,7 +383,7 @@ If no new traits: {"traits": []}
 ${langInstruction}`;
 
     try {
-        const result = await callAPIWithRetry(prompt, 2, true);
+        const result = await callMemoryAPIWithRetry(prompt, 2);
         console.log('[TRAITS] Raw response:', result.substring(0, 500));
         
         const parsed = parseJSON(result);
@@ -620,7 +620,7 @@ If no timeline info: {"events": []}
 ${langInstruction}`;
 
     try {
-        const result = await callAPIWithRetry(prompt, 2, true);
+        const result = await callMemoryAPIWithRetry(prompt, 2);
         console.log('[TIMELINE] Raw response:', result.substring(0, 500));
         
         const parsed = parseJSON(result);
@@ -847,7 +847,7 @@ If no people mentioned: {"contacts": []}
 ${langInstruction}`;
 
     try {
-        const result = await callAPIWithRetry(prompt, 2, true);
+        const result = await callMemoryAPIWithRetry(prompt, 2);
         console.log('[SOCIAL] Raw response:', result.substring(0, 500));
         
         const parsed = parseJSON(result);
@@ -1250,7 +1250,7 @@ Exactly 5 gaps. No more, no less.
 ${langInstruction}`;
 
     try {
-        const result = await callAPIWithRetry(prompt, 2, true);
+        const result = await callMemoryAPIWithRetry(prompt, 2);
         console.log('[GAPS] Raw response:', result.substring(0, 300));
         
         const parsed = parseJSON(result);
@@ -1349,7 +1349,7 @@ ${langInstruction}`;
     
     try {
         // Используем ту же функцию с retry и парсингом JSON, что и для фактов/гипотез
-        const result = await callAPIWithRetry(prompt, 2, true);
+        const result = await callMemoryAPIWithRetry(prompt, 2);
         const parsed = parseJSON(result);
         
         if (parsed && parsed.parameters) {
@@ -1458,7 +1458,7 @@ You MUST select exactly ${deleteCount} hypothesis(es) for deletion.
 ${langInstruction}`;
 
     try {
-        const result = await callAPIWithRetry(prompt, 2, true);
+        const result = await callMemoryAPIWithRetry(prompt, 2);
         const parsed = parseJSON(result);
         
         if (parsed && parsed.deletions) {
@@ -1531,7 +1531,7 @@ Index is 1-based.
 ${langInstruction}`;
 
     try {
-        const result = await callAPIWithRetry(prompt, 2, true);
+        const result = await callMemoryAPIWithRetry(prompt, 2);
         const parsed = parseJSON(result);
         
         if (parsed && parsed.updates && parsed.updates.length > 0) {
@@ -1620,7 +1620,7 @@ Return ONLY valid JSON (no markdown):
 ${langInstruction}`;
 
     try {
-        const result = await callAPIWithRetry(prompt, 2, true);
+        const result = await callMemoryAPIWithRetry(prompt, 2);
         const parsed = parseJSON(result);
         
         if (parsed && parsed.new_hypotheses) {

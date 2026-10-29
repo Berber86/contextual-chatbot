@@ -16,9 +16,8 @@ const CONFIG = {
     
     // OpenRouter модели (остаются как fallback или для обычного режима)
     openRouterModels: [
+        "nvidia/nemotron-3.5-super-vl:free",
         "nvidia/nemotron-3-super-120b-a12b:free",
-        "qwen/qwen3.6-plus-preview:free",
-        "z-ai/glm-4.5-air:free",
         "nvidia/nemotron-3-nano-30b-a3b:free"
     ],
     // ... остальной конфиг без изменений
@@ -85,9 +84,24 @@ window.toggleSmartMode = function () {
 // Куда обращаться к Hydra: на проде — серверный прокси (ключ в env), локально — прямой URL + ключ из localStorage
 function hydraRequestInfo() {
     if (isLocal) {
-        return { url: CONFIG.hydraApiUrl, key: (localStorage.getItem(STORAGE_KEYS.hydraKey) || '').trim() };
+        return { url: CONFIG.hydraApiUrl, key: getHydraKey() };
     }
     return { url: '/api/hydra', key: null };
+}
+
+// Memory provider is independent of chat mode once selected.
+function getMemoryProvider() {
+    const saved = localStorage.getItem(STORAGE_KEYS.memoryProvider);
+    if (saved === 'hydra' || saved === 'openrouter') return saved;
+    // Preserve the previous behavior on first use, then persist the choice.
+    const provider = isSmartMode() || isFullHydraMode() ? 'hydra' : 'openrouter';
+    localStorage.setItem(STORAGE_KEYS.memoryProvider, provider);
+    return provider;
+}
+
+function setMemoryProvider(provider) {
+    if (provider !== 'hydra' && provider !== 'openrouter') return;
+    localStorage.setItem(STORAGE_KEYS.memoryProvider, provider);
 }
 
 // ==================== ВЫБОР ПЛАТНОЙ МОДЕЛИ ====================
@@ -2586,15 +2600,16 @@ function buildSystemPromptLegacy() {
 
 // Вызов API через OpenRouter (для анализа, аналитики, приветствий)
 // Вызов API через OpenRouter с автоматическим fallback по цепочке моделей
-async function callAPIOpenRouter(messages, useAnalysisModel = false, tools = null, signal) {
-    // ⬇️ НОВАЯ ЛОГИКА: Перехват для Full Hydra Mode
-    if (isFullHydraMode()) {
-        console.log(`[Full Hydra Mode] Redirecting analysis/stage1 call to Hydra (${CONFIG.model_analysis})`);
-        // Вызываем Hydra напрямую, подменяя модель на более слабую
+async function callAPIOpenRouter(messages, useAnalysisModel = false, tools = null, signal, provider = null) {
+    // Smart mode must use the server provider for memory extraction as well.
+    // New public-beta users do not have the legacy browser key ending in $$.
+    if (provider === 'hydra' || (provider === null && ((useAnalysisModel && isSmartMode()) || isFullHydraMode()))) {
+        console.log(`[Analysis] Using Hydra (${CONFIG.model_analysis})`);
+        // Use the analysis model via the server proxy in production.
         return await callAPIHydraSpecificModel(messages, CONFIG.model_analysis, tools, signal);
     }
     
-    // Стандартная логика OpenRouter (если ключа нет или он без $$)
+    // Free mode retains the OpenRouter model chain.
     const startingIndex = CONFIG.currentModelIndex;
     // ... далее ваш старый код callAPIOpenRouter ...
 
@@ -2720,19 +2735,12 @@ async function callAPIWithHydraFallback(messages, tools = null) {
 
 // Универсальный вызов Hydra с указанием конкретной модели
 async function callAPIHydraSpecificModel(messages, modelName, tools = null, signal) {
-    const { key } = getHydraInfo();
-    
-    // ⬇️ ДОБАВЛЯЕМ ЛОГ ПЕРЕД ОТПРАВКОЙ
+    const { url, key } = hydraRequestInfo();
+    if (isLocal && !key) throw new Error('Hydra API key is required locally');
     console.log(`[Hydra Request] Model: ${modelName}`);
-    console.log(`[Hydra Request] Messages:`, messages);
-    if (tools) console.log(`[Hydra Request] Tools:`, tools);
-    
-    const headers = {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${key}`,
-        'HTTP-Referer': window.location.href,
-        'X-Title': 'Memory Chatbot'
-    };
+
+    const headers = { 'Content-Type': 'application/json' };
+    if (key) headers.Authorization = `Bearer ${key}`;
     
     const body = {
         model: modelName,
@@ -2744,7 +2752,7 @@ async function callAPIHydraSpecificModel(messages, modelName, tools = null, sign
         body.tool_choice = 'auto';
     }
     
-    const response = await fetch(CONFIG.hydraApiUrl, {
+    const response = await fetch(url, {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
@@ -2758,10 +2766,12 @@ async function callAPIHydraSpecificModel(messages, modelName, tools = null, sign
     
     const data = await response.json();
     
-    // ⬇️ ДОБАВЛЯЕМ ЛОГ ОТВЕТА (чтобы видеть, что вернула нейронка)
-    console.log(`[Hydra Response]`, data.choices[0].message);
-    
-    return data.choices[0].message;
+    if (data.error) {
+        throw new Error(data.error.message || JSON.stringify(data.error));
+    }
+    const message = data.choices?.[0]?.message;
+    if (!message) throw new Error('Could not parse Hydra API response');
+    return message;
 }
 
 async function callAPIHydra(messages, tools = null) {
@@ -2831,10 +2841,14 @@ async function callAPIWithoutLanguage(messages, retries = CONFIG.maxRetries) {
     return callAPI(messages, null, false, retries);
 }
 
-async function callAPIWithRetry(prompt, maxRetries = 2, useAnalysisModel = false, signal) {
+function callMemoryAPIWithRetry(prompt, maxRetries = 2) {
+    return callAPIWithRetry(prompt, maxRetries, true, undefined, getMemoryProvider());
+}
+
+async function callAPIWithRetry(prompt, maxRetries = 2, useAnalysisModel = false, signal, provider = null) {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
-            const response = await callAPIOpenRouter([{ role: "user", content: prompt }], useAnalysisModel, null, signal);
+            const response = await callAPIOpenRouter([{ role: "user", content: prompt }], useAnalysisModel, null, signal, provider);
             return response.content || response;
         } catch (error) {
             if (signal?.aborted || error.name === 'AbortError') throw error;
@@ -2960,6 +2974,8 @@ document.addEventListener('keydown', (e) => {
 
 // ==================== API KEY SETTINGS (для всех пользователей) ====================
 function initApiKeySettings() {
+    const memoryProvider = document.getElementById('memoryProvider');
+    if (memoryProvider) memoryProvider.value = getMemoryProvider();
     const cb = document.getElementById('smartModeToggle');
     if (cb) cb.checked = isSmartMode();
     const st = document.getElementById('smartModeStatus');
