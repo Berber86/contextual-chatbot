@@ -199,6 +199,14 @@
                         <input type="checkbox" id="smartModeToggle" onchange="toggleSmartMode()">
                     </label>
                     <div class="settings-hint" id="smartModeStatus"></div>
+                    <label class="settings-item" for="memoryProvider">
+                        <span>Провайдер памяти</span>
+                        <select id="memoryProvider" onchange="setMemoryProvider(this.value)" aria-describedby="memoryProviderHint">
+                            <option value="hydra">Hydra</option>
+                            <option value="openrouter">OpenRouter</option>
+                        </select>
+                    </label>
+                    <div class="settings-hint" id="memoryProviderHint">Кто обновляет память: факты, черты, события, связи, стиль, гипотезы и пробелы. Не меняет модель ответов в чате.</div>
                     <div class="model-switch">
                         <span class="ms-label" data-i18n="settingsModel">Модель</span>
                         <button type="button" class="ms-opt" data-model="hydra-gemini-3-pro" onclick="selectChatModel('hydra-gemini-3-pro')">Gemini 3 Pro</button>

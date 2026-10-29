@@ -113,7 +113,7 @@ export default async function handler(req, res) {
             });
         }
         
-        res.status(200).json(data);
+        res.status(response.status).json(data);
         
     } catch (error) {
         console.error('[Server] API Error:', error);
