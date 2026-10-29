@@ -140,11 +140,10 @@ function isOverloadError(error) {
         errorStr.includes('429');
 }
 
-// Флаг, что приветствие уже было показано в этой сессии
+// Одно приветствие на загрузку страницы. Пользователь может начать писать, не дожидаясь его.
 let greetingShown = false;
+let activeProactiveGreeting = null;
 
-// Cooldown для приветствий
-const GREETING_COOLDOWN_MS = 8 * 60 * 60 * 1000; // 8 часов
 const GREETING_TIMESTAMP_KEY = 'chatbot_last_greeting';
 const GREETING_HISTORY_KEY = 'chatbot_greeting_history';
 const MAX_GREETING_HISTORY = 5;
@@ -232,7 +231,8 @@ function getGreetingHistory() {
     const data = localStorage.getItem(GREETING_HISTORY_KEY);
     if (!data) return [];
     try {
-        return JSON.parse(data);
+        const history = JSON.parse(data);
+        return Array.isArray(history) ? history : [];
     } catch (e) {
         return [];
     }
@@ -356,131 +356,135 @@ function getRandomGreetingAction(tc) {
     return `${randomEmoji} ${randomPhrase}`;
 }
 
+// Keep the greeting independent of the regular chat's thinking indicator and stream.
+function cancelProactiveGreeting() {
+    // A user action can happen before the asynchronous startup reaches this feature.
+    greetingShown = true;
+    const run = activeProactiveGreeting;
+    if (!run) return;
+    activeProactiveGreeting = null;
+    run.controller.abort();
+    if (run.status) run.status.remove();
+}
+
+function isProactiveGreetingCurrent(run) {
+    return activeProactiveGreeting === run && !run.controller.signal.aborted && !isProcessing &&
+        JSON.stringify(getChatHistory()) === run.historySnapshot;
+}
+
+function showGreetingStatus(run) {
+    const chat = document.getElementById('chatArea');
+    if (!chat) return;
+    const status = document.createElement('div');
+    status.className = 'message thinking';
+    status.id = 'greetingThinkingMessage';
+    status.setAttribute('role', 'status');
+    status.textContent = t('greetingThinking');
+    chat.appendChild(status);
+    chat.scrollTop = chat.scrollHeight;
+    run.status = status;
+}
+
 async function showProactiveGreeting() {
     if (greetingShown) return;
     greetingShown = true;
 
-    // The welcome screen already introduces the assistant on a first visit.
-    // Avoid an unsolicited API request (and a duplicate greeting) for an empty chat.
-    if (getChatHistory().length === 0) return;
-
-    const lastGreeting = localStorage.getItem(GREETING_TIMESTAMP_KEY);
-    if (lastGreeting) {
-        const elapsed = Date.now() - parseInt(lastGreeting, 10);
-        if (elapsed < GREETING_COOLDOWN_MS) {
-            console.log(`[Greeting] Cooldown active. ${Math.round((GREETING_COOLDOWN_MS - elapsed) / 60000)} min remaining`);
-            return;
-        }
-    }
-
-    const apiKey = getApiKey();
-    if (!apiKey) return;
-    if (isLocal && (!apiKey || apiKey.length < 10)) return;
-
-    await new Promise(resolve => setTimeout(resolve, 800));
-
-    const facts = getFactsForPrompt(true);
-    const traits = getTraitsForPrompt(true);
-    const hypotheses = getHypothesesForPrompt(true);
-    const timeline = getTimelineForPrompt();
-    const style = localStorage.getItem(STORAGE_KEYS.style) || '';
-    const gaps = getGapsForPrompt();
-    const social = getSocialForPrompt();
-
-    const timeContext = getTimeContext();
-    const langName = getLanguageName();
-
-    const context = {
-        facts,
-        traits,
-        hypotheses,
-        timeline,
-        style,
-        gaps,
-        social
+    const history = getChatHistory();
+    const run = {
+        controller: new AbortController(),
+        historySnapshot: JSON.stringify(history),
+        status: null
     };
-
-    const hasData = [facts, traits, timeline, hypotheses, social]
-        .some(k => k && k.length > 30 && !k.includes('(no '));
-
-    let prompt;
-
-    // Статус 1: общее "размышление"
-    updateThinkingMessage(getRandomGreetingAction(timeContext));
+    activeProactiveGreeting = run;
 
     try {
+        const openRouterKey = getApiKey();
+        const hasOpenRouter = Boolean(openRouterKey && openRouterKey.length >= 10);
+        const hydraKey = isSmartMode() ? getHydraKey() : null;
+        if (isLocal && !hasOpenRouter && !hydraKey) {
+            if (isProactiveGreetingCurrent(run)) appendMessage('system', t('greetingUnavailable'), false);
+            return;
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 800));
+        if (!isProactiveGreetingCurrent(run)) return;
+
+        const recentMessages = history.filter(message => message.role === 'user' || message.role === 'assistant');
+        const conversation = recentMessages.some(message => message.role === 'user')
+            ? recentMessages.slice(-6).map(message => {
+                const date = message.timestamp ? new Date(message.timestamp) : null;
+                const recordedAt = date && !Number.isNaN(date.getTime()) ? date.toISOString() : 'unknown time';
+                return `[${recordedAt}] ${message.role.toUpperCase()}: ${message.content}`;
+            }).join('\n')
+            : '';
+        const context = {
+            facts: getFactsForPrompt(false),
+            traits: getTraitsForPrompt(false),
+            hypotheses: getHypothesesForPrompt(false),
+            timeline: getTimelineForPrompt(),
+            style: localStorage.getItem(STORAGE_KEYS.style) || '',
+            gaps: getGapsForPrompt(),
+            social: getSocialForPrompt(),
+            conversation
+        };
+        const hasData = Object.values(context).some(value =>
+            typeof value === 'string' && value.trim() && !/^\(no\b/i.test(value.trim())
+        );
+        const timeContext = getTimeContext();
+        const langName = getLanguageName();
+        showGreetingStatus(run);
+
+        let prompt;
         if (!hasData) {
             prompt = buildIntroductionPrompt(langName, timeContext);
         } else {
-            // === STAGE 1: Semantic Lens ===
-            const lens = await prepareGreetingLens(langName, timeContext, context);
-
-            // Статус 2: уже после построения линзы
-            updateThinkingMessage(getGreetingThinkingTextFromLens(lens, timeContext));
-
-            // === STAGE 2: Final Greeting Generation ===
-            prompt = buildGreetingFromLensPrompt(langName, timeContext, lens, style);
+            // The analysis stage uses OpenRouter; with a local Hydra-only setup,
+            // skip that stage and still give the final model the actual context.
+            const lens = isLocal && !hasOpenRouter
+                ? buildFallbackGreetingLens(context, timeContext)
+                : await prepareGreetingLens(langName, timeContext, context, run.controller.signal);
+            if (!isProactiveGreetingCurrent(run)) return;
+            prompt = buildGreetingFromLensPrompt(langName, timeContext, lens, context.style, context);
         }
-
-        console.log('[Greeting] Generating proactive greeting with semantic lens pipeline...');
 
         const messages = [
-            { role: "system", content: prompt.system },
-            { role: "user", content: prompt.user }
+            { role: 'system', content: prompt.system },
+            { role: 'user', content: prompt.user }
         ];
-
-        const streamingElement = createStreamingMessage();
-        let finalGreeting = '';
-        const randomSeed = Math.floor(Math.random() * 100000000);
-
-        await streamResponseOpenRouter(
-            messages,
-            (partialText) => {
-                updateStreamingMessage(streamingElement, partialText);
-            },
-            (finalText) => {
-                finalGreeting = finalText;
-                removeThinkingMessage();
-                finalizeStreamingMessage(streamingElement, finalText);
-            },
-            { temperature: 0.88, seed: randomSeed }
-        );
-
-        if (finalGreeting) {
-            saveGreetingToHistory(finalGreeting);
-        }
-
-        localStorage.setItem(GREETING_TIMESTAMP_KEY, Date.now().toString());
-
-    } catch (error) {
-        removeThinkingMessage();
-
-        const streamingMsg = document.getElementById('streamingMessage');
-        if (streamingMsg) streamingMsg.remove();
-
-        console.error('[Greeting] Pipeline failed, trying fallback:', error.message);
-
+        let greeting;
         try {
-            // Fallback — простой, но уже с анти-попугайной логикой
-            const fallbackLens = buildFallbackGreetingLens(context, timeContext);
-            const fallbackPrompt = hasData
-                ? buildGreetingFromLensPrompt(langName, timeContext, fallbackLens, style)
-                : buildIntroductionPrompt(langName, timeContext);
-
-            const response = await callAPI([
-                { role: "system", content: fallbackPrompt.system },
-                { role: "user", content: fallbackPrompt.user }
-            ], null, false);
-
-            const greeting = response.content || response;
-            appendMessage('assistant', greeting, true);
-
-            saveGreetingToHistory(greeting);
-            localStorage.setItem(GREETING_TIMESTAMP_KEY, Date.now().toString());
-
-        } catch (fallbackError) {
-            console.error('[Greeting] Fallback also failed:', fallbackError.message);
+            // Respect the configured provider (smart mode or OpenRouter).
+            greeting = await streamResponse(messages, () => {}, () => {}, {
+                temperature: 0.88,
+                seed: Math.floor(Math.random() * 100000000),
+                signal: run.controller.signal
+            });
+            if (typeof greeting !== 'string' || !greeting.trim()) throw new Error('Empty greeting');
+        } catch (error) {
+            if (!isProactiveGreetingCurrent(run)) return;
+            console.warn('[Greeting] Streaming failed, trying a non-streaming fallback:', error.message);
+            const response = await callAPI(messages, null, false, 1, run.controller.signal);
+            greeting = typeof response === 'string' ? response : response?.content;
+            if (typeof greeting !== 'string' || !greeting.trim()) throw new Error('Empty greeting');
         }
+
+        if (!isProactiveGreetingCurrent(run)) return;
+        greeting = greeting.trim();
+        if (run.status) {
+            run.status.remove();
+            run.status = null;
+        }
+        appendMessage('assistant', greeting, true);
+        saveGreetingToHistory(greeting);
+        localStorage.setItem(GREETING_TIMESTAMP_KEY, Date.now().toString());
+    } catch (error) {
+        if (isProactiveGreetingCurrent(run)) {
+            console.error('[Greeting] Could not generate a greeting:', error.message);
+            appendMessage('system', t('greetingUnavailable'), false);
+        }
+    } finally {
+        if (run.status) run.status.remove();
+        if (activeProactiveGreeting === run) activeProactiveGreeting = null;
     }
 }
 
@@ -567,38 +571,20 @@ function formatTimeContextForPrompt(tc) {
 
 function buildIntroductionPrompt(langName, timeContext) {
     const timeContextText = formatTimeContextForPrompt(timeContext);
-    
-    return {
-        system: `You are a friendly AI assistant with persistent memory. This is a NEW user who just opened the chat for the first time.
+    const previousGreetings = getGreetingHistoryForPrompt();
 
-IMPORTANT: Respond in ${langName}.
+    return {
+        system: `You are a friendly AI assistant welcoming a new user.
+Respond in ${langName}. No personal facts about this user are known yet.
 
 === CURRENT TIME CONTEXT ===
 ${timeContextText}
+${previousGreetings ? `\n=== PREVIOUS GREETINGS ===\n${truncateGreetingText(previousGreetings, 2000)}\nAvoid repeating their wording.` : ''}
 
-=== YOUR TASK: TIME-AWARE INTRODUCTION ===
-Consider the date, time, day of week, and user's language/culture:
-• Is there a holiday today or very soon that's relevant to ${langName} speakers?
-• Is it a special time (weekend, Friday evening, Monday morning, late night)?
-• What season is it and does that matter?
-
-=== YOUR CAPABILITIES TO MENTION ===
-1. 📋 You remember FACTS (name, job, interests, preferences)
-2. 🧠 You learn PERSONALITY TRAITS (how they think, what they value)
-3. 📅 You track their LIFE TIMELINE (events, plans, milestones)
-4. 👥 You remember PEOPLE in their life (family, friends, colleagues)
-5. 💡 You form INSIGHTS about them over time
-6. 🎭 You adapt your COMMUNICATION STYLE to match them
-
-=== GREETING REQUIREMENTS ===
-1. Start with a time-appropriate greeting
-2. If there's a relevant holiday — acknowledge it warmly
-3. Briefly introduce your memory capabilities
-4. End with an inviting question or open invitation
-
-Be warm and concise. Match the cultural context of the language.`,
-        
-        user: `Generate a welcoming first message for a new user. Make it time-aware and culturally appropriate. Today is ${timeContextText}.`
+Write a natural, short opening message (one to three sentences). The time of day can inform the greeting when appropriate.
+You may end with one open invitation or question. Do not invent facts about the user or assume their location, mood, schedule, or a holiday.
+Do not list the assistant's capabilities or suggest preset ways to use it.`,
+        user: 'Write the first greeting now.'
     };
 }
 
@@ -640,7 +626,8 @@ function buildGreetingMemoryContext(context) {
         `PEOPLE:\n${truncateGreetingText(context.social || '(none)', 700)}`,
         `HYPOTHESES:\n${truncateGreetingText(context.hypotheses || '(none)', 1000)}`,
         `GAPS:\n${truncateGreetingText(context.gaps || '(none)', 700)}`,
-        `STYLE:\n${truncateGreetingText(context.style || '(none)', 1200)}`
+        `STYLE:\n${truncateGreetingText(context.style || '(none)', 1200)}`,
+        `RECENT CONVERSATION:\n${truncateGreetingText(context.conversation || '(none)', 1600)}`
     ].join('\n\n');
 }
 
@@ -783,11 +770,11 @@ Choose ONE best greeting angle and express it as a semantic lens.
 Return JSON only.`;
 }
 
-async function prepareGreetingLens(langName, timeContext, context) {
+async function prepareGreetingLens(langName, timeContext, context, signal) {
     const prompt = buildGreetingLensPrompt(langName, timeContext, context);
 
     try {
-        const raw = await callAPIWithRetry(prompt, 2, true);
+        const raw = await callAPIWithRetry(prompt, 2, true, signal);
         const parsed = parseJSON(raw);
         const lens = normalizeGreetingLens(parsed, timeContext);
 
@@ -801,6 +788,7 @@ async function prepareGreetingLens(langName, timeContext, context) {
         return lens;
 
     } catch (error) {
+        if (signal?.aborted || error.name === 'AbortError') throw error;
         console.error('[Greeting Lens] Failed:', error.message);
         return buildFallbackGreetingLens(context, timeContext);
     }
@@ -836,7 +824,7 @@ function getGreetingThinkingTextFromLens(lens, timeContext) {
     return list[Math.floor(Math.random() * list.length)];
 }
 
-function buildGreetingFromLensPrompt(langName, timeContext, lens, style = '') {
+function buildGreetingFromLensPrompt(langName, timeContext, lens, style = '', context = null) {
     const timeContextText = formatTimeContextForPrompt(timeContext);
 
     const styleInstruction = style && style.trim()
@@ -846,6 +834,11 @@ function buildGreetingFromLensPrompt(langName, timeContext, lens, style = '') {
     const forbiddenBlock = lens.forbiddenConcrete && lens.forbiddenConcrete.length > 0
         ? lens.forbiddenConcrete.map(x => `- ${x}`).join('\n')
         : '(none)';
+    const memoryBlock = context ? `\n=== USER CONTEXT ===\n${buildGreetingMemoryContext(context)}\n` : '';
+    const previousGreetings = getGreetingHistoryForPrompt();
+    const previousBlock = previousGreetings
+        ? `\n=== PREVIOUS GREETINGS ===\n${truncateGreetingText(previousGreetings, 2000)}\nAvoid repeating their wording or main idea.\n`
+        : '';
 
     return {
         system: `You are writing the FINAL proactive greeting for a returning user.
@@ -854,7 +847,7 @@ IMPORTANT: Respond in ${langName}.
 ${styleInstruction}
 === CURRENT TIME CONTEXT ===
 ${timeContextText}
-
+${memoryBlock}${previousBlock}
 === SEMANTIC LENS ===
 Strategy: ${lens.strategy}
 Tone: ${lens.tone}
@@ -884,6 +877,8 @@ ${forbiddenBlock}
 11. Maximum 700 characters
 12. At most ONE question
 13. If Should ask question = no, do not ask any question
+14. Do not invent facts or present uncertain hypotheses as established truth
+15. Prior messages and memories may be outdated; do not assume old plans or relative dates still apply
 
 === WHAT GOOD OUTPUT FEELS LIKE ===
 - natural
@@ -1135,6 +1130,7 @@ function clearChat() {
         return;
     }
     if (confirm(t('confirmClearChat'))) {
+        cancelProactiveGreeting();
         localStorage.removeItem(STORAGE_KEYS.chatHistory);
         const chatArea = document.getElementById('chatArea');
         if (chatArea) {
@@ -1153,6 +1149,7 @@ function clearChat() {
 // ==================== KNOWLEDGE ====================
 function clearKnowledge() {
     if (confirm(t('confirmClearKnowledge'))) {
+        cancelProactiveGreeting();
         localStorage.removeItem(STORAGE_KEYS.facts);
         localStorage.removeItem(STORAGE_KEYS.traits);
         localStorage.removeItem(STORAGE_KEYS.timeline);
@@ -2046,6 +2043,7 @@ async function streamResponseOpenRouter(messages, onChunk, onComplete, options =
             return result;
             
         } catch (error) {
+            if (options.signal?.aborted || error.name === 'AbortError') throw error;
             lastError = error;
             console.error(`[OpenRouter Stream] Model ${currentModel} failed:`, error.message);
             
@@ -2085,11 +2083,12 @@ async function streamResponseOpenRouterSingle(messages, model, onChunk, onComple
         apiUrl = CONFIG.openrouterApiUrl;
     }
     
+    const { signal, ...requestOptions } = options;
     const requestBody = {
         model: model,
         messages: messages,
         stream: true,
-        ...options
+        ...requestOptions
     };
     
     console.log(`[OpenRouter Stream] Trying model: ${model}`);
@@ -2097,7 +2096,8 @@ async function streamResponseOpenRouterSingle(messages, model, onChunk, onComple
     const response = await fetch(apiUrl, {
         method: 'POST',
         headers: headers,
-        body: JSON.stringify(requestBody)
+        body: JSON.stringify(requestBody),
+        signal
     });
     
     if (!response.ok) {
@@ -2163,13 +2163,15 @@ async function streamHydraSmart(messages, onChunk, onComplete, options = {}) {
     };
     if (info.key) headers['Authorization'] = 'Bearer ' + info.key;
 
-    const requestBody = { model: getChatModel(), messages: messages, stream: true, ...options };
+    const { signal, ...requestOptions } = options;
+    const requestBody = { model: getChatModel(), messages: messages, stream: true, ...requestOptions };
     console.log('[Stream] Умный режим → Hydra (' + (info.url.startsWith('/api') ? 'прокси /api/hydra' : 'direct') + '), model: ' + getChatModel());
 
     const response = await fetch(info.url, {
         method: 'POST',
         headers: headers,
-        body: JSON.stringify(requestBody)
+        body: JSON.stringify(requestBody),
+        signal
     });
 
     if (!response.ok) {
@@ -2219,6 +2221,7 @@ async function streamResponse(messages, onChunk, onComplete, options = {}) {
         try {
             return await streamHydraSmart(messages, onChunk, onComplete, options);
         } catch (e) {
+            if (options.signal?.aborted || e.name === 'AbortError') throw e;
             console.warn('[Stream] Умный режим (Hydra) недоступен, откат на OpenRouter:', e.message);
         }
     }
@@ -2583,12 +2586,12 @@ function buildSystemPromptLegacy() {
 
 // Вызов API через OpenRouter (для анализа, аналитики, приветствий)
 // Вызов API через OpenRouter с автоматическим fallback по цепочке моделей
-async function callAPIOpenRouter(messages, useAnalysisModel = false, tools = null) {
+async function callAPIOpenRouter(messages, useAnalysisModel = false, tools = null, signal) {
     // ⬇️ НОВАЯ ЛОГИКА: Перехват для Full Hydra Mode
     if (isFullHydraMode()) {
         console.log(`[Full Hydra Mode] Redirecting analysis/stage1 call to Hydra (${CONFIG.model_analysis})`);
         // Вызываем Hydra напрямую, подменяя модель на более слабую
-        return await callAPIHydraSpecificModel(messages, CONFIG.model_analysis, tools);
+        return await callAPIHydraSpecificModel(messages, CONFIG.model_analysis, tools, signal);
     }
     
     // Стандартная логика OpenRouter (если ключа нет или он без $$)
@@ -2602,13 +2605,14 @@ async function callAPIOpenRouter(messages, useAnalysisModel = false, tools = nul
         const currentModel = getCurrentOpenRouterModel();
         
         try {
-            const result = await callAPIOpenRouterSingle(messages, currentModel, tools);
+            const result = await callAPIOpenRouterSingle(messages, currentModel, tools, signal);
             
             // Успех! Сбрасываем индекс на первую модель для следующих запросов
             resetModelIndex();
             return result;
             
         } catch (error) {
+            if (signal?.aborted || error.name === 'AbortError') throw error;
             lastError = error;
             console.error(`[OpenRouter] Model ${currentModel} failed:`, error.message);
             
@@ -2634,7 +2638,7 @@ async function callAPIOpenRouter(messages, useAnalysisModel = false, tools = nul
 }
 
 // Одиночный вызов к конкретной модели OpenRouter (без fallback логики)
-async function callAPIOpenRouterSingle(messages, model, tools = null) {
+async function callAPIOpenRouterSingle(messages, model, tools = null, signal) {
     const headers = {
         'Content-Type': 'application/json',
         'HTTP-Referer': window.location.href,
@@ -2665,7 +2669,8 @@ async function callAPIOpenRouterSingle(messages, model, tools = null) {
     const response = await fetch(apiUrl, {
         method: 'POST',
         headers,
-        body: JSON.stringify(body)
+        body: JSON.stringify(body),
+        signal
     });
     
     if (!response.ok) {
@@ -2714,7 +2719,7 @@ async function callAPIWithHydraFallback(messages, tools = null) {
 // Прямой вызов Hydra API
 
 // Универсальный вызов Hydra с указанием конкретной модели
-async function callAPIHydraSpecificModel(messages, modelName, tools = null) {
+async function callAPIHydraSpecificModel(messages, modelName, tools = null, signal) {
     const { key } = getHydraInfo();
     
     // ⬇️ ДОБАВЛЯЕМ ЛОГ ПЕРЕД ОТПРАВКОЙ
@@ -2742,7 +2747,8 @@ async function callAPIHydraSpecificModel(messages, modelName, tools = null) {
     const response = await fetch(CONFIG.hydraApiUrl, {
         method: 'POST',
         headers,
-        body: JSON.stringify(body)
+        body: JSON.stringify(body),
+        signal
     });
     
     if (!response.ok) {
@@ -2807,12 +2813,13 @@ async function callAPIHydra(messages, tools = null) {
 }
 
 // Legacy callAPI — теперь использует OpenRouter
-async function callAPI(messages, tools = null, useAnalysisModel = false, retries = CONFIG.maxRetries) {
+async function callAPI(messages, tools = null, useAnalysisModel = false, retries = CONFIG.maxRetries, signal) {
     for (let attempt = 1; attempt <= retries; attempt++) {
         try {
             console.log(`[API] Attempt ${attempt}/${retries}`);
-            return await callAPIOpenRouter(messages, useAnalysisModel, tools);
+            return await callAPIOpenRouter(messages, useAnalysisModel, tools, signal);
         } catch (error) {
+            if (signal?.aborted || error.name === 'AbortError') throw error;
             console.error(`[API] Attempt ${attempt} error:`, error.message);
             if (attempt === retries) throw error;
             await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
@@ -2824,12 +2831,13 @@ async function callAPIWithoutLanguage(messages, retries = CONFIG.maxRetries) {
     return callAPI(messages, null, false, retries);
 }
 
-async function callAPIWithRetry(prompt, maxRetries = 2, useAnalysisModel = false) {
+async function callAPIWithRetry(prompt, maxRetries = 2, useAnalysisModel = false, signal) {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
-            const response = await callAPIOpenRouter([{ role: "user", content: prompt }], useAnalysisModel);
+            const response = await callAPIOpenRouter([{ role: "user", content: prompt }], useAnalysisModel, null, signal);
             return response.content || response;
         } catch (error) {
+            if (signal?.aborted || error.name === 'AbortError') throw error;
             console.error(`[API Retry] Attempt ${attempt}/${maxRetries} failed:`, error.message);
             if (attempt === maxRetries) throw error;
             await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
@@ -2870,7 +2878,8 @@ async function sendMessage(event) {
     const message = input.value.trim();
     
     if (!message) return;
-    
+
+    cancelProactiveGreeting();
     isProcessing = true;
     const sendBtn = document.getElementById('sendBtn');
     if (sendBtn) sendBtn.disabled = true;
@@ -3061,7 +3070,7 @@ function appendMessage(role, content, save = true, timestamp = Date.now(), audio
     msgDiv.appendChild(timeDiv);
     
     chatArea.appendChild(msgDiv);
-    if (role === 'user' && typeof window.updateWelcomeScreen === 'function') window.updateWelcomeScreen();
+    if ((role === 'user' || role === 'assistant') && typeof window.updateWelcomeScreen === 'function') window.updateWelcomeScreen();
     chatArea.scrollTop = chatArea.scrollHeight;
     
     if (save) {

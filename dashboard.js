@@ -55,7 +55,7 @@
     window.updateWelcomeScreen = function () {
         const welcome = document.getElementById('welcomeScreen');
         const chat = document.getElementById('chatArea');
-        if (welcome && chat) welcome.hidden = Boolean(chat.querySelector('.message.user'));
+        if (welcome && chat) welcome.hidden = Boolean(chat.querySelector('.message.user, .message.assistant'));
     };
 
     window.focusComposer = function () {
@@ -183,20 +183,6 @@
         });
         window.addEventListener('resize', function () {
             if (window.innerWidth > 760) closeNavigation(false);
-        });
-
-        document.querySelectorAll('[data-prompt-key]').forEach(function (button) {
-            button.addEventListener('click', function () {
-                const input = document.getElementById('messageInput');
-                if (!input) return;
-                const prompt = t(button.dataset.promptKey);
-                // Never discard a draft when a suggestion is selected.
-                const draft = input.value.trim();
-                input.value = draft ? `${draft}\n\n${prompt}` : prompt;
-                input.dispatchEvent(new Event('input', { bubbles: true }));
-                input.focus();
-                input.setSelectionRange(input.value.length, input.value.length);
-            });
         });
 
         window.refreshMemoryOverview();

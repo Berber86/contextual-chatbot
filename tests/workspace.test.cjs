@@ -49,9 +49,11 @@ test('clearing chat preserves the welcome screen and removes conversation nodes'
   const children = ['welcomeScreen', 'userMessage', 'thinkingMessage'].map(id => ({ id, remove() { removed.push(id); } }));
   const status = { textContent: '' };
   let updated = 0;
+  let canceled = 0;
   let storageKey;
   const context = {
     confirm: () => true,
+    cancelProactiveGreeting: () => { canceled++; },
     isProcessing: false,
     t: key => key,
     localStorage: { removeItem: key => { storageKey = key; } },
@@ -65,6 +67,7 @@ test('clearing chat preserves the welcome screen and removes conversation nodes'
   assert.deepEqual(removed, ['userMessage', 'thinkingMessage']);
   assert.equal(storageKey, 'history');
   assert.equal(updated, 1);
+  assert.equal(canceled, 1);
   assert.equal(status.textContent, 'chatCleared');
 });
 
@@ -144,8 +147,10 @@ test('failed sends restore the message without counting it or overwriting a new 
     const send = { disabled: false };
     const messages = [];
     let counted = false;
+    let canceled = 0;
     const context = {
       isProcessing: false,
+      cancelProactiveGreeting: () => { canceled++; },
       document: { getElementById: id => ({ messageInput: input, sendBtn: send, streamingMessage: null })[id] },
       window: {},
       Event: class Event {},
@@ -160,6 +165,7 @@ test('failed sends restore the message without counting it or overwriting a new 
     vm.runInNewContext(source, context);
     await context.sendMessage({ preventDefault() {} });
     assert.equal(input.value, newDraft || 'Исходное сообщение');
+    assert.equal(canceled, 1);
     assert.equal(counted, false);
     assert.equal(context.isProcessing, false);
     assert.equal(messages[1][0], 'system');
@@ -263,4 +269,44 @@ test('self-discovery leaves narrow-screen touch swipes available for scrolling',
   context.window.matchMedia = () => ({ matches: false });
   context.youHandleTouchStart.call(card, { touches: [{ clientX: 20, clientY: 20 }] });
   assert.equal(context.youState.touchDragData.card, card, 'larger screens retain touch drag support');
+});
+
+test('the welcome screen has no suggested prompts or automatic composer text', () => {
+  const html = fs.readFileSync('index.html', 'utf8');
+  assert.doesNotMatch(html, /data-prompt-key|suggestion-grid|suggestion-card/);
+  assert.doesNotMatch(dashboard, /data-prompt-key/);
+  assert.match(html, /<textarea\b[^>]*\bid="messageInput"[^>]*>\s*<\/textarea>/);
+
+  const input = { value: 'Мой черновик', focused: false, focus() { this.focused = true; } };
+  const context = {
+    document: { getElementById: id => id === 'messageInput' ? input : null, addEventListener() {} },
+    window: { addEventListener() {} },
+  };
+  vm.runInNewContext(dashboard, context);
+  context.window.focusComposer();
+  assert.equal(input.focused, true);
+  assert.equal(input.value, 'Мой черновик');
+});
+
+test('clearing memory cancels a greeting that may use the deleted context', () => {
+  const source = extract(ui, 'function clearKnowledge()', '// ==================== MODAL WINDOW');
+  let canceled = 0;
+  const removed = [];
+  const context = {
+    confirm: () => true,
+    alert() {},
+    t: key => key,
+    cancelProactiveGreeting: () => { canceled++; },
+    localStorage: { removeItem: key => { removed.push(key); } },
+    STORAGE_KEYS: { facts: 'facts', traits: 'traits', timeline: 'timeline', style: 'style', hypotheses: 'hypotheses', social: 'social', gaps: 'gaps', messageCounter: 'counter' },
+    isLocal: false,
+    updateAskMeModeUI() {},
+    window: { dispatchEvent() {} },
+    Event: class Event {},
+    console: { log() {} },
+  };
+  vm.runInNewContext(source, context);
+  context.clearKnowledge();
+  assert.equal(canceled, 1);
+  assert.ok(removed.includes('facts'));
 });
