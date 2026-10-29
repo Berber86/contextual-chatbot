@@ -34,18 +34,84 @@ const DEFAULT_TRANSLATIONS = {
     
     // Buttons
     btnKnowledge: "📚 Знания о пользователе",
-    btnClearChat: "🗑️ Очистить чат",
-    btnClearKnowledge: "⚠️ Очистить знания",
+    btnClearChat: "Очистить чат",
+    btnClearKnowledge: "Очистить знания",
     btnSend: "Отправить",
     btnClose: "✕ Закрыть",
     btnCancel: "Отмена",
     btnSave: "💾 Сохранить",
     
     // Counters
+    counterCaption: "До обновления (сообщений):",
     counterStyle: "🎭 Стиль:",
     counterHypotheses: "💡 Гипотезы:",
     counterGaps: "🔍 Пробелы:",
     
+    // Main workspace
+    brandSubtitle: "ЛИЧНЫЙ ИИ-АССИСТЕНТ",
+    navMain: "ПРОСТРАНСТВО",
+    navChat: "Чат с Memory",
+    navMemory: "Моя память",
+    navSelf: "Самопознание",
+    navDating: "Знакомства",
+    navDialogs: "Диалоги",
+    navReports: "Отчёты",
+    navOther: "ДОПОЛНИТЕЛЬНО",
+    navHelp: "Как это работает",
+    navSettings: "Настройки",
+    settingsTitle: "Настройки",
+    settingsInsight: "Режим инсайтов",
+    settingsSmart: "Умный режим",
+    settingsModel: "Модель",
+    sidebarPrivacyTitle: "Всё под контролем",
+    sidebarPrivacyText: "Память хранится в этом браузере",
+    sidebarFooter: "ВАШЕ ЛИЧНОЕ ПРОСТРАНСТВО",
+    workspaceTitle: "Личный чат",
+    workspaceSubtitle: "Пространство для ваших мыслей",
+    workspaceMemory: "Память в браузере",
+    heroEyebrow: "ВАШ ЛИЧНЫЙ ИИ-СОБЕСЕДНИК",
+    heroTitle: "Привет, я Memory.",
+    heroTitleAccent: "Давайте познакомимся.",
+    heroDescription: "Я запоминаю важное из наших разговоров, чтобы лучше понимать вас. Начните с любой мысли — я рядом.",
+    heroAction: "Начать разговор",
+    suggestionsKicker: "ИДЕИ ДЛЯ НАЧАЛА",
+    suggestionsTitle: "С чего начнём?",
+    suggestionsHint: "Выберите тему или напишите свою",
+    suggestionAbout: "Немного обо мне",
+    suggestionAboutText: "Давайте знакомиться",
+    suggestionInterests: "Мои интересы",
+    suggestionInterestsText: "То, что меня увлекает",
+    suggestionGoals: "Планы и мечты",
+    suggestionGoalsText: "О том, к чему я иду",
+    suggestionThoughts: "Разобраться в себе",
+    suggestionThoughtsText: "Посмотреть по-новому",
+    promptAbout: "Давай познакомимся. Задай мне несколько вопросов, чтобы узнать меня лучше.",
+    promptInterests: "Хочу рассказать о своих интересах и о том, что меня увлекает.",
+    promptGoals: "Давай поговорим о моих планах и целях. Помоги мне разобраться, с чего начать.",
+    promptThoughts: "Помоги мне разобраться в своих мыслях и посмотреть на ситуацию с другой стороны.",
+    welcomeNote: "Можно начать с малого. Каждая история имеет значение.",
+    askMeShort: "Спроси меня",
+    composerPrivacy: "Память сохраняется в этом браузере",
+    composerShortcut: "Enter — отправить · Shift + Enter — новая строка",
+    contextHeading: "ВАШЕ ПРОСТРАНСТВО",
+    contextTitle: "Всё о вас",
+    memoryLabel: "ЛИЧНАЯ ПАМЯТЬ",
+    memoryEmptyTag: "Пока пусто",
+    memoryFilledTag: "Есть записи",
+    memoryCardTitle: "Память о вас",
+    memoryEmptySummary: "Здесь появится важное из ваших разговоров. Расскажите немного о себе.",
+    memoryFilledSummary: "Здесь собрано важное из ваших разговоров. Вы можете просмотреть и удалить записи.",
+    memoryFactsLabel: "фактов",
+    memoryTraitsLabel: "черт",
+    memoryEventsLabel: "событий",
+    memoryOpen: "Открыть память",
+    quickHeading: "ИССЛЕДУЙТЕ",
+    quickSelf: "Самопознание",
+    quickSelfText: "Узнайте себя лучше",
+    quickReports: "Отчёты",
+    quickReportsText: "Новый взгляд на себя",
+    contextPrivacy: "Вы можете просмотреть и удалить сохранённые знания в любой момент.",
+
     // Ask Me Mode
     askMeMode: "Режим 'Спроси меня'",
     askMeModeTooltip: "ИИ будет заканчивать ответы вопросами, чтобы узнать о вас больше",
@@ -53,9 +119,11 @@ const DEFAULT_TRANSLATIONS = {
     
     // Chat
     welcomeMessage: "Привет! Я ваш персональный помощник. Расскажите о себе, и я запомню важную информацию.",
-    inputPlaceholder: "Введите сообщение...",
+    inputPlaceholder: "Напишите о чём угодно...",
     thinkingMessage: "💭 Запоминаю информацию о вас...",
     chatCleared: "Чат очищен. История удалена.",
+    chatConnectionError: "Не удалось получить ответ. Проверьте подключение и настройки ИИ, затем попробуйте ещё раз.",
+    chatBusyClear: "Дождитесь окончания ответа, чтобы очистить чат.",
     
     // Modal
     modalTitle: "📚 База знаний",
@@ -80,7 +148,7 @@ const DEFAULT_TRANSLATIONS = {
     timelineInfo: "<strong>📅 Хронология</strong> — события вашей жизни, текущие периоды, планы на будущее.",
     
     // Placeholders
-    placeholderEmpty: "Пока ничего не накоплено...",
+    placeholderEmpty: "Пока здесь пусто. Расскажите о себе в чате — важные детали появятся здесь.",
     placeholderFacts: "Факты о пользователе будут накапливаться здесь...",
     placeholderTraits: "Черты личности будут накапливаться здесь...",
     placeholderTimeline: "Хронология жизни будет здесь...",
@@ -244,6 +312,15 @@ async function selectLanguage(langCode) {
     const lang = LANGUAGES.find(l => l.code === langCode);
     if (!lang) return;
 
+    // Russian is the built-in source language and never needs an API translation.
+    if (langCode === 'ru') {
+        translations = { ...DEFAULT_TRANSLATIONS };
+        currentLanguage = 'ru';
+        localStorage.setItem(STORAGE_KEYS.language, 'ru');
+        applyTranslations();
+        return;
+    }
+
     const cachedTranslations = localStorage.getItem(`${STORAGE_KEYS.translations}_${langCode}`);
     
     if (cachedTranslations) {
@@ -307,21 +384,24 @@ ${JSON.stringify(DEFAULT_TRANSLATIONS, null, 2)}`;
 function applyTranslations() {
     document.querySelectorAll('[data-i18n]').forEach(el => {
         const key = el.getAttribute('data-i18n');
-        if (translations[key]) {
+        const value = translations[key] || DEFAULT_TRANSLATIONS[key];
+        if (value) {
             if (key.endsWith('Info')) {
-                el.innerHTML = translations[key];
+                el.innerHTML = value;
             } else {
-                el.textContent = translations[key];
+                el.textContent = value;
             }
         }
     });
 
     document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
         const key = el.getAttribute('data-i18n-placeholder');
-        if (translations[key]) {
-            el.placeholder = translations[key];
-        }
+        const value = translations[key] || DEFAULT_TRANSLATIONS[key];
+        if (value) el.placeholder = value;
     });
+
+    document.documentElement.lang = currentLanguage;
+    if (typeof window.refreshMemoryOverview === 'function') window.refreshMemoryOverview();
 
     if (currentTab) {
         updateTabPlaceholder();
@@ -398,6 +478,7 @@ function getFactsData() {
 
 function setFactsData(data) {
     localStorage.setItem(STORAGE_KEYS.facts, JSON.stringify(data));
+    window.dispatchEvent(new Event('memory-updated'));
 }
 
 function getFactsForDisplay() {
@@ -470,6 +551,7 @@ function getTraitsData() {
 
 function setTraitsData(data) {
     localStorage.setItem(STORAGE_KEYS.traits, JSON.stringify(data));
+    window.dispatchEvent(new Event('memory-updated'));
 }
 
 function getTraitsForDisplay() {
@@ -539,6 +621,7 @@ function getTimelineData() {
 
 function setTimelineData(data) {
     localStorage.setItem(STORAGE_KEYS.timeline, JSON.stringify(data));
+    window.dispatchEvent(new Event('memory-updated'));
 }
 
 function getTimelineForDisplay() {
@@ -655,6 +738,7 @@ function getHypothesesData() {
 
 function setHypothesesData(data) {
     localStorage.setItem(STORAGE_KEYS.hypotheses, JSON.stringify(data));
+    window.dispatchEvent(new Event('memory-updated'));
 }
 
 function getHypothesesForDisplay() {
@@ -763,6 +847,7 @@ function getSocialData() {
 
 function setSocialData(data) {
     localStorage.setItem(STORAGE_KEYS.social, JSON.stringify(data));
+    window.dispatchEvent(new Event('memory-updated'));
 }
 
 function getStrengthIndicator(strength) {

@@ -366,12 +366,16 @@ function dialogsUpdateUnreadBadge() {
         }
 
         if (list.length === 0) {
-            html += `
-                <div class="dialogs-empty">
-                    Пока нет диалогов. После анализа совместимости можно нажать «Написать кандидату».
+            container.innerHTML = `
+                <div class="dialogs-blank">
+                    <div class="dialogs-blank-icon"><svg class="icon" aria-hidden="true"><use href="#i-dialogs"></use></svg></div>
+                    <h3>Здесь появятся диалоги</h3>
+                    <p>${myId
+                        ? 'Найдите интересного человека в знакомствах. После анализа совместимости ему можно написать.'
+                        : 'Чтобы начать общаться, сначала создайте и опубликуйте свой профиль в разделе знакомств.'}</p>
+                    <button type="button" class="dialogs-blank-action" onclick="closeDialogsModal(); openDatingModal()">Перейти к знакомствам <svg class="icon" aria-hidden="true"><use href="#i-arrow-right"></use></svg></button>
                 </div>
             `;
-            container.innerHTML = html;
             return;
         }
 

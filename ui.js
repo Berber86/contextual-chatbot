@@ -360,6 +360,10 @@ async function showProactiveGreeting() {
     if (greetingShown) return;
     greetingShown = true;
 
+    // The welcome screen already introduces the assistant on a first visit.
+    // Avoid an unsolicited API request (and a duplicate greeting) for an empty chat.
+    if (getChatHistory().length === 0) return;
+
     const lastGreeting = localStorage.getItem(GREETING_TIMESTAMP_KEY);
     if (lastGreeting) {
         const elapsed = Date.now() - parseInt(lastGreeting, 10);
@@ -902,53 +906,39 @@ ${forbiddenBlock}
 
 
 // ==================== SETTINGS MENU ====================
+function closeSettingsMenu() {
+    const dropdown = document.getElementById('settingsDropdown');
+    const toggle = document.getElementById('settingsToggle');
+    if (dropdown) dropdown.classList.remove('open');
+    if (toggle) toggle.setAttribute('aria-expanded', 'false');
+    closeAllLanguageDropdowns();
+}
+
 function initSettingsMenu() {
     renderLanguageMenu();
-    
+
     document.addEventListener('click', (e) => {
-        // Если кликнули мимо шестеренки И мимо самого розового блока
-        if (!e.target.closest('.settings-wrapper') && !e.target.closest('#dev-settings')) {
-            const dropdown = document.getElementById('settingsDropdown');
-            if (dropdown) dropdown.classList.remove('open');
-            
-            const devBox = document.getElementById('dev-settings');
-            if (devBox) devBox.style.display = 'none';
-            
-            closeAllLanguageDropdowns();
-        }
+        if (!e.target.closest('.settings-wrapper')) closeSettingsMenu();
     });
-    
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-            const dropdown = document.getElementById('settingsDropdown');
-            if (dropdown) dropdown.classList.remove('open');
-            
-            const devBox = document.getElementById('dev-settings');
-            if (devBox) devBox.style.display = 'none';
-            
-            closeAllLanguageDropdowns();
-        }
+        if (e.key === 'Escape') closeSettingsMenu();
     });
 }
 
 function toggleSettingsMenu() {
-    const settingsDropdown = document.getElementById('settingsDropdown');
-    const devBox = document.getElementById('dev-settings'); // Находим наш розовый блок
-    
-    if (settingsDropdown) {
-        const isOpen = settingsDropdown.classList.toggle('open');
-        
-        // Показываем/скрываем розовый блок вместе с выпадающим меню
-        if (devBox) {
-            devBox.style.display = isOpen ? 'block' : 'none';
-        }
-    }
+    const dropdown = document.getElementById('settingsDropdown');
+    const toggle = document.getElementById('settingsToggle');
+    if (!dropdown) return;
+    const isOpen = dropdown.classList.toggle('open');
+    if (toggle) toggle.setAttribute('aria-expanded', String(isOpen));
     closeAllLanguageDropdowns();
 }
 function closeAllLanguageDropdowns() {
     document.querySelectorAll('.language-menu-dropdown').forEach(dropdown => {
         dropdown.classList.remove('open');
     });
+    const current = document.querySelector('.language-menu-current');
+    if (current) current.setAttribute('aria-expanded', 'false');
 }
 
 // ==================== LANGUAGE MENU ====================
@@ -959,18 +949,18 @@ function renderLanguageMenu() {
     const currentLang = LANGUAGES.find(l => l.code === currentLanguage);
     
     languageSelectorMenu.innerHTML = `
-        <div class="language-menu-current" onclick="toggleLanguageMenuDropdown()">
+        <button type="button" class="language-menu-current" onclick="toggleLanguageMenuDropdown()" aria-expanded="false" aria-controls="languageMenuDropdown">
             <span class="flag">${currentLang?.flag || '🇬🇧'}</span>
             <span class="name">${currentLang?.name || 'English'}</span>
-            <span>▼</span>
-        </div>
+            <span aria-hidden="true">▼</span>
+        </button>
         <div class="language-menu-dropdown" id="languageMenuDropdown">
             ${LANGUAGES.map(lang => `
-                <div class="language-menu-option ${lang.code === currentLanguage ? 'active' : ''}" 
-                     onclick="selectLanguageFromMenu('${lang.code}')">
+                <button type="button" class="language-menu-option ${lang.code === currentLanguage ? 'active' : ''}"
+                     onclick="selectLanguageFromMenu('${lang.code}')" ${lang.code === currentLanguage ? 'aria-current="true"' : ''}>
                     <span class="flag">${lang.flag}</span>
                     <span class="name">${lang.name}</span>
-                </div>
+                </button>
             `).join('')}
         </div>
     `;
@@ -978,7 +968,11 @@ function renderLanguageMenu() {
 
 function toggleLanguageMenuDropdown() {
     const dropdown = document.getElementById('languageMenuDropdown');
-    if (dropdown) dropdown.classList.toggle('open');
+    const current = document.querySelector('.language-menu-current');
+    if (dropdown) {
+        const isOpen = dropdown.classList.toggle('open');
+        if (current) current.setAttribute('aria-expanded', String(isOpen));
+    }
 }
 
 async function selectLanguageFromMenu(langCode) {
@@ -1003,7 +997,7 @@ function updateInsightModeUI() {
 // ==================== ASK ME MODE ====================
 function isAskMeModeAvailable() {
     const data = getGapsData();
-    return data.gaps && data.gaps.length > 0;
+    return Array.isArray(data?.gaps) && data.gaps.length > 0;
 }
 
 function toggleAskMeMode() {
@@ -1020,13 +1014,17 @@ function updateAskMeModeUI() {
     const available = isAskMeModeAvailable();
     toggle.classList.toggle('disabled', !available);
     toggle.classList.toggle('active', askMeMode && available);
-    
+    toggle.disabled = !available;
+    toggle.setAttribute('aria-checked', String(askMeMode && available));
+
     if (!available) {
         askMeMode = false;
         toggle.title = t('askMeModeDisabled');
     } else {
         toggle.title = t('askMeModeTooltip');
     }
+    const hint = document.getElementById('askMeHint');
+    if (hint) hint.textContent = toggle.title;
 }
 
 // ==================== MESSAGE COUNTER ====================
@@ -1132,12 +1130,22 @@ function loadChatHistory() {
 }
 
 function clearChat() {
+    if (isProcessing) {
+        alert(t('chatBusyClear'));
+        return;
+    }
     if (confirm(t('confirmClearChat'))) {
         localStorage.removeItem(STORAGE_KEYS.chatHistory);
         const chatArea = document.getElementById('chatArea');
         if (chatArea) {
-            chatArea.innerHTML = `<div class="message system">${t('chatCleared')}</div>`;
+            // Keep the welcome screen in the DOM so a cleared chat is useful again.
+            Array.from(chatArea.children).forEach(child => {
+                if (child.id !== 'welcomeScreen') child.remove();
+            });
         }
+        if (typeof window.updateWelcomeScreen === 'function') window.updateWelcomeScreen();
+        const status = document.getElementById('chatStatus');
+        if (status) status.textContent = t('chatCleared');
         console.log('[System] Chat history cleared');
     }
 }
@@ -1161,6 +1169,7 @@ function clearKnowledge() {
         }
         
         updateAskMeModeUI();
+        window.dispatchEvent(new Event('memory-updated'));
         console.log('[System] All knowledge cleared');
         alert(t('alertKnowledgeCleared'));
     }
@@ -1990,41 +1999,32 @@ function hideTypingIndicator() {
     if (indicator) indicator.remove();
 }
 
+function updateComposerState() {
+    const input = document.getElementById('messageInput');
+    const sendBtn = document.getElementById('sendBtn');
+    if (input && sendBtn) sendBtn.disabled = isProcessing || !input.value.trim();
+}
+
+function handleKeyDown(event) {
+    // Shift+Enter inserts a newline; do not submit while an IME is composing text.
+    if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && !event.isComposing && event.keyCode !== 229) {
+        event.preventDefault();
+        sendMessage(event);
+    }
+}
+
 function autoResizeTextarea() {
     const textarea = document.getElementById('messageInput');
     if (!textarea) return;
-    
-    const inputForm = textarea.closest('.input-form');
-    
-    textarea.addEventListener('input', () => {
-        textarea.style.height = 'auto';
-        const newHeight = Math.min(textarea.scrollHeight, 200);
-        textarea.style.height = newHeight + 'px';
-        
-        if (inputForm) {
-            inputForm.style.alignItems = textarea.value.trim().length > 0 ? 'flex-start' : 'flex-end';
-        }
-        
-        const chatArea = document.getElementById('chatArea');
-        if (chatArea) chatArea.scrollTop = chatArea.scrollHeight;
-    });
-    
-    textarea.addEventListener('focus', () => {
-        if (inputForm) inputForm.style.alignItems = 'flex-start';
-        textarea.style.boxShadow = '0 -2px 10px rgba(233, 69, 96, 0.1)';
-    });
-    
-    textarea.addEventListener('blur', () => {
-        if (!textarea.value.trim() && inputForm) {
-            inputForm.style.alignItems = 'flex-end';
-            textarea.style.boxShadow = 'none';
-        }
-    });
-    
-    textarea.style.height = 'auto';
-    textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
-}
 
+    const resize = () => {
+        textarea.style.height = 'auto';
+        textarea.style.height = Math.min(textarea.scrollHeight, 160) + 'px';
+        updateComposerState();
+    };
+    textarea.addEventListener('input', resize);
+    resize();
+}
 
 
 // ====================  VIA OPENROUTER (для приветствий и анализа) ====================
@@ -2561,8 +2561,8 @@ ${questionRule}
         removeThinkingMessage();
         if (streamingElement) streamingElement.remove();
         console.error('[Stage2] Failed:', error.message);
-        appendMessage('system', `Error: ${error.message}`);
-        return null;
+        // Let sendMessage handle retry feedback and avoid counting a failed exchange.
+        throw error;
     }
 }
 
@@ -2876,7 +2876,8 @@ async function sendMessage(event) {
     if (sendBtn) sendBtn.disabled = true;
     input.value = '';
     input.style.height = 'auto';
-    
+    updateComposerState();
+
     appendMessage('user', message, true, Date.now(), !!window.dictatedMessageFlag);
     
     try {
@@ -2912,10 +2913,15 @@ async function sendMessage(event) {
         if (streamingMsg) streamingMsg.remove();
         
         console.error('[Chat] Error:', error);
-        appendMessage('system', `Error: ${error.message}`);
+        appendMessage('system', t('chatConnectionError'), false);
+        // Keep the failed message available for retry, without overwriting a new draft.
+        if (!input.value.trim()) {
+            input.value = message;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
     } finally {
         isProcessing = false;
-        if (sendBtn) sendBtn.disabled = false;
+        updateComposerState();
         // Сбрасываем голосовые флаги после отправки
         window.dictatedMessageFlag = false;
         window._dictatedInput = false;
@@ -3015,7 +3021,8 @@ function loadChatHistory() {
         appendMessage(msg.role, msg.content, false, msg.timestamp || Date.now(), !!msg.audio);
     });
     
-    if (chatArea) chatArea.scrollTop = chatArea.scrollHeight;
+    // With no history, keep the welcome content at the top on small screens.
+    if (chatArea && history.length) chatArea.scrollTop = chatArea.scrollHeight;
 }
 
 // 3. Отрисовываем сообщение со временем. audio=true → голосовое: свёрнутый значок с раскрываемым текстом.
@@ -3054,6 +3061,7 @@ function appendMessage(role, content, save = true, timestamp = Date.now(), audio
     msgDiv.appendChild(timeDiv);
     
     chatArea.appendChild(msgDiv);
+    if (role === 'user' && typeof window.updateWelcomeScreen === 'function') window.updateWelcomeScreen();
     chatArea.scrollTop = chatArea.scrollHeight;
     
     if (save) {

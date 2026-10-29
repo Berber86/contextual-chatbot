@@ -1,10 +1,14 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Memory Chatbot</title>
+    <meta name="theme-color" content="#11121d">
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="styles/you-redesign.css">
+    <link rel="stylesheet" href="styles/dialogs-redesign.css">
+    <link rel="stylesheet" href="styles/help-invite-redesign.css">
     <style>
         /* === Голосовой ввод === */
         /* Поднять область ввода над нижней кромкой/безопасной зоной экрана */
@@ -118,145 +122,194 @@
         .message.audio-msg .audio-toggle { font-size: 11px; opacity: .8; margin-left: 4px; }
         .message.audio-msg .audio-transcript { display: none; margin-top: 8px; white-space: pre-wrap; word-break: break-word; }
     </style>
+    <link rel="stylesheet" href="styles/emoji-font.css">
+    <link rel="stylesheet" href="styles/workspace.css">
 </head>
 <body>
-    <!-- Блок настроек для локальной работы -->
-    <div id="dev-settings" style="display: none; padding: 14px 16px; background: var(--ui-surface-2, #171a23); border: 1px solid var(--ui-border, #2a2f40); border-radius: 14px; margin: 12px; color: var(--ui-text, #e7e9ee);">
-        <p style="margin: 0 0 10px 0; font-weight: 700;">⚙️ Настройки</p>
+    <!-- Shared, inline icons keep the interface crisp without a network dependency. -->
+    <svg class="icon-sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 2.5c.9 5.3 3.2 7.6 8.5 8.5-5.3.9-7.6 3.2-8.5 8.5-.9-5.3-3.2-7.6-8.5-8.5C8.8 10.1 11.1 7.8 12 2.5Z"/><path d="M19 2v4M17 4h4M5 17v4M3 19h4"/></symbol>
+        <symbol id="i-chat" viewBox="0 0 24 24"><path d="M20 11.5a8 8 0 0 1-8 8 8.6 8.6 0 0 1-3.5-.7L4 20l1.2-4.1A8 8 0 1 1 20 11.5Z"/><path d="M8.5 11.5h7M8.5 8.5h4.5"/></symbol>
+        <symbol id="i-memory" viewBox="0 0 24 24"><path d="M12 20V5.5M12 6c-2.2-2-5.4-2.1-8-.6v12.1c2.6-1.4 5.8-1.3 8 .5 2.2-1.8 5.4-1.9 8-.5V5.4c-2.6-1.5-5.8-1.4-8 .6Z"/></symbol>
+        <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.2"/><path d="M5.5 20a6.5 6.5 0 0 1 13 0"/></symbol>
+        <symbol id="i-heart" viewBox="0 0 24 24"><path d="M20.3 8.8c0 4-4.6 7.4-8.3 10.2-3.7-2.8-8.3-6.2-8.3-10.2a4.3 4.3 0 0 1 8.3-1.5 4.3 4.3 0 0 1 8.3 1.5Z"/></symbol>
+        <symbol id="i-dialogs" viewBox="0 0 24 24"><path d="M18.5 14.5a5.5 5.5 0 0 1-5.5 5.3c-.9 0-1.8-.2-2.6-.6L7 20l.8-3.1M5.5 13.5a5.5 5.5 0 0 1-.8-2.9A5.7 5.7 0 0 1 10.5 5h2a5.7 5.7 0 0 1 5.8 5.6 5.7 5.7 0 0 1-5.8 5.6h-2c-.8 0-1.6-.1-2.2-.4L5 16.5l.5-3Z"/></symbol>
+        <symbol id="i-chart" viewBox="0 0 24 24"><path d="M5 19V11M10 19V5M15 19v-6M20 19V8"/><path d="M3 19.5h19"/></symbol>
+        <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M9.6 9.3a2.5 2.5 0 1 1 4.1 1.9c-1 .8-1.7 1.3-1.7 2.5M12 16.8h.01"/></symbol>
+        <symbol id="i-settings" viewBox="0 0 24 24"><path d="M9.7 4.5 10.2 3h3.6l.5 1.5c.5.2 1 .4 1.4.6l1.5-.7 2.5 2.5-.7 1.5c.2.4.4.9.6 1.4l1.5.5v3.6l-1.5.5c-.2.5-.4 1-.6 1.4l.7 1.5-2.5 2.5-1.5-.7c-.4.2-.9.4-1.4.6l-.5 1.5h-3.6l-.5-1.5c-.5-.2-1-.4-1.4-.6l-1.5.7-2.5-2.5.7-1.5c-.2-.4-.4-.9-.6-1.4L3 13.8v-3.6l1.5-.5c.2-.5.4-1 .6-1.4l-.7-1.5 2.5-2.5 1.5.7c.4-.2.9-.4 1.3-.5Z"/><circle cx="12" cy="12" r="2.7"/></symbol>
+        <symbol id="i-arrow-up-right" viewBox="0 0 24 24"><path d="M6 18 18 6M8 6h10v10"/></symbol>
+        <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M4 12h15M14 7l5 5-5 5"/></symbol>
+        <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+        <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5.5" y="10" width="13" height="10" rx="2"/><path d="M8.5 10V7a3.5 3.5 0 1 1 7 0v3M12 14v2.5"/></symbol>
+        <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 11.5a6 6 0 0 0 12 0M12 17.5V21M9 21h6"/></symbol>
+        <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5M6.5 10.5 12 5l5.5 5.5"/></symbol>
+        <symbol id="i-leaf" viewBox="0 0 24 24"><path d="M19.5 4.5C11 4.7 5 7.6 5 13.5A5.5 5.5 0 0 0 10.5 19c5.9 0 8.8-6 9-14.5Z"/><path d="M5 19c2.5-3.7 5.8-6.4 10.5-9"/></symbol>
+        <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r=".8" fill="currentColor" stroke="none"/></symbol>
+        <symbol id="i-bulb" viewBox="0 0 24 24"><path d="M8.5 15.5c0-1.7-2-2.5-2-5a5.5 5.5 0 0 1 11 0c0 2.5-2 3.3-2 5H8.5ZM9 18h6M10 21h4"/></symbol>
+        <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+        <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    </svg>
 
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:4px;">
-            <input type="checkbox" id="smartModeToggle" onchange="toggleSmartMode()">
-            <span>🧠 Умный режим (платная модель)</span>
-        </label>
-        <span id="smartModeStatus" style="font-size:12px;color:var(--ui-muted,#9aa3b2);display:block;margin-bottom:12px;"></span>
-
-        <div class="model-switch">
-            <span class="ms-label">Модель:</span>
-            <button type="button" class="ms-opt" data-model="hydra-gemini-3-pro" onclick="selectChatModel('hydra-gemini-3-pro')">Gemini 3 Pro</button>
-            <button type="button" class="ms-opt" data-model="glm-5.2" onclick="selectChatModel('glm-5.2')">GLM-5.2</button>
-        </div>
-        <span style="font-size:11px;color:var(--ui-muted,#9aa3b2);display:block;margin-top:4px;">применяется в умном режиме</span>
-
-        <div style="margin-top: 12px;">
-            <input type="password" id="firebase-api-key" placeholder="Firebase API Key" style="width: 70%;">
-            <button onclick="saveFirebaseKey()">Сохранить Firebase ключ</button>
-            <span id="firebase-key-status"></span>
-        </div>
-    </div>
-
-    <!-- Header Bar -->
+    <!-- Navigation becomes a drawer on smaller screens. -->
     <header class="header-bar" aria-label="Основная навигация">
         <div class="app-brand" aria-label="Memory Chatbot">
-            <div class="app-brand-mark" aria-hidden="true">M</div>
+            <div class="app-brand-mark" aria-hidden="true"><svg class="icon"><use href="#i-spark"></use></svg></div>
             <div class="app-brand-copy">
-                <div class="app-brand-title">Memory Chatbot</div>
-                <div class="app-brand-subtitle">Личный ИИ с долговременной памятью</div>
+                <div class="app-brand-title">memory<span>.</span></div>
+                <div class="app-brand-subtitle" data-i18n="brandSubtitle">ЛИЧНЫЙ ИИ-АССИСТЕНТ</div>
             </div>
         </div>
-
-        <nav class="header-actions" aria-label="Разделы приложения">
-            <button class="header-btn knowledge-btn" onclick="openKnowledgeModal()" title="База знаний" aria-label="База знаний">
-                <span aria-hidden="true">🧠</span>
+        <button class="mobile-menu-button" id="mobileMenuButton" type="button" aria-label="Открыть меню" aria-controls="mainNavigation" aria-expanded="false">
+            <svg class="icon" aria-hidden="true"><use href="#i-menu"></use></svg>
+        </button>
+        <nav class="header-actions" id="mainNavigation" aria-label="Разделы приложения">
+            <div class="mobile-nav-header"><span>memory<span>.</span></span><button type="button" id="mobileNavClose" aria-label="Закрыть меню"><svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg></button></div>
+            <div class="nav-section-label" data-i18n="navMain">ПРОСТРАНСТВО</div>
+            <button class="header-btn nav-target nav-current" type="button" onclick="focusComposer()" aria-current="page">
+                <svg class="icon" aria-hidden="true"><use href="#i-chat"></use></svg><span data-i18n="navChat">Чат с Memory</span><span class="nav-active-dot" aria-hidden="true"></span>
             </button>
-            
-            <button class="header-btn you-btn" onclick="openYouModal()" title="Самопознание" aria-label="Самопознание">
-                <span aria-hidden="true">🔮</span>
+            <button class="header-btn nav-target" type="button" onclick="openKnowledgeModal()">
+                <svg class="icon" aria-hidden="true"><use href="#i-memory"></use></svg><span data-i18n="navMemory">Моя память</span>
             </button>
-
-            <button class="header-btn dating-btn" onclick="openDatingModal()" title="Знакомства" aria-label="Профиль знакомств">
-                <span aria-hidden="true">🧲</span>
+            <button class="header-btn nav-target" type="button" onclick="openYouModal()">
+                <svg class="icon" aria-hidden="true"><use href="#i-spark"></use></svg><span data-i18n="navSelf">Самопознание</span>
             </button>
-            
-            <button class="header-btn dialogs-btn" onclick="openDialogsModal()" title="Диалоги" id="dialogsHeaderBtn" aria-label="Диалоги">
-                <span id="dialogsHeaderEmoji" aria-hidden="true">💬</span>
-                <span id="dialogsUnreadBadge" class="unread-badge" style="display: none;"></span>
+            <button class="header-btn nav-target" type="button" onclick="openDatingModal()">
+                <svg class="icon" aria-hidden="true"><use href="#i-heart"></use></svg><span data-i18n="navDating">Знакомства</span>
             </button>
-            
-            <button class="header-btn reports-btn" onclick="openReportsModal()" title="Отчёты" aria-label="Отчёты">
-                <span aria-hidden="true">📊</span>
+            <button class="header-btn nav-target" type="button" onclick="openDialogsModal()" id="dialogsHeaderBtn">
+                <svg class="icon" aria-hidden="true"><use href="#i-dialogs"></use></svg><span data-i18n="navDialogs">Диалоги</span><span id="dialogsUnreadBadge" class="unread-badge" style="display: none;"></span>
             </button>
-
-            <button class="header-btn help-btn" onclick="openHelpModal()" title="Справка" aria-label="Справка">
-                <span aria-hidden="true">?</span>
+            <button class="header-btn nav-target" type="button" onclick="openReportsModal()">
+                <svg class="icon" aria-hidden="true"><use href="#i-chart"></use></svg><span data-i18n="navReports">Отчёты</span>
             </button>
 
+            <div class="nav-section-label nav-section-secondary" data-i18n="navOther">ДОПОЛНИТЕЛЬНО</div>
+            <button class="header-btn nav-target" type="button" onclick="openHelpModal()">
+                <svg class="icon" aria-hidden="true"><use href="#i-help"></use></svg><span data-i18n="navHelp">Как это работает</span>
+            </button>
             <div class="settings-wrapper">
-                <button class="header-btn settings-btn" onclick="toggleSettingsMenu()" title="Настройки" aria-label="Настройки">
-                    <span aria-hidden="true">⚙️</span>
+                <button class="header-btn" id="settingsToggle" type="button" onclick="toggleSettingsMenu()" aria-controls="settingsDropdown" aria-expanded="false">
+                    <svg class="icon" aria-hidden="true"><use href="#i-settings"></use></svg><span data-i18n="navSettings">Настройки</span>
                 </button>
                 <div class="settings-dropdown" id="settingsDropdown">
-                    <button class="settings-item" onclick="clearChat()">
-                        <span class="settings-icon">🗑️</span>
-                        <span data-i18n="btnClearChat">Clear Chat</span>
-                    </button>
-                    <button class="settings-item" onclick="clearKnowledge()">
-                        <span class="settings-icon">⚠️</span>
-                        <span data-i18n="btnClearKnowledge">Clear Knowledge</span>
-                    </button>
+                    <div class="settings-heading" data-i18n="settingsTitle">Настройки</div>
                     <label class="settings-item settings-check" title="Ассоциативный, более глубокий режим ответов">
-                        <span class="settings-icon">💡</span>
+                        <span data-i18n="settingsInsight">Режим инсайтов</span>
                         <input type="checkbox" id="insightModeSettingsToggle" onchange="toggleInsightMode()">
-                        <span>Insight mode</span>
                     </label>
+                    <label class="settings-item settings-check">
+                        <span data-i18n="settingsSmart">Умный режим</span>
+                        <input type="checkbox" id="smartModeToggle" onchange="toggleSmartMode()">
+                    </label>
+                    <div class="settings-hint" id="smartModeStatus"></div>
+                    <div class="model-switch">
+                        <span class="ms-label" data-i18n="settingsModel">Модель</span>
+                        <button type="button" class="ms-opt" data-model="hydra-gemini-3-pro" onclick="selectChatModel('hydra-gemini-3-pro')">Gemini 3 Pro</button>
+                        <button type="button" class="ms-opt" data-model="glm-5.2" onclick="selectChatModel('glm-5.2')">GLM-5.2</button>
+                    </div>
+                    <div class="settings-divider"></div>
+                    <button class="settings-item settings-action" type="button" onclick="clearChat()" data-close-settings>
+                        <span data-i18n="btnClearChat">Очистить чат</span>
+                    </button>
+                    <button class="settings-item settings-action" type="button" onclick="clearKnowledge()" data-close-settings>
+                        <span data-i18n="btnClearKnowledge">Очистить знания</span>
+                    </button>
                     <div class="settings-divider"></div>
                     <div class="language-menu-section">
-                        <div class="language-selector-menu" id="languageSelectorMenu">
-                            <!-- Здесь будет вставлен язык через JS -->
-                        </div>
+                        <div class="language-selector-menu" id="languageSelectorMenu"></div>
+                    </div>
+                    <div class="local-firebase-settings" id="localFirebaseSettings" hidden>
+                        <label for="firebase-api-key">Firebase API Key</label>
+                        <input type="password" id="firebase-api-key" autocomplete="off" placeholder="Firebase API Key">
+                        <button type="button" onclick="saveFirebaseKey()">Сохранить ключ</button>
+                        <span id="firebase-key-status"></span>
                     </div>
                 </div>
             </div>
+            <div class="sidebar-note">
+                <div class="sidebar-note-icon"><svg class="icon" aria-hidden="true"><use href="#i-lock"></use></svg></div>
+                <div><strong data-i18n="sidebarPrivacyTitle">Всё под контролем</strong><p data-i18n="sidebarPrivacyText">Память хранится в этом браузере</p></div>
+            </div>
+            <div class="sidebar-bottom"><span class="sidebar-bottom-dot"></span><span data-i18n="sidebarFooter">ВАШЕ ЛИЧНОЕ ПРОСТРАНСТВО</span></div>
         </nav>
     </header>
+    <button class="nav-backdrop" id="navBackdrop" type="button" aria-label="Закрыть меню" tabindex="-1"></button>
 
-    <!-- Main Chat Container -->
     <main class="chat-container">
-        <!-- Chat Area -->
-        <div class="chat-area" id="chatArea">
-            <div class="message system" data-i18n="welcomeMessage">
-                Hello! I'm your personal assistant. Tell me about yourself, and I'll remember important information.
+        <div class="workspace-header">
+            <div class="workspace-heading">
+                <div class="workspace-heading-icon"><svg class="icon" aria-hidden="true"><use href="#i-chat"></use></svg></div>
+                <div><h2 data-i18n="workspaceTitle">Личный чат</h2><p data-i18n="workspaceSubtitle">Пространство для ваших мыслей</p></div>
             </div>
+            <button class="workspace-memory-button" type="button" onclick="openKnowledgeModal()">
+                <span class="status-dot" aria-hidden="true"></span><span data-i18n="workspaceMemory">Память в браузере</span><svg class="icon" aria-hidden="true"><use href="#i-chevron"></use></svg>
+            </button>
         </div>
 
-        <!-- Input Area (привязано к низу) -->
-        <div class="input-container">
-            <!-- Ask Me Mode Toggle -->
-            <div class="ask-me-container">
-                <span class="ask-me-label" data-i18n="askMeMode">Ask Me Mode</span>
-                <div class="ask-me-toggle disabled" id="askMeToggle" onclick="toggleAskMeMode()" title="">
-                    <div class="ask-me-slider" id="askMeSlider"></div>
+        <div class="chat-area" id="chatArea" aria-label="История разговора">
+            <section class="welcome-screen" id="welcomeScreen" aria-labelledby="welcomeHeading">
+                <div class="welcome-hero">
+                    <img class="hero-art" src="assets/memory-orb.webp" alt="" aria-hidden="true">
+                    <div class="hero-art-fade" aria-hidden="true"></div>
+                    <div class="hero-content">
+                        <div class="hero-eyebrow"><svg class="icon" aria-hidden="true"><use href="#i-spark"></use></svg><span data-i18n="heroEyebrow">ВАШ ЛИЧНЫЙ ИИ-СОБЕСЕДНИК</span></div>
+                        <h1 id="welcomeHeading"><span data-i18n="heroTitle">Привет, я Memory.</span><br><span class="hero-title-accent" data-i18n="heroTitleAccent">Давайте познакомимся.</span></h1>
+                        <p data-i18n="heroDescription">Я запоминаю важное из наших разговоров, чтобы лучше понимать вас. Начните с любой мысли — я рядом.</p>
+                        <button class="hero-button" type="button" onclick="focusComposer()"><span data-i18n="heroAction">Начать разговор</span><svg class="icon" aria-hidden="true"><use href="#i-arrow-right"></use></svg></button>
+                    </div>
+                    <div class="hero-index" aria-hidden="true">M / 01</div>
                 </div>
-            </div>
 
-            <!-- Insight Mode перенесён в «Настройки» (включён по умолчанию) -->
+                <div class="suggestions-heading">
+                    <div><div class="section-kicker" data-i18n="suggestionsKicker">ИДЕИ ДЛЯ НАЧАЛА</div><h2 data-i18n="suggestionsTitle">С чего начнём?</h2></div>
+                    <span data-i18n="suggestionsHint">Выберите тему или напишите свою</span>
+                </div>
+                <div class="suggestion-grid">
+                    <button class="suggestion-card suggestion-violet" type="button" data-prompt-key="promptAbout">
+                        <span class="suggestion-icon"><svg class="icon" aria-hidden="true"><use href="#i-user"></use></svg></span><svg class="icon suggestion-arrow" aria-hidden="true"><use href="#i-arrow-up-right"></use></svg>
+                        <strong data-i18n="suggestionAbout">Немного обо мне</strong><span data-i18n="suggestionAboutText">Давайте знакомиться</span>
+                    </button>
+                    <button class="suggestion-card suggestion-blue" type="button" data-prompt-key="promptInterests">
+                        <span class="suggestion-icon"><svg class="icon" aria-hidden="true"><use href="#i-leaf"></use></svg></span><svg class="icon suggestion-arrow" aria-hidden="true"><use href="#i-arrow-up-right"></use></svg>
+                        <strong data-i18n="suggestionInterests">Мои интересы</strong><span data-i18n="suggestionInterestsText">То, что меня увлекает</span>
+                    </button>
+                    <button class="suggestion-card suggestion-peach" type="button" data-prompt-key="promptGoals">
+                        <span class="suggestion-icon"><svg class="icon" aria-hidden="true"><use href="#i-target"></use></svg></span><svg class="icon suggestion-arrow" aria-hidden="true"><use href="#i-arrow-up-right"></use></svg>
+                        <strong data-i18n="suggestionGoals">Планы и мечты</strong><span data-i18n="suggestionGoalsText">О том, к чему я иду</span>
+                    </button>
+                    <button class="suggestion-card suggestion-mint" type="button" data-prompt-key="promptThoughts">
+                        <span class="suggestion-icon"><svg class="icon" aria-hidden="true"><use href="#i-bulb"></use></svg></span><svg class="icon suggestion-arrow" aria-hidden="true"><use href="#i-arrow-up-right"></use></svg>
+                        <strong data-i18n="suggestionThoughts">Разобраться в себе</strong><span data-i18n="suggestionThoughtsText">Посмотреть по-новому</span>
+                    </button>
+                </div>
+                <div class="welcome-note"><span class="welcome-note-icon"><svg class="icon" aria-hidden="true"><use href="#i-spark"></use></svg></span><span data-i18n="welcomeNote">Можно начать с малого. Каждая история имеет значение.</span><span class="welcome-note-dots" aria-hidden="true">✦ &nbsp; · &nbsp; ✦</span></div>
+            </section>
+        </div>
 
-            <!-- Статус голосового ввода -->
-            <div class="voice-status-row" id="voiceStatusRow"><span id="voiceStatus"></span></div>
-
-            <!-- Форма ввода -->
+        <div class="input-container">
+            <div class="voice-status-row" id="voiceStatusRow" role="status"><span id="voiceStatus"></span></div>
             <form class="input-form" onsubmit="sendMessage(event)">
-                <button type="button" class="voice-btn" id="voiceBtn" onclick="toggleVoiceInput()" title="Голосовой ввод (до 10 минут)" aria-label="Голосовой ввод">
-                    🎤
-                </button>
-                <textarea 
-                    class="message-input" 
-                    id="messageInput" 
-                    data-i18n-placeholder="inputPlaceholder"
-                    placeholder="Enter message..."
-                    rows="1"
-                    onkeydown="handleKeyDown(event)"
-                ></textarea>
-                <button type="submit" class="send-btn" id="sendBtn" data-i18n="btnSend">
-                    Send
-                </button>
+                <textarea class="message-input" id="messageInput" data-i18n-placeholder="inputPlaceholder" placeholder="Напишите о чём угодно..." aria-label="Сообщение" rows="1" onkeydown="handleKeyDown(event)"></textarea>
+                <div class="composer-toolbar">
+                    <div class="ask-me-container">
+                        <svg class="icon ask-icon" aria-hidden="true"><use href="#i-spark"></use></svg>
+                        <span class="ask-me-label" id="askMeLabel" data-i18n="askMeShort">Спроси меня</span>
+                        <button type="button" class="ask-me-toggle disabled" id="askMeToggle" onclick="toggleAskMeMode()" role="switch" aria-checked="false" aria-labelledby="askMeLabel" aria-describedby="askMeHint" disabled><span class="ask-me-slider" id="askMeSlider"></span></button>
+                        <span class="sr-only" id="askMeHint"></span>
+                    </div>
+                    <div class="composer-actions">
+                        <button type="button" class="voice-btn" id="voiceBtn" onclick="toggleVoiceInput()" title="Голосовой ввод (до 10 минут)" aria-label="Голосовой ввод"><svg class="icon" aria-hidden="true"><use href="#i-mic"></use></svg></button>
+                        <button type="submit" class="send-btn" id="sendBtn" disabled><span data-i18n="btnSend">Отправить</span><svg class="icon" aria-hidden="true"><use href="#i-send"></use></svg></button>
+                    </div>
+                </div>
             </form>
+            <div class="composer-footer"><span><svg class="icon" aria-hidden="true"><use href="#i-lock"></use></svg><span data-i18n="composerPrivacy">Память сохраняется в этом браузере</span></span><span class="composer-shortcut" data-i18n="composerShortcut">Enter — отправить · Shift + Enter — новая строка</span></div>
+            <div class="sr-only" id="chatStatus" aria-live="polite"></div>
 
-            <!-- Панель голосовой записи: запись → большая кнопка «Стоп», после — Отправить/Удалить -->
             <div class="voice-panel" id="voicePanel">
                 <button type="button" class="vp-stop" id="voiceStopBtn" onclick="toggleVoiceInput()" aria-label="Остановить запись">
-                    <span class="vp-icon">⏹</span>
-                    <span class="vp-main">Остановить запись</span>
-                    <span class="vp-sub" id="voiceTimer">0:00</span>
+                    <span class="vp-icon">⏹</span><span class="vp-main">Остановить запись</span><span class="vp-sub" id="voiceTimer">0:00</span>
                 </button>
                 <div class="vp-actions" id="voiceActions">
                     <button type="button" class="vp-btn vp-send" id="voiceSendBtn" onclick="voiceSend()">Отправить</button>
@@ -264,24 +317,48 @@
                 </div>
                 <div class="vp-hint" id="voiceHint"></div>
             </div>
-
-            <!-- Counters (только для локальной разработки) -->
             <div class="counters-container" id="countersContainer">
-                <div class="counter-badge">
-                    <span data-i18n="counterStyle">🎭 Style:</span> 
-                    <span class="style-count" id="styleCounter">10</span>
-                </div>
-                <div class="counter-badge">
-                    <span data-i18n="counterHypotheses">💡 Hypotheses:</span> 
-                    <span class="hypo-count" id="hypoCounter">16</span>
-                </div>
-                <div class="counter-badge">
-                    <span data-i18n="counterGaps">🔍 Gaps:</span> 
-                    <span class="gaps-count" id="gapsCounter">6</span>
-                </div>
+                <span class="counter-caption" data-i18n="counterCaption">До обновления (сообщений):</span>
+                <div class="counter-badge"><span data-i18n="counterStyle">🎭 Стиль:</span> <span class="style-count" id="styleCounter">10</span></div>
+                <div class="counter-badge"><span data-i18n="counterHypotheses">💡 Гипотезы:</span> <span class="hypo-count" id="hypoCounter">16</span></div>
+                <div class="counter-badge"><span data-i18n="counterGaps">🔍 Пробелы:</span> <span class="gaps-count" id="gapsCounter">6</span></div>
             </div>
         </div>
     </main>
+
+    <aside class="context-panel" aria-label="Обзор памяти">
+        <div class="context-header"><span data-i18n="contextHeading">ВАШЕ ПРОСТРАНСТВО</span><svg class="icon" aria-hidden="true"><use href="#i-spark"></use></svg></div>
+        <div class="context-scroll">
+            <div class="context-title-row"><h2 data-i18n="contextTitle">Всё о вас</h2><button type="button" class="icon-link" onclick="openKnowledgeModal()" aria-label="Открыть память"><svg class="icon" aria-hidden="true"><use href="#i-arrow-up-right"></use></svg></button></div>
+            <div class="memory-card">
+                <div class="memory-card-top"><span class="memory-card-label" data-i18n="memoryLabel">ЛИЧНАЯ ПАМЯТЬ</span><span class="memory-status" id="memoryStatus" data-i18n="memoryEmptyTag">Пока пусто</span></div>
+                <div class="memory-graphic" aria-hidden="true">
+                    <span class="memory-orbit orbit-one"></span><span class="memory-orbit orbit-two"></span><span class="memory-node node-one"></span><span class="memory-node node-two"></span><span class="memory-node node-three"></span>
+                    <span class="memory-core"><svg class="icon"><use href="#i-spark"></use></svg></span>
+                </div>
+                <h3 data-i18n="memoryCardTitle">Память о вас</h3>
+                <p id="memorySummary" data-i18n="memoryEmptySummary">Здесь появится важное из ваших разговоров. Расскажите немного о себе.</p>
+                <div class="memory-stats" aria-label="Записи в памяти">
+                    <div><strong id="memoryFacts">0</strong><span id="memoryFactsLabel" data-i18n="memoryFactsLabel">фактов</span></div>
+                    <div><strong id="memoryTraits">0</strong><span id="memoryTraitsLabel" data-i18n="memoryTraitsLabel">черт</span></div>
+                    <div><strong id="memoryEvents">0</strong><span id="memoryEventsLabel" data-i18n="memoryEventsLabel">событий</span></div>
+                </div>
+                <button class="memory-open" type="button" onclick="openKnowledgeModal()"><span data-i18n="memoryOpen">Открыть память</span><svg class="icon" aria-hidden="true"><use href="#i-arrow-right"></use></svg></button>
+            </div>
+            <div class="quick-heading"><span data-i18n="quickHeading">ИССЛЕДУЙТЕ</span><span>02</span></div>
+            <button class="quick-link" type="button" onclick="openYouModal()">
+                <span class="quick-icon quick-violet"><svg class="icon" aria-hidden="true"><use href="#i-spark"></use></svg></span>
+                <span class="quick-copy"><strong data-i18n="quickSelf">Самопознание</strong><small data-i18n="quickSelfText">Узнайте себя лучше</small></span>
+                <svg class="icon quick-arrow" aria-hidden="true"><use href="#i-chevron"></use></svg>
+            </button>
+            <button class="quick-link" type="button" onclick="openReportsModal()">
+                <span class="quick-icon quick-blue"><svg class="icon" aria-hidden="true"><use href="#i-chart"></use></svg></span>
+                <span class="quick-copy"><strong data-i18n="quickReports">Отчёты</strong><small data-i18n="quickReportsText">Новый взгляд на себя</small></span>
+                <svg class="icon quick-arrow" aria-hidden="true"><use href="#i-chevron"></use></svg>
+            </button>
+            <div class="context-footnote"><svg class="icon" aria-hidden="true"><use href="#i-lock"></use></svg><span data-i18n="contextPrivacy">Вы можете просмотреть и удалить сохранённые знания в любой момент.</span></div>
+        </div>
+    </aside>
 
     <!-- ========================================== -->
     <!-- ВСЕ МОДАЛЬНЫЕ ОКНА И ОВЕРЛЕИ СГРУППИРОВАНЫ ЗДЕСЬ -->
@@ -294,11 +371,11 @@
     </div>
 
     <!-- Reports Modal -->
-    <div class="reports-modal-overlay" id="reportsModal">
+    <div class="reports-modal-overlay" id="reportsModal" role="dialog" aria-modal="true" aria-label="Отчёты" data-workspace-dialog>
         <div class="reports-modal">
             <div class="reports-header">
                 <h2>📊 Генератор Отчётов</h2>
-                <button class="reports-close-btn" onclick="closeReportsModal()">✕</button>
+                <button class="reports-close-btn" onclick="closeReportsModal()" aria-label="Закрыть отчёты">✕</button>
             </div>
             
             <!-- Контекст -->
@@ -403,9 +480,9 @@
     </div>
 
     <!-- Help Modal -->
-    <div class="help-modal-overlay" id="helpModal">
+    <div class="help-modal-overlay" id="helpModal" role="dialog" aria-modal="true" aria-label="Справка" data-workspace-dialog>
         <div class="help-modal">
-            <button class="help-modal-close" onclick="closeHelpModal()">✕</button>
+            <button class="help-modal-close" onclick="closeHelpModal()" aria-label="Закрыть справку">✕</button>
             
             <h1>🧠 Memory Chatbot</h1>
             
@@ -427,25 +504,24 @@
 
             <section class="help-section">
                 <h2>🎤 Режим 'Спроси меня'</h2>
-                <p>Включите переключатель — бот будет задавать вопросы, чтобы узнать вас лучше. Вопросы вплетаются естественно в разговор.</p>
+                <p>Когда накопятся первые пробелы в знаниях (обычно после 6 сообщений), включите переключатель — бот будет задавать вопросы, чтобы узнать вас лучше.</p>
             </section>
             
             <section class="help-section">
                 <h2>🔮 Самопознание</h2>
-                <p>Нажмите на магический шар в шапке — пройдите интерактивный тест личности. Узнайте свои качества, ценности и приоритетные сферы жизни.</p>
+                <p>Откройте раздел «Самопознание» в меню и пройдите интерактивный тест личности. Узнайте свои качества, ценности и приоритетные сферы жизни.</p>
             </section>
 
             <section class="help-section">
                 <h2>🧲 Профиль для знакомств</h2>
-                <p>Когда накопится достаточно данных (50+ фактов), вы сможете создать свой личностный профиль из 33 измерений. Профиль можно скопировать и использовать для подбора совместимых людей.</p>
+                <p>Когда накопится достаточно данных (50+ фактов), вы сможете создать свой личностный профиль из 50 измерений. Профиль можно скопировать и использовать для подбора совместимых людей.</p>
             </section>
 
             <section class="help-section">
                 <h2>🔒 Приватность</h2>
-                <p><strong>Все данные хранятся только на вашем устройстве.</strong></p>
-                <p>Мы технически не можем прочитать вашу переписку — она не отправляется на наши серверы.</p>
-                <p>Сообщения обрабатываются через <a href="https://openrouter.ai/privacy" target="_blank">OpenRouter</a> для работы ИИ.</p>
-                <p>Нажмите 'Очистить знания' чтобы удалить всё мгновенно.</p>
+                <p><strong>История чата и база знаний хранятся в этом браузере.</strong></p>
+                <p>При общении сообщение и необходимый контекст передаются выбранному ИИ-провайдеру для обработки. При публикации анкеты данные профиля также передаются сервису знакомств.</p>
+                <p>Вы можете отдельно очистить историю чата и сохранённые знания в настройках.</p>
             </section>
 
             <section class="help-section">
@@ -467,13 +543,13 @@
             </section>
 
             <div class="help-footer">
-                <p>Версия 1.2 · 2025</p>
+                <p>Memory Chatbot · персональный ассистент</p>
             </div>
         </div>
     </div>
 
     <!-- Fullscreen knowledge modal -->
-    <div class="modal-overlay" id="knowledgeModal">
+    <div class="modal-overlay" id="knowledgeModal" role="dialog" aria-modal="true" aria-label="База знаний" data-workspace-dialog>
         <div class="modal-header">
             <h2 data-i18n="modalTitle">📚 Knowledge Base</h2>
             <button class="modal-close" onclick="closeKnowledgeModal()" data-i18n="btnClose">✕ Close</button>
@@ -562,7 +638,7 @@
     </div>
 
     <!-- YOU Modal (Self-Discovery) -->
-    <div class="you-modal-overlay" id="youModal">
+    <div class="you-modal-overlay" id="youModal" role="dialog" aria-modal="true" aria-label="Самопознание" data-workspace-dialog>
         <div class="you-header">
             <div class="you-header-title">
                 <span class="you-title-star" id="youLeftStar">✨</span>
@@ -571,7 +647,7 @@
             </div>
             <div class="you-header-buttons">
                 <button class="you-help-btn" onclick="openYouHelpModal()" title="Что это?">?</button>
-                <button class="you-close-btn" onclick="closeYouModal()">✕</button>
+                <button class="you-close-btn" onclick="closeYouModal()" aria-label="Закрыть самопознание">✕</button>
             </div>
         </div>
         
@@ -608,9 +684,9 @@
     </div>
 
     <!-- YOU Help Modal -->
-    <div class="you-help-modal-overlay" id="youHelpModal">
+    <div class="you-help-modal-overlay" id="youHelpModal" role="dialog" aria-modal="true" aria-label="Справка по самопознанию" data-workspace-dialog>
         <div class="you-help-modal">
-            <button class="you-help-modal-close" onclick="closeYouHelpModal()">✕</button>
+            <button class="you-help-modal-close" onclick="closeYouHelpModal()" aria-label="Закрыть справку">✕</button>
             
             <h1>🔮 Познай себя</h1>
             
@@ -668,11 +744,11 @@
     </div>
 
     <!-- Dating Modal (Знакомства) -->
-    <div class="dating-modal-overlay" id="datingModal">
+    <div class="dating-modal-overlay" id="datingModal" role="dialog" aria-modal="true" aria-label="Знакомства" data-workspace-dialog>
         <div class="dating-modal">
             <div class="dating-header">
                 <h2>🧲 Знакомства</h2>
-                <button class="dating-close-btn" onclick="closeDatingModal()">✕</button>
+                <button class="dating-close-btn" onclick="closeDatingModal()" aria-label="Закрыть знакомства">✕</button>
             </div>
             
             <!-- Табы -->
@@ -698,7 +774,7 @@
     </div>
 
     <!-- Privacy Disclaimer Modal -->
-    <div class="privacy-disclaimer-overlay" id="privacyDisclaimer">
+    <div class="privacy-disclaimer-overlay" id="privacyDisclaimer" role="dialog" aria-modal="true" aria-label="Данные и приватность" data-workspace-dialog>
         <div class="privacy-disclaimer-modal">
             <div class="privacy-header">
                 <span class="privacy-icon">🛡️</span>
@@ -709,8 +785,8 @@
                 <div class="privacy-principle">
                     <div class="principle-icon">🔐</div>
                     <div class="principle-text">
-                        <strong>Ваши данные остаются у вас</strong>
-                        <p>Всё, что вы рассказали боту — имена, истории, переживания — хранится <em>только на вашем устройстве</em>. Никуда не отправляется. Никогда.</p>
+                        <strong>Где хранятся данные</strong>
+                        <p>История и база знаний хранятся в вашем браузере. При общении и создании некоторых отчётов сообщение и необходимый контекст передаются ИИ-провайдеру для обработки.</p>
                     </div>
                 </div>
                 
@@ -725,8 +801,8 @@
                 <div class="privacy-principle">
                     <div class="principle-icon">🎭</div>
                     <div class="principle-text">
-                        <strong>Глубина без деанонимизации</strong>
-                        <p>В этом суть проекта: система знает о вас <em>всё</em>, чтобы дать точный анализ — но передаёт наружу только абстрактный числовой портрет. Никто не узнает про ваших бывших, страхи или мечты, если вы сами не расскажете.</p>
+                        <strong>Числовой портрет и контекст</strong>
+                        <p>Для знакомства используется числовой портрет. Некоторые виды отчётов также передают выбранные сведения ИИ-провайдеру для анализа; состав данных указан перед запуском каждого отчёта.</p>
                     </div>
                 </div>
                 
@@ -753,6 +829,7 @@
             </div>
             
             <div class="privacy-footer">
+                <button class="privacy-cancel-btn" type="button" onclick="cancelPrivacyDisclaimer()">Отмена</button>
                 <button class="privacy-accept-btn" onclick="acceptPrivacyDisclaimer()">
                     ✅ Да, мне понятно
                 </button>
@@ -761,7 +838,7 @@
     </div>
 
     <!-- Dialogs Modal -->
-    <div class="dialogs-modal-overlay" id="dialogsModal">
+    <div class="dialogs-modal-overlay" id="dialogsModal" role="dialog" aria-modal="true" aria-label="Диалоги" data-workspace-dialog>
         <div class="dialogs-modal">
             <!-- Экран 1: Список контактов -->
             <div id="dialogsListScreen" class="dialogs-screen active">
@@ -769,7 +846,7 @@
                     <h2>💬 Чаты</h2>
                     <div class="dialogs-header-actions">
                         <button class="dialogs-btn-check" onclick="checkNewMessages(true)" id="checkMessagesBtn">🔄 Проверить письма</button>
-                        <button class="dialogs-close-btn" onclick="closeDialogsModal()">✕</button>
+                        <button class="dialogs-close-btn" onclick="closeDialogsModal()" aria-label="Закрыть диалоги">✕</button>
                     </div>
                 </div>
                 <div class="dialogs-list-content" id="dialogsListContent">
@@ -807,5 +884,6 @@
     <script src="reports.js"></script>    <!-- 6. Модуль отчётов -->
     <script src="dialogs.js"></script>    <!-- 7. Модуль диалогов -->
     <script src="voice.js"></script>      <!-- 8. Голосовой ввод (Whisper Large V3) -->
+    <script src="dashboard.js"></script>  <!-- 9. Главный экран и адаптивная навигация -->
 </body>
 </html>
