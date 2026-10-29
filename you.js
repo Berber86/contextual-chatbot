@@ -674,12 +674,13 @@ function youShowError(message) {
     }
 }
 
-function youShowToast(message) {
+function youShowToast(message, type = 'success') {
     const oldToast = document.querySelector('.you-toast');
     if (oldToast) oldToast.remove();
     
     const toast = document.createElement('div');
-    toast.className = 'you-toast';
+    toast.className = type === 'warning' ? 'you-toast you-toast-warning' : 'you-toast';
+    toast.setAttribute('role', 'status');
     toast.textContent = message;
     document.body.appendChild(toast);
     
@@ -902,14 +903,14 @@ function youRenderZones(roundIndex) {
     const nextBtn = document.getElementById('youNextBtn');
     
     const stepText = round.step === 1
-        ? `Выберите ${config.name.toLowerCase()}, которые вам подходят`
+        ? 'Выберите варианты, которые вам подходят'
         : 'Уточните выбор';
     
     let cardsHtml = '';
     for (let i = 0; i < youState.currentQualities.length; i++) {
         const q = youState.currentQualities[i];
         cardsHtml += `
-            <div class="you-quality-card" draggable="true" data-card="${i}">
+            <div class="you-quality-card" role="button" tabindex="0" aria-pressed="false" draggable="true" data-card="${i}">
                 <div class="you-quality-emoji">${q.emoji}</div>
                 <div class="you-quality-info">
                     <div class="you-quality-name">${youEscapeHtml(q.name)}</div>
@@ -928,25 +929,26 @@ function youRenderZones(roundIndex) {
         content.innerHTML = `
             <div class="you-step-indicator">
                 <div class="you-step">${config.emoji} Раунд ${roundIndex + 1} из 6</div>
-                <div class="you-instruction">${stepText}</div>
+                <div class="you-instruction">${stepText}. Нажмите карточку, затем зону.</div>
             </div>
             <div class="you-zones-container">
                 <div class="you-drop-zone you-zone-yes" data-zone="yes">
-                    <div class="you-zone-header">✅ Это я <span class="you-zone-limit">(макс. 2)</span></div>
+                    <div class="you-zone-header"><button type="button" class="you-zone-select">✅ Это я <span class="you-zone-limit">(макс. 2)</span></button></div>
                     <div class="you-zone-cards" data-zone="yes"></div>
                 </div>
                 <div class="you-drop-zone you-zone-neutral" data-zone="neutral">
-                    <div class="you-zone-header">🔄 Варианты</div>
+                    <div class="you-zone-header"><button type="button" class="you-zone-select">🔄 Варианты</button></div>
                     <div class="you-zone-cards" data-zone="neutral">${cardsHtml}</div>
                 </div>
                 <div class="you-drop-zone you-zone-no" data-zone="no">
-                    <div class="you-zone-header">❌ Не я <span class="you-zone-limit">(макс. 1)</span></div>
+                    <div class="you-zone-header"><button type="button" class="you-zone-select">❌ Не я <span class="you-zone-limit">(макс. 1)</span></button></div>
                     <div class="you-zone-cards" data-zone="no"></div>
                 </div>
             </div>
             <p class="you-touch-hint">💡 Нажмите карточку, затем на зону</p>
         `;
         
+        content.scrollTop = 0;
         youInitDragAndDrop();
         youUpdateNextButton();
     }
@@ -967,6 +969,12 @@ function youInitDragAndDrop() {
         card.addEventListener('touchmove', youHandleTouchMove, { passive: false });
         card.addEventListener('touchend', youHandleTouchEnd);
         card.addEventListener('click', youHandleCardClick);
+        card.addEventListener('keydown', function (event) {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                card.click();
+            }
+        });
     });
     
     zones.forEach(zone => {
@@ -986,10 +994,11 @@ function youHandleCardClick(e) {
     const card = this;
     const wasActive = card.classList.contains('active');
     
-    document.querySelectorAll('.you-quality-card').forEach(c => c.classList.remove('active'));
+    document.querySelectorAll('.you-quality-card').forEach(c => { c.classList.remove('active'); c.setAttribute('aria-pressed', 'false'); });
     
     if (!wasActive) {
         card.classList.add('active');
+        card.setAttribute('aria-pressed', 'true');
         youState.activeCard = card;
     } else {
         youState.activeCard = null;
@@ -1004,9 +1013,9 @@ function youHandleZoneClick(e) {
     const zone = this;
     const zoneType = zone.dataset.zone;
     
-    if (youState.activeCard) {
-        youMoveCardToZone(youState.activeCard, zoneType);
+    if (youState.activeCard && youMoveCardToZone(youState.activeCard, zoneType)) {
         youState.activeCard.classList.remove('active');
+        youState.activeCard.setAttribute('aria-pressed', 'false');
         youState.activeCard = null;
         youUpdateZoneHighlights();
     }
@@ -1015,7 +1024,9 @@ function youHandleZoneClick(e) {
 function youHandleDragStart(e) {
     if (youState.activeCard) {
         youState.activeCard.classList.remove('active');
+        youState.activeCard.setAttribute('aria-pressed', 'false');
         youState.activeCard = null;
+        youUpdateZoneHighlights();
     }
     
     youState.draggedCard = this;
@@ -1054,6 +1065,12 @@ function youHandleDrop(e) {
 
 function youHandleTouchStart(e) {
     if (e.touches.length !== 1) return;
+    // On narrow touch screens, tap a card and then a zone. This leaves swipes
+    // available for scrolling the full list instead of starting a drag by accident.
+    if (window.matchMedia && window.matchMedia('(max-width: 900px)').matches) {
+        youState.touchDragData = null;
+        return;
+    }
     const touch = e.touches[0];
     const card = this;
     
@@ -1080,7 +1097,9 @@ function youHandleTouchMove(e) {
         
         if (youState.activeCard) {
             youState.activeCard.classList.remove('active');
+            youState.activeCard.setAttribute('aria-pressed', 'false');
             youState.activeCard = null;
+            youUpdateZoneHighlights();
         }
         
         const clone = youState.touchDragData.card.cloneNode(true);
@@ -1137,16 +1156,20 @@ function youHandleTouchEnd(e) {
 
 function youMoveCardToZone(card, zoneType) {
     const zone = document.querySelector(`.you-drop-zone.you-zone-${zoneType}`);
+    if (!zone) return false;
     const zoneCards = zone.querySelector('.you-zone-cards');
     const cardCount = zoneCards.querySelectorAll('.you-quality-card').length;
-    
-    if (card.parentElement === zoneCards) return;
-    
-    if (cardCount < YOU_CONFIG.zoneLimits[zoneType]) {
-        zoneCards.appendChild(card);
-        youUpdateZoneStates();
-        youUpdateNextButton();
+
+    if (card.parentElement === zoneCards) return true;
+    if (cardCount >= YOU_CONFIG.zoneLimits[zoneType]) {
+        youShowToast('В этой зоне уже максимальное количество карточек', 'warning');
+        return false;
     }
+
+    zoneCards.appendChild(card);
+    youUpdateZoneStates();
+    youUpdateNextButton();
+    return true;
 }
 
 function youUpdateZoneStates() {
@@ -1414,6 +1437,9 @@ function youShowHypothesesModal() {
 function youShowDataModal(title, items, type) {
     const overlay = document.createElement('div');
     overlay.className = 'you-data-modal-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', title);
     overlay.onclick = (e) => {
         if (e.target === overlay) overlay.remove();
     };

@@ -199,6 +199,7 @@ function renderNotEnoughData(currentCount) {
             </div>
             <p class="dating-progress-text">${currentCount} / ${MIN_FACTS_REQUIRED} фактов</p>
             <p class="dating-hint">Продолжайте общаться с ассистентом, рассказывайте о себе, своих интересах и взглядах.</p>
+            <button type="button" class="dating-return-chat" onclick="closeDatingModal(); focusComposer()">Вернуться в чат</button>
         </div>`;
 }
 
@@ -2035,6 +2036,12 @@ function showPrivacyDisclaimer(callback) {
     if (overlay) {
         overlay.classList.add('active');
     }
+}
+
+function cancelPrivacyDisclaimer() {
+    window._privacyCallback = null;
+    const overlay = document.getElementById('privacyDisclaimer');
+    if (overlay) overlay.classList.remove('active');
 }
 
 function acceptPrivacyDisclaimer() {

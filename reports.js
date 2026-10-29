@@ -230,7 +230,7 @@ function renderUserMode(container) {
                 <button class="reports-mode-toggle" onclick="switchReportsMode('test')" title="Режим разработчика">
                     🔧
                 </button>
-                <button class="reports-close-btn" onclick="closeReportsModal()">✕</button>
+                <button class="reports-close-btn" onclick="closeReportsModal()" aria-label="Закрыть отчёты">✕</button>
             </div>
         </div>
         
@@ -448,7 +448,7 @@ function renderTestMode(container) {
                 <button class="reports-mode-toggle" onclick="switchReportsMode('user')" title="Пользовательский режим">
                     👤
                 </button>
-                <button class="reports-close-btn" onclick="closeReportsModal()">✕</button>
+                <button class="reports-close-btn" onclick="closeReportsModal()" aria-label="Закрыть отчёты">✕</button>
             </div>
         </div>
         
