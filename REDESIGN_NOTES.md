@@ -158,3 +158,35 @@ Known follow-up:
 - Report prompts themselves could use a content/design pass after the UI is stable.
 - Some report descriptions are long and uneven in tone. They should be rewritten with the same product voice.
 - The constructor mode could eventually save prompt presets.
+
+## Step 6 completed: Workspace graphical upgrade
+
+Date: 2026-10-29
+
+Scope:
+
+- Replaced the empty dark chat start with a calm light workspace, evergreen sidebar and a concrete welcome screen.
+- Added desktop sidebar navigation, mobile bottom navigation and a slide-in drawer for secondary sections.
+- Added a live memory summary (facts / traits / people) backed by the existing storage getters.
+- Added prompt suggestion cards that fill the composer without auto-submitting.
+- Unified buttons, inputs, tabs, modals, chips, empty states and report cards under one token layer.
+- Switched `index.html` from the `style.css` monolith to the modular stylesheet pipeline plus `styles/workspace.css`.
+- Vendored Manrope and Lora fonts locally; no runtime font CDN dependency.
+- Moved voice-input styles out of inline HTML into `styles/voice.css`.
+
+Interaction and accessibility fixes:
+
+- Implemented the missing `handleKeyDown` (Enter sends, Shift+Enter newline, IME-safe).
+- Send button now reflects empty/processing state.
+- Ask Me control is a real switch button with `aria-checked` / `aria-disabled`.
+- Settings menu exposes `aria-expanded`, closes on Escape/outside click, and no longer uses inline display hacks.
+- Modals get dialog semantics, focus containment, Escape-to-close and focus restore.
+- Welcome screen hides only for real conversation messages, not for system notices.
+- Removed duplicate `appendMessage`, `addToHistory` and `loadChatHistory` definitions that dropped timestamps/audio flags.
+- Corrected privacy/help copy so it no longer claims context is never sent to a model provider.
+
+QA:
+
+- `node --test tests/open-access.test.cjs tests/workspace-ui.test.cjs`
+- Browser checks at 360×640, 390×844, 768×1024 and 1440×900: no horizontal overflow.
+- Verified prompt fill, Enter/Shift+Enter, history persistence, memory counters, settings, mobile drawer and modal Escape/focus restore.

@@ -904,46 +904,22 @@ ${forbiddenBlock}
 // ==================== SETTINGS MENU ====================
 function initSettingsMenu() {
     renderLanguageMenu();
-    
     document.addEventListener('click', (e) => {
-        // Если кликнули мимо шестеренки И мимо самого розового блока
         if (!e.target.closest('.settings-wrapper') && !e.target.closest('#dev-settings')) {
-            const dropdown = document.getElementById('settingsDropdown');
-            if (dropdown) dropdown.classList.remove('open');
-            
-            const devBox = document.getElementById('dev-settings');
-            if (devBox) devBox.style.display = 'none';
-            
-            closeAllLanguageDropdowns();
-        }
-    });
-    
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-            const dropdown = document.getElementById('settingsDropdown');
-            if (dropdown) dropdown.classList.remove('open');
-            
-            const devBox = document.getElementById('dev-settings');
-            if (devBox) devBox.style.display = 'none';
-            
-            closeAllLanguageDropdowns();
+            if (typeof closeSettingsMenu === 'function') closeSettingsMenu();
         }
     });
 }
 
 function toggleSettingsMenu() {
     const settingsDropdown = document.getElementById('settingsDropdown');
-    const devBox = document.getElementById('dev-settings'); // Находим наш розовый блок
-    
+    const devBox = document.getElementById('dev-settings');
     if (settingsDropdown) {
         const isOpen = settingsDropdown.classList.toggle('open');
-        
-        // Показываем/скрываем розовый блок вместе с выпадающим меню
-        if (devBox) {
-            devBox.style.display = isOpen ? 'block' : 'none';
-        }
+        if (devBox) devBox.hidden = !isOpen;
     }
     closeAllLanguageDropdowns();
+    if (typeof syncSettingsA11y === 'function') syncSettingsA11y();
 }
 function closeAllLanguageDropdowns() {
     document.querySelectorAll('.language-menu-dropdown').forEach(dropdown => {
@@ -1020,6 +996,8 @@ function updateAskMeModeUI() {
     const available = isAskMeModeAvailable();
     toggle.classList.toggle('disabled', !available);
     toggle.classList.toggle('active', askMeMode && available);
+    toggle.setAttribute('aria-checked', askMeMode && available ? 'true' : 'false');
+    toggle.setAttribute('aria-disabled', available ? 'false' : 'true');
     
     if (!available) {
         askMeMode = false;
@@ -1108,36 +1086,18 @@ function saveChatHistory(history) {
     localStorage.setItem(STORAGE_KEYS.chatHistory, JSON.stringify(trimmed));
 }
 
-function addToHistory(role, content) {
-    const history = getChatHistory();
-    history.push({ role, content });
-    saveChatHistory(history);
-}
-
-function loadChatHistory() {
-    const history = getChatHistory();
-    console.log('[UI] loadChatHistory: got', history.length, 'messages');
-    console.log('[UI] loadChatHistory: history =', history);
-    
-    const chatArea = document.getElementById('chatArea');
-    console.log('[UI] loadChatHistory: chatArea =', chatArea);
-    console.log('[UI] loadChatHistory: chatArea.innerHTML BEFORE =', chatArea?.innerHTML?.substring(0, 100));
-    
-    history.forEach(msg => {
-        console.log('[UI] appending message:', msg.role, msg.content?.substring(0, 30));
-        appendMessage(msg.role, msg.content, false);
-    });
-    
-    console.log('[UI] loadChatHistory: chatArea.innerHTML AFTER =', chatArea?.innerHTML?.substring(0, 200));
-}
-
 function clearChat() {
     if (confirm(t('confirmClearChat'))) {
         localStorage.removeItem(STORAGE_KEYS.chatHistory);
         const chatArea = document.getElementById('chatArea');
         if (chatArea) {
-            chatArea.innerHTML = `<div class="message system">${t('chatCleared')}</div>`;
+            chatArea.querySelectorAll('.message, .typing-indicator').forEach(el => el.remove());
+            const notice = document.createElement('div');
+            notice.className = 'message system';
+            notice.textContent = t('chatCleared');
+            chatArea.appendChild(notice);
         }
+        if (typeof refreshMemorySummary === 'function') refreshMemorySummary();
         console.log('[System] Chat history cleared');
     }
 }
@@ -1161,6 +1121,7 @@ function clearKnowledge() {
         }
         
         updateAskMeModeUI();
+        if (typeof refreshMemorySummary === 'function') refreshMemorySummary();
         console.log('[System] All knowledge cleared');
         alert(t('alertKnowledgeCleared'));
     }
@@ -1173,6 +1134,7 @@ function openKnowledgeModal() {
     document.getElementById('knowledgeModal').classList.add('active');
     document.body.classList.add('modal-open');
     switchTab('facts');
+    if (typeof refreshMemorySummary === 'function') refreshMemorySummary();
 }
 
 function closeKnowledgeModal() {
@@ -1906,28 +1868,6 @@ function formatMessageMarkdown(text) {
 }
 
 // ==================== CHAT UI ====================
-function appendMessage(role, content, save = true) {
-    const chatArea = document.getElementById('chatArea');
-    if (!chatArea) return;
-    
-    const msgDiv = document.createElement('div');
-    msgDiv.className = `message ${role}`;
-    
-    // Форматируем markdown только для assistant
-    if (role === 'assistant') {
-        msgDiv.innerHTML = formatMessageMarkdown(content);
-    } else {
-        msgDiv.textContent = content;
-    }
-    
-    chatArea.appendChild(msgDiv);
-    chatArea.scrollTop = chatArea.scrollHeight;
-
-    if (save) {
-        addToHistory(role, content);
-    }
-}
-
 function appendToolCall(toolName, args) {
     if (!CONFIG.showToolCalls) return;
     
@@ -1993,36 +1933,17 @@ function hideTypingIndicator() {
 function autoResizeTextarea() {
     const textarea = document.getElementById('messageInput');
     if (!textarea) return;
-    
-    const inputForm = textarea.closest('.input-form');
-    
-    textarea.addEventListener('input', () => {
+
+    const resize = () => {
         textarea.style.height = 'auto';
-        const newHeight = Math.min(textarea.scrollHeight, 200);
-        textarea.style.height = newHeight + 'px';
-        
-        if (inputForm) {
-            inputForm.style.alignItems = textarea.value.trim().length > 0 ? 'flex-start' : 'flex-end';
-        }
-        
+        textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
         const chatArea = document.getElementById('chatArea');
         if (chatArea) chatArea.scrollTop = chatArea.scrollHeight;
-    });
-    
-    textarea.addEventListener('focus', () => {
-        if (inputForm) inputForm.style.alignItems = 'flex-start';
-        textarea.style.boxShadow = '0 -2px 10px rgba(233, 69, 96, 0.1)';
-    });
-    
-    textarea.addEventListener('blur', () => {
-        if (!textarea.value.trim() && inputForm) {
-            inputForm.style.alignItems = 'flex-end';
-            textarea.style.boxShadow = 'none';
-        }
-    });
-    
-    textarea.style.height = 'auto';
-    textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
+        if (typeof updateComposerState === 'function') updateComposerState();
+    };
+
+    textarea.addEventListener('input', resize);
+    resize();
 }
 
 
@@ -2876,6 +2797,7 @@ async function sendMessage(event) {
     if (sendBtn) sendBtn.disabled = true;
     input.value = '';
     input.style.height = 'auto';
+    if (typeof updateComposerState === 'function') updateComposerState();
     
     appendMessage('user', message, true, Date.now(), !!window.dictatedMessageFlag);
     
@@ -2915,7 +2837,9 @@ async function sendMessage(event) {
         appendMessage('system', `Error: ${error.message}`);
     } finally {
         isProcessing = false;
-        if (sendBtn) sendBtn.disabled = false;
+        if (typeof updateComposerState === 'function') updateComposerState();
+        else if (sendBtn) sendBtn.disabled = false;
+        if (typeof refreshMemorySummary === 'function') refreshMemorySummary();
         // Сбрасываем голосовые флаги после отправки
         window.dictatedMessageFlag = false;
         window._dictatedInput = false;

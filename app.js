@@ -33,21 +33,21 @@ const DEFAULT_TRANSLATIONS = {
     apiKeySaved: "✓ Ключ сохранён",
     
     // Buttons
-    btnKnowledge: "📚 Знания о пользователе",
-    btnClearChat: "🗑️ Очистить чат",
-    btnClearKnowledge: "⚠️ Очистить знания",
+    btnKnowledge: "Знания о пользователе",
+    btnClearChat: "Очистить чат",
+    btnClearKnowledge: "Очистить знания",
     btnSend: "Отправить",
-    btnClose: "✕ Закрыть",
+    btnClose: "Закрыть",
     btnCancel: "Отмена",
-    btnSave: "💾 Сохранить",
+    btnSave: "Сохранить",
     
     // Counters
-    counterStyle: "🎭 Стиль:",
-    counterHypotheses: "💡 Гипотезы:",
-    counterGaps: "🔍 Пробелы:",
+    counterStyle: "Стиль:",
+    counterHypotheses: "Гипотезы:",
+    counterGaps: "Пробелы:",
     
     // Ask Me Mode
-    askMeMode: "Режим 'Спроси меня'",
+    askMeMode: "Режим «Спроси меня»",
     askMeModeTooltip: "ИИ будет заканчивать ответы вопросами, чтобы узнать о вас больше",
     askMeModeDisabled: "Нужны сначала пробелы в знаниях (подождите 6 сообщений)",
     
@@ -58,7 +58,7 @@ const DEFAULT_TRANSLATIONS = {
     chatCleared: "Чат очищен. История удалена.",
     
     // Modal
-    modalTitle: "📚 База знаний",
+    modalTitle: "База знаний",
     insightMode: "Режим инсайтов",
     
     // Tabs
@@ -124,17 +124,17 @@ const DEFAULT_TRANSLATIONS = {
     helpAskMe: "Режим 'Спроси меня'",
     helpAskMeText: "Включите переключатель — бот будет задавать вопросы, чтобы узнать вас лучше.",
     helpPrivacy: "Приватность",
-    helpPrivacyText1: "Все данные хранятся только на вашем устройстве.",
-    helpPrivacyText2: "Автор бота не может прочитать вашу переписку.",
-    helpPrivacyText3: "Сообщения обрабатываются через OpenRouter.",
-    helpPrivacyText4: "Нажмите 'Очистить знания' чтобы удалить всё.",
+    helpPrivacyText1: "Память и история хранятся в вашем браузере.",
+    helpPrivacyText2: "Для ответа выбранные фрагменты контекста передаются ИИ-провайдеру через сервер.",
+    helpPrivacyText3: "Не отправляйте секреты, пароли и данные, которые не хотите передавать модели.",
+    helpPrivacyText4: "«Очистить знания» удаляет локальную память; это не отзывает данные, уже отправленные провайдеру.",
     helpRoadmap: "Что дальше?",
     helpRoadmapSync: "Синхронизация между устройствами",
     helpRoadmapExport: "Экспорт/импорт базы знаний",
     helpRoadmapSettings: "Больше настроек",
     helpRoadmapMobile: "Мобильное приложение",
     helpAuthor: "Автор",
-    helpVersion: "Версия 1.3 · 2025",
+    helpVersion: "Версия 2.0 · 2026",
     
     // Alerts
     alertNoApiKey: "Пожалуйста, введите ваш ключ OpenRouter API",
@@ -145,7 +145,75 @@ const DEFAULT_TRANSLATIONS = {
     labelOngoing: "продолжается",
     labelPlan: "план",
     labelEvent: "событие",
-    labelPeriod: "период"
+    labelPeriod: "период",
+
+    // Workspace shell
+    navWorkspace: "Пространство",
+    navChat: "Диалог",
+    navKnowledge: "База знаний",
+    navKnowledgeShort: "Память",
+    navYou: "Самопознание",
+    navYouShort: "Профиль",
+    navDating: "Знакомства",
+    navDialogs: "Диалоги",
+    navReports: "Отчёты",
+    navHelp: "Справка",
+    navMore: "Ещё",
+    workspaceEyebrow: "Личное пространство",
+    localMemory: "Локальная память",
+    settingsTitle: "Настройки",
+    devSettingsTitle: "Настройки подключения",
+    smartModeLabel: "Умный режим (платная модель)",
+    smartModeNote: "Применяется в умном режиме",
+    modelLabel: "Модель:",
+    firebaseKeyLabel: "Firebase API Key",
+    saveKey: "Сохранить",
+    memoryCardTitle: "Ваша память",
+    memoryFacts: "фактов",
+    memoryTraits: "черт",
+    memoryPeople: "людей",
+    memoryEmptySummary: "Начните разговор — важные детали появятся здесь.",
+    memoryActiveSummary: "Память пополняется по мере разговора.",
+    memoryOpen: "Открыть память",
+    sidebarPrivacy: "Память хранится в этом браузере",
+    welcomeEyebrow: "Ассистент, который помнит контекст",
+    welcomeTitleLine1: "Давайте продолжим",
+    welcomeTitleLine2: "вашу историю.",
+    welcomeLead: "Я запоминаю важное и помогаю связывать идеи. Расскажите, что у вас сейчас на уме.",
+    promptThoughtsTitle: "Разобраться в мыслях",
+    promptThoughtsHint: "Разложить сложное по полочкам",
+    promptIdeaTitle: "Обсудить идею",
+    promptIdeaHint: "Найти следующий шаг",
+    promptMemoryTitle: "Вспомнить важное",
+    promptMemoryHint: "Связать прошлое и настоящее",
+    welcomeHint: "Можно начать с чего угодно — даже с одной мысли.",
+    composerHint: "Enter — отправить · Shift + Enter — новая строка",
+    composerPrivacy: "Личный контекст остаётся в вашем браузере",
+    voiceStop: "Остановить запись",
+    voiceSend: "Отправить",
+    voiceDelete: "Удалить"
+};
+
+
+const WORKSPACE_EN = {
+    navWorkspace: 'Workspace', navChat: 'Chat', navKnowledge: 'Knowledge base', navKnowledgeShort: 'Memory',
+    navYou: 'Self-discovery', navYouShort: 'Profile', navDating: 'Dating', navDialogs: 'Conversations',
+    navReports: 'Reports', navHelp: 'Help', navMore: 'More', workspaceEyebrow: 'Personal workspace',
+    localMemory: 'Local memory', settingsTitle: 'Settings', devSettingsTitle: 'Connection settings',
+    smartModeLabel: 'Smart mode (paid model)', smartModeNote: 'Used in smart mode', modelLabel: 'Model:',
+    firebaseKeyLabel: 'Firebase API Key', saveKey: 'Save', memoryCardTitle: 'Your memory', memoryFacts: 'facts',
+    memoryTraits: 'traits', memoryPeople: 'people', memoryEmptySummary: 'Start a conversation — important details will appear here.',
+    memoryActiveSummary: 'Memory grows as you talk.', memoryOpen: 'Open memory', sidebarPrivacy: 'Memory is stored in this browser',
+    welcomeEyebrow: 'An assistant that remembers context', welcomeTitleLine1: 'Let’s continue', welcomeTitleLine2: 'your story.',
+    welcomeLead: 'I remember what matters and help connect ideas. Tell me what is on your mind.',
+    promptThoughtsTitle: 'Sort through thoughts', promptThoughtsHint: 'Put the complex into order',
+    promptIdeaTitle: 'Discuss an idea', promptIdeaHint: 'Find the next step', promptMemoryTitle: 'Recall what matters',
+    promptMemoryHint: 'Connect past and present', welcomeHint: 'You can start with anything — even a single thought.',
+    composerHint: 'Enter to send · Shift + Enter for a new line', composerPrivacy: 'Personal context stays in your browser',
+    voiceStop: 'Stop recording', voiceSend: 'Send', voiceDelete: 'Delete',
+    btnClearChat: 'Clear chat', btnClearKnowledge: 'Clear knowledge', btnClose: 'Close', btnSave: 'Save',
+    counterStyle: 'Style:', counterHypotheses: 'Hypotheses:', counterGaps: 'Gaps:', askMeMode: 'Ask Me mode',
+    modalTitle: 'Knowledge base', insightMode: 'Insight mode', inputPlaceholder: 'Enter message...', btnSend: 'Send'
 };
 
 let currentLanguage = 'ru';
@@ -171,6 +239,11 @@ const STORAGE_KEYS = {
     language: 'chatbot_language',
     translations: 'chatbot_translations'
 };
+
+
+function notifyMemoryUpdated() {
+    try { window.dispatchEvent(new CustomEvent('memory:updated')); } catch (_) {}
+}
 
 // ==================== LIMITS ====================
 const LIMITS = {
@@ -229,7 +302,7 @@ function loadLanguage() {
         currentLanguage = savedLang;
         const cachedTranslations = localStorage.getItem(`${STORAGE_KEYS.translations}_${savedLang}`);
         if (cachedTranslations) {
-            translations = JSON.parse(cachedTranslations);
+            translations = { ...DEFAULT_TRANSLATIONS, ...JSON.parse(cachedTranslations) };
         }
     } else {
         currentLanguage = 'ru';
@@ -247,7 +320,7 @@ async function selectLanguage(langCode) {
     const cachedTranslations = localStorage.getItem(`${STORAGE_KEYS.translations}_${langCode}`);
     
     if (cachedTranslations) {
-        translations = JSON.parse(cachedTranslations);
+        translations = { ...DEFAULT_TRANSLATIONS, ...JSON.parse(cachedTranslations) };
         currentLanguage = langCode;
         localStorage.setItem(STORAGE_KEYS.language, langCode);
         applyTranslations();
@@ -305,27 +378,27 @@ ${JSON.stringify(DEFAULT_TRANSLATIONS, null, 2)}`;
 }
 
 function applyTranslations() {
+    document.documentElement.lang = currentLanguage || 'ru';
+    const valueFor = (key) => translations[key]
+        || (currentLanguage === 'en' ? WORKSPACE_EN[key] : null)
+        || DEFAULT_TRANSLATIONS[key];
+
     document.querySelectorAll('[data-i18n]').forEach(el => {
         const key = el.getAttribute('data-i18n');
-        if (translations[key]) {
-            if (key.endsWith('Info')) {
-                el.innerHTML = translations[key];
-            } else {
-                el.textContent = translations[key];
-            }
-        }
+        const value = valueFor(key);
+        if (!value) return;
+        if (key.endsWith('Info')) el.innerHTML = value;
+        else el.textContent = value;
     });
 
     document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
         const key = el.getAttribute('data-i18n-placeholder');
-        if (translations[key]) {
-            el.placeholder = translations[key];
-        }
+        const value = valueFor(key);
+        if (value) el.placeholder = value;
     });
 
-    if (currentTab) {
-        updateTabPlaceholder();
-    }
+    if (currentTab) updateTabPlaceholder();
+    if (typeof refreshMemorySummary === 'function') refreshMemorySummary();
 }
 
 function updateTabPlaceholder() {
@@ -336,7 +409,10 @@ function updateTabPlaceholder() {
 }
 
 function t(key) {
-    return translations[key] || DEFAULT_TRANSLATIONS[key] || key;
+    return translations[key]
+        || (currentLanguage === 'en' ? WORKSPACE_EN[key] : null)
+        || DEFAULT_TRANSLATIONS[key]
+        || key;
 }
 
 function getLanguageName() {
@@ -398,6 +474,7 @@ function getFactsData() {
 
 function setFactsData(data) {
     localStorage.setItem(STORAGE_KEYS.facts, JSON.stringify(data));
+    notifyMemoryUpdated();
 }
 
 function getFactsForDisplay() {
@@ -470,6 +547,7 @@ function getTraitsData() {
 
 function setTraitsData(data) {
     localStorage.setItem(STORAGE_KEYS.traits, JSON.stringify(data));
+    notifyMemoryUpdated();
 }
 
 function getTraitsForDisplay() {
@@ -539,6 +617,7 @@ function getTimelineData() {
 
 function setTimelineData(data) {
     localStorage.setItem(STORAGE_KEYS.timeline, JSON.stringify(data));
+    notifyMemoryUpdated();
 }
 
 function getTimelineForDisplay() {
@@ -655,6 +734,7 @@ function getHypothesesData() {
 
 function setHypothesesData(data) {
     localStorage.setItem(STORAGE_KEYS.hypotheses, JSON.stringify(data));
+    notifyMemoryUpdated();
 }
 
 function getHypothesesForDisplay() {
@@ -715,6 +795,7 @@ function getGapsData() {
 
 function setGapsData(data) {
     localStorage.setItem(STORAGE_KEYS.gaps, JSON.stringify(data));
+    notifyMemoryUpdated();
 }
 
 function getGapsForDisplay() {
@@ -763,6 +844,7 @@ function getSocialData() {
 
 function setSocialData(data) {
     localStorage.setItem(STORAGE_KEYS.social, JSON.stringify(data));
+    notifyMemoryUpdated();
 }
 
 function getStrengthIndicator(strength) {

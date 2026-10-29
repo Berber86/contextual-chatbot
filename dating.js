@@ -2037,6 +2037,12 @@ function showPrivacyDisclaimer(callback) {
     }
 }
 
+function closePrivacyDisclaimer() {
+    const overlay = document.getElementById('privacyDisclaimer');
+    if (overlay) overlay.classList.remove('active');
+    window._privacyCallback = null;
+}
+
 function acceptPrivacyDisclaimer() {
     localStorage.setItem(PRIVACY_ACCEPTED_KEY, 'true');
     
