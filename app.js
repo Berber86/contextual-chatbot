@@ -193,6 +193,23 @@ const DEFAULT_TRANSLATIONS = {
     // Alerts
     alertNoApiKey: "Пожалуйста, введите ваш ключ OpenRouter API",
     alertKnowledgeCleared: "Знания очищены",
+
+    // TTS — озвучка ответов бота (HeyGen Voice Turbo)
+    ttsSpeak: "Озвучить",
+    ttsStop: "Остановить",
+    ttsLoading: "Готовлю…",
+    ttsStatusLoading: "Озвучиваю ответ…",
+    ttsTruncated: "Текст длинный — озвучу только первую часть",
+    ttsErrNothing: "Здесь нечего озвучивать",
+    ttsErrEmpty: "Модель вернула слишком короткое аудио — попробуйте ещё раз",
+    ttsErrPlayback: "Не удалось воспроизвести аудио",
+    ttsErrRateLimit: "Слишком часто: у бесплатной модели лимит ~20 запросов в минуту. Подождите немного и попробуйте снова.",
+    ttsErrEnded: "Бесплатный доступ к модели озвучки закончился (он был до 30.11.2026).",
+    ttsErrNoKey: "На сервере не задан ключ OPENROUTER_API_KEY — озвучка недоступна.",
+    ttsErrForbidden: "Доступ к модели озвучки запрещён.",
+    ttsErrNetwork: "Ошибка озвучки",
+    settingsTtsVoice: "Голос озвучки",
+    settingsTtsVoiceHint: "Голос для кнопки «Озвучить» в ответах бота (HeyGen Voice Turbo, бесплатно до 30.11.2026).",
     
     // Structured data labels
     labelSuperseded: "устарело",
@@ -212,6 +229,7 @@ const STORAGE_KEYS = {
     smartMode: 'chatbot_smart_mode', // умный режим (платный провайдер через /api/hydra)
     memoryProvider: 'chatbot_memory_provider',
     chatModel: 'chatbot_chat_model', // выбранная платная модель (hydra-gemini-3-pro | glm-5.2)
+    ttsVoice: 'chatbot_tts_voice', // голос озвучки ответов бота (HeyGen Voice Turbo)
     insightModePref: 'chatbot_insight_mode', // выбор пользователя для insight mode
     chatHistory: 'chatbot_chat_history',
 

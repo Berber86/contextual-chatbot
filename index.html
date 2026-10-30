@@ -141,6 +141,8 @@
         <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
         <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5.5" y="10" width="13" height="10" rx="2"/><path d="M8.5 10V7a3.5 3.5 0 1 1 7 0v3M12 14v2.5"/></symbol>
         <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 11.5a6 6 0 0 0 12 0M12 17.5V21M9 21h6"/></symbol>
+        <symbol id="i-speaker" viewBox="0 0 24 24"><path d="M4 9.5v5h3.2L12 18.5v-13L7.2 9.5H4Z"/><path d="M15 9.2a4 4 0 0 1 0 5.6M17.6 6.7a7.6 7.6 0 0 1 0 10.6"/></symbol>
+        <symbol id="i-stop-speech" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2.2"/></symbol>
         <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5M6.5 10.5 12 5l5.5 5.5"/></symbol>
         <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
         <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
@@ -212,6 +214,22 @@
                         <button type="button" class="ms-opt" data-model="hydra-gemini-3-pro" onclick="selectChatModel('hydra-gemini-3-pro')">Gemini 3 Pro</button>
                         <button type="button" class="ms-opt" data-model="glm-5.2" onclick="selectChatModel('glm-5.2')">GLM-5.2</button>
                     </div>
+                    <label class="settings-item" for="ttsVoice">
+                        <span data-i18n="settingsTtsVoice">Голос озвучки</span>
+                        <select id="ttsVoice" onchange="setTTSVoice(this.value)" aria-describedby="ttsVoiceHint">
+                            <option value="gareth">Gareth · дружелюбный</option>
+                            <option value="weston">Weston · тёплый</option>
+                            <option value="lucian">Lucian · непринуждённый</option>
+                            <option value="bram">Bram · мягкий</option>
+                            <option value="vincent">Vincent · чёткий</option>
+                            <option value="nadine">Nadine · спокойная</option>
+                            <option value="tabitha">Tabitha · разговорчивая</option>
+                            <option value="noelle">Noelle · тёплая</option>
+                            <option value="meredith">Meredith · серьёзная</option>
+                            <option value="sabrina">Sabrina · живая</option>
+                        </select>
+                    </label>
+                    <div class="settings-hint" id="ttsVoiceHint" data-i18n="settingsTtsVoiceHint">Голос для кнопки «Озвучить» в ответах бота (HeyGen Voice Turbo, бесплатно до 30.11.2026).</div>
                     <div class="settings-divider"></div>
                     <button class="settings-item settings-action" type="button" onclick="clearChat()" data-close-settings>
                         <span data-i18n="btnClearChat">Очистить чат</span>
@@ -864,6 +882,7 @@
     <script src="reports.js"></script>    <!-- 6. Модуль отчётов -->
     <script src="dialogs.js"></script>    <!-- 7. Модуль диалогов -->
     <script src="voice.js"></script>      <!-- 8. Голосовой ввод (Whisper Large V3) -->
-    <script src="dashboard.js"></script>  <!-- 9. Главный экран и адаптивная навигация -->
+    <script src="tts.js"></script>        <!-- 9. Озвучка ответов бота (HeyGen Voice Turbo) -->
+    <script src="dashboard.js"></script>  <!-- 10. Главный экран и адаптивная навигация -->
 </body>
 </html>
