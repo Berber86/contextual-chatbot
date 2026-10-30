@@ -1145,6 +1145,7 @@ function clearChat() {
     }
     if (confirm(t('confirmClearChat'))) {
         cancelProactiveGreeting();
+        if (typeof window.stopAllSpeech === 'function') window.stopAllSpeech();
         localStorage.removeItem(STORAGE_KEYS.chatHistory);
         const chatArea = document.getElementById('chatArea');
         if (chatArea) {
@@ -2885,6 +2886,9 @@ async function sendMessage(event) {
     
     if (isProcessing) { window.dictatedMessageFlag = false; return; }
     
+    // Новое сообщение прерывает озвучку предыдущего ответа
+    if (typeof window.stopAllSpeech === 'function') window.stopAllSpeech();
+    
     // Если в поле ввода лежит голосовой текст (режим правки) — помечаем сообщение как надиктованное
     if (window._dictatedInput) window.dictatedMessageFlag = true;
     
@@ -3084,7 +3088,12 @@ function appendMessage(role, content, save = true, timestamp = Date.now(), audio
     timeDiv.className = 'message-time';
     timeDiv.textContent = formatMessageTime(timestamp);
     msgDiv.appendChild(timeDiv);
-    
+
+    // Кнопка «Озвучить» для ответов бота (HeyGen Voice Turbo через /api/tts)
+    if (role === 'assistant' && typeof window.addTTSButton === 'function') {
+        window.addTTSButton(msgDiv, content);
+    }
+
     chatArea.appendChild(msgDiv);
     if ((role === 'user' || role === 'assistant') && typeof window.updateWelcomeScreen === 'function') window.updateWelcomeScreen();
     chatArea.scrollTop = chatArea.scrollHeight;
@@ -3119,6 +3128,11 @@ function finalizeStreamingMessage(element, content) {
     timeDiv.className = 'message-time';
     timeDiv.textContent = formatMessageTime(timestamp);
     element.appendChild(timeDiv);
+
+    // Кнопка «Озвучить» для ответа бота (HeyGen Voice Turbo через /api/tts)
+    if (typeof window.addTTSButton === 'function') {
+        window.addTTSButton(element, content);
+    }
     
     addToHistory('assistant', content, timestamp);
 }

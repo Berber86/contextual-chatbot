@@ -9436,3 +9436,76 @@ body.server-mode .input-form {
         flex-direction: column;
     }
 }
+
+/* ==================== TTS: КНОПКА «ОЗВУЧИТЬ» В ОТВЕТАХ БОТА (HeyGen Voice Turbo) ==================== */
+/* Сообщениям бота нужен запас ширины, чтобы кнопка (слева) не наезжала на время (справа) */
+.message.assistant {
+    min-width: 176px;
+}
+
+.msg-tts-btn {
+    position: absolute;
+    left: 10px;
+    bottom: 3px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px 2px 6px;
+    border: 1px solid rgba(199, 198, 226, 0.14);
+    border-radius: 999px;
+    background: rgba(199, 198, 226, 0.05);
+    color: rgba(199, 198, 226, 0.6);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    line-height: 1.6;
+    cursor: pointer;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    transition: color 0.16s ease, background 0.16s ease, border-color 0.16s ease;
+}
+
+.msg-tts-btn .icon {
+    width: 12px;
+    height: 12px;
+    margin: 0;
+}
+
+.msg-tts-btn:hover {
+    color: var(--ui-accent, #ad9dff);
+    background: rgba(173, 157, 255, 0.1);
+    border-color: rgba(173, 157, 255, 0.28);
+}
+
+.msg-tts-btn:focus-visible {
+    outline: 2px solid rgba(173, 157, 255, 0.5);
+    outline-offset: 1px;
+}
+
+.msg-tts-btn.loading {
+    color: var(--ui-accent, #ad9dff);
+    border-color: rgba(173, 157, 255, 0.22);
+}
+
+.msg-tts-btn.loading .icon {
+    animation: ttsPulse 0.9s ease-in-out infinite;
+}
+
+.msg-tts-btn.playing {
+    color: #d9ccff;
+    background: rgba(173, 157, 255, 0.16);
+    border-color: rgba(173, 157, 255, 0.38);
+}
+
+.msg-tts-btn.playing .icon {
+    animation: ttsPulse 1.3s ease-in-out infinite;
+}
+
+@keyframes ttsPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .msg-tts-btn .icon { animation: none; }
+}
