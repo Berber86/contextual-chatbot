@@ -8,7 +8,8 @@
 //   • /api/tts  — если задан OPENROUTER_API_KEY, проксирует настоящий запрос
 //                 к HeyGen Voice Turbo; иначе возвращает тестовый сигнал
 //                 (TTS_DEV_MOCK=1, по умолчанию включён) или ошибку 500;
-//   • /api/chat — в демо-режиме отвечает заготовленным текстом (SSE-стрим),
+//   • /api/chat, /api/hydra — в демо-режиме отвечают заготовленным текстом (SSE-стрим)
+//                 и JSON-заметкой для эмуляции личности,
 //                 чтобы можно было проверить кнопку «Озвучить» без ключа.
 //
 // Это НЕ продакшен-код: на Vercel работают api/tts.js и api/chat.js.
@@ -146,7 +147,35 @@ async function handleTts(req, res, body) {
 }
 
 // ---- /api/chat (демо-ответ) ----
+
+// 🎭 Эмуляция личности просит у памяти JSON-заметку об образе.
+// В демо-режиме подставляем правдоподобную заметку, чтобы вкладку «Заметки личности»
+// можно было проверить без ключа OpenRouter.
+const PERSONA_MARKER = '=== ОБРАЗ (роль бота) ===';
+const PERSONA_DEMO_NOTES = [
+    { kind: 'style', text: 'Манера роли уже держится: короткие фразы и сухие выводы звучат уверенно — этот тон стоит сохранять.' },
+    { kind: 'trait', text: 'В ответах проявилась наблюдательность: детали из сообщений подхватываются и превращаются в выводы.' },
+    { kind: 'theme', text: 'Роль хорошо ложится на темы разговора — образ не мешает отвечать по делу.' },
+    { kind: 'preference', text: 'Пользователю откликаются точные формулировки без воды — образ можно сделать ещё лаконичнее.' },
+];
+let personaDemoIndex = 0;
+
+function personaDemoReply(body) {
+    const messages = Array.isArray(body && body.messages) ? body.messages : [];
+    const prompt = messages.map(m => m.content || '').join('\n');
+    if (!prompt.includes(PERSONA_MARKER)) return null;
+
+    const note = PERSONA_DEMO_NOTES[personaDemoIndex % PERSONA_DEMO_NOTES.length];
+    personaDemoIndex++;
+    return JSON.stringify({ note: note.text, kind: note.kind });
+}
+
 function handleChat(req, res, body) {
+    const personaReply = personaDemoReply(body);
+    if (personaReply) {
+        return sendJson(res, 200, { choices: [{ message: { content: personaReply } }] });
+    }
+
     if (body && body.stream) {
         res.writeHead(200, {
             'Content-Type': 'text/event-stream',
@@ -201,7 +230,9 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/tts' && req.method === 'POST') {
         return handleTts(req, res, await readBody(req));
     }
-    if (pathname === '/api/chat' && req.method === 'POST') {
+    // /api/hydra — тот же демо-ответ: в «умном режиме» память и заметки личности
+    // идут именно туда, и без этого мока их нельзя проверить локально.
+    if ((pathname === '/api/chat' || pathname === '/api/hydra') && req.method === 'POST') {
         return handleChat(req, res, await readBody(req));
     }
     if (pathname.startsWith('/api/')) {
@@ -229,5 +260,5 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`[dev-server] http://localhost:${PORT}`);
     console.log(`[dev-server] OPENROUTER_API_KEY: ${HAS_KEY ? 'задан — /api/tts ходит в OpenRouter' : 'нет — /api/tts отдаёт тестовый сигнал (TTS_DEV_MOCK=${MOCK})'}`);
-    console.log('[dev-server] /api/chat отвечает демо-текстом (это не продакшен)');
+    console.log('[dev-server] /api/chat и /api/hydra отвечают демо-текстом (это не продакшен)');
 });

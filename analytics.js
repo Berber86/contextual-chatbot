@@ -1411,6 +1411,95 @@ async function runHypothesesUpdate() {
     console.log('[HYPOTHESES] Done. Total:', workingData.hypotheses.length);
 }
 
+// ==================== PERSONA NOTES UPDATE (🎭 Эмуляция личности) ====================
+// Каждые PERSONA_CONFIG.notesInterval сообщений бот пишет одну короткую заметку
+// о том, как складывается образ: что уже получается и что стоит усилить.
+async function runPersonaNotesUpdate() {
+    if (!isPersonaEnabled()) {
+        resetPersonaCounter();
+        if (typeof updatePersonaCounter === 'function') updatePersonaCounter();
+        console.log('[PERSONA] Skipped: emulation is off or prompt is empty');
+        return null;
+    }
+
+    const personaPrompt = getPersonaPrompt();
+    const history = getChatHistory().slice(-PERSONA_CONFIG.historyWindow);
+    const userMessages = history.filter(m => m.role === 'user');
+
+    if (userMessages.length === 0) {
+        console.log('[PERSONA] Skipped: no user messages yet');
+        return null;
+    }
+
+    const existingNotes = getPersonaNotesForPrompt(PERSONA_CONFIG.maxNotes) || '(пока нет заметок)';
+    const messageCount = getMessageCounter();
+    const langName = getLanguageName();
+    const conversation = history
+        .map(m => `${m.role === 'user' ? 'ПОЛЬЗОВАТЕЛЬ' : 'БОТ'}: ${m.content}`)
+        .join('\n\n');
+
+    const prompt = `Ты ведёшь дневник персонажа, в образе которого говорит бот.
+
+=== ОБРАЗ (роль бота) ===
+${personaPrompt}
+
+=== УЖЕ НАКОПЛЕННЫЕ ЗАМЕТКИ ===
+${existingNotes}
+
+=== ПОСЛЕДНИЕ СООБЩЕНИЯ ДИАЛОГА ===
+${conversation}
+
+=== ЗАДАЧА ===
+Напиши ОДНУ новую заметку (1–2 предложения) о том, как складывается образ:
+• какие черты роли уже проявились в ответах бота и как их усиливать;
+• как роль сочетается с темами, которые важны этому пользователю;
+• что стоит добавить или поправить, чтобы образ звучал убедительнее.
+
+=== ЖЁСТКИЕ ПРАВИЛА ===
+1. Пиши только про образ бота, а не про личность пользователя.
+2. Не повторяй уже накопленные заметки и не пересказывай факты из диалога.
+3. Без оценок «хорошо/плохо», без советов пользователю, без вопросов.
+4. Если нового наблюдения действительно нет — верни пустую строку в "note".
+5. Пиши на языке: ${langName}.
+
+=== ФОРМАТ ОТВЕТА ===
+Только валидный JSON, без markdown и пояснений:
+{
+    "note": "текст заметки или пустая строка",
+    "kind": "trait|style|theme|preference"
+}`;
+
+    try {
+        const result = await callMemoryAPIWithRetry(prompt, 2);
+        console.log('[PERSONA] Raw response:', String(result).substring(0, 300));
+
+        const parsed = parseJSON(result);
+        const text = parsed && typeof parsed.note === 'string' ? parsed.note.trim() : '';
+
+        if (!text) {
+            console.log('[PERSONA] No new observation this time');
+            return null;
+        }
+
+        const note = addPersonaNote(text, { kind: parsed.kind, messageCount });
+        if (!note) {
+            console.log('[PERSONA] Skipped: duplicate note');
+            return null;
+        }
+
+        console.log('[PERSONA] Note added:', note.text);
+        if (typeof refreshPersonaNotesTab === 'function') refreshPersonaNotesTab();
+        return note;
+    } catch (error) {
+        console.error('[PERSONA] Update failed:', error.message);
+        return null;
+    } finally {
+        // Счётчик сбрасываем в любом случае, чтобы не дёргать модель на каждом сообщении.
+        resetPersonaCounter();
+        if (typeof updatePersonaCounter === 'function') updatePersonaCounter();
+    }
+}
+
 async function runDeletionStep(data, facts, traits, timeline, messageCount) {
     if (data.hypotheses.length < 3) return data;
 

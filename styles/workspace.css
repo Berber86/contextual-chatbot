@@ -433,3 +433,15 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
     .you-quality-description { display: block; }
     .you-touch-hint { display: none; }
 }
+
+/* ==================== PERSONA EMULATION (🎭) ==================== */
+.counter-badge .persona-count { color: #7dd3fc; }
+.settings-hint.persona-status-on { color: #7dd3fc; }
+.modal-tab[data-tab="personaPrompt"].active { color: #f472b6; }
+.modal-tab[data-tab="personaNotes"].active { color: #7dd3fc; }
+.persona-notes-empty { text-align: left; line-height: 1.65; }
+.persona-notes-empty p { margin: 0 0 8px; }
+.persona-notes-empty p:last-child { margin-bottom: 0; }
+.persona-notes-hint { color: #f4c77d; }
+.persona-note-kind { padding: 1px 8px; border: 1px solid rgba(125, 211, 252, .28); border-radius: 999px; background: rgba(125, 211, 252, .1); color: #9fdcff; font-size: 10px; font-weight: 700; letter-spacing: .02em; }
+.persona-note-item .item-text { line-height: 1.6; }
