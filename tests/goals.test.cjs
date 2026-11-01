@@ -8,6 +8,17 @@ const goals = fs.readFileSync('goals.js', 'utf8');
 const analytics = fs.readFileSync('analytics.js', 'utf8');
 const html = fs.readFileSync('index.html', 'utf8');
 const dashboard = fs.readFileSync('dashboard.js', 'utf8');
+const ui = fs.readFileSync('ui.js', 'utf8');
+
+// Срез коучингового блока: он не зависит от остального ui.js и проверяется отдельно.
+const coachStart = '// ==================== GOAL COACHING BLOCK (🎯) ====================';
+const coachEnd = '// ==================== END GOAL COACHING BLOCK ====================';
+const coachSource = (() => {
+  const from = ui.indexOf(coachStart);
+  const to = ui.indexOf(coachEnd, from);
+  assert.ok(from >= 0 && to > from, 'в ui.js должен быть коучинговый блок');
+  return ui.slice(from, to);
+})();
 
 function createStorage(initial = {}) {
   const values = new Map(Object.entries(initial));
@@ -82,6 +93,22 @@ function uiHarness() {
   vm.runInContext(app, context);
   vm.runInContext(goals, context);
   return { context, values, elements, toasts, getElement };
+}
+
+// app.js + коучинговый блок ui.js: проверяем, что именно увидит модель.
+function coachHarness() {
+  const { values, storage } = createStorage();
+  const events = [];
+  const context = vm.createContext({
+    console: { log() {}, error() {} },
+    localStorage: storage,
+    Event,
+    window: { dispatchEvent: event => events.push(event.type) },
+    document: { createElement: () => ({ textContent: '', innerHTML: '' }) },
+  });
+  vm.runInContext(app, context);
+  vm.runInContext(coachSource, context);
+  return { context, values, events };
 }
 
 const read = (context, expression) => vm.runInContext(expression, context);
@@ -203,6 +230,9 @@ test('чек-ины фиксируют самоотчёт, а не процен�
 
   context.addGoalCheckin(goal.id, 'stuck', '');
   assert.equal(context.getGoalStuckStreak(goal.id), 2, 'два застревания подряд считаются');
+
+  context.addGoalCheckin(goal.id, 'no_time', '');
+  assert.equal(context.getGoalStuckStreak(goal.id), 3, '«не было времени» тоже не движение');
 
   context.addGoalCheckin(goal.id, 'moved', '');
   assert.equal(context.getGoalStuckStreak(goal.id), 0, 'движение сбрасывает серию');
@@ -423,4 +453,239 @@ test('карточка цели показывает следующий шаг �
   assert.match(details, /Зачем/);
   assert.match(details, /Как пойму, что получилось/);
   assert.match(details, /Нет времени вечером/);
+});
+
+// ==================== ИНКРЕМЕНТ 2: КОУЧИНГ В ЧАТЕ ====================
+
+test('цель, «зачем» и следующий шаг попадают в системный промпт', () => {
+  const { context } = coachHarness();
+  const { goal } = context.createGoal({
+    title: 'Выучить испанский',
+    why: 'Хочу говорить с семьёй жены',
+    success: 'Держу разговор 15 минут',
+  });
+  context.setGoalNextStep(goal.id, 'Записаться на первый урок');
+
+  const block = context.buildCoachingBlock('Как продвигается?', []);
+
+  assert.match(block, /Выучить испанский/);
+  assert.match(block, /Хочу говорить с семьёй жены/, '«зачем» — словами пользователя');
+  assert.match(block, /Держу разговор 15 минут/);
+  assert.match(block, /Записаться на первый урок/);
+  assert.match(block, /не больше ОДНОЙ коучинговой реплики/);
+  assert.match(block, /Коучинг важнее образа/);
+  assert.doesNotMatch(block, /%/, 'в промпте нет процентов');
+});
+
+test('без активных целей коучинговый блок не появляется', () => {
+  const { context } = coachHarness();
+  assert.equal(context.buildCoachingBlock('Привет', []), '');
+
+  const { goal } = context.createGoal({ title: 'Цель', why: 'Зачем', success: 'Признак' });
+  context.setGoalStatus(goal.id, 'paused');
+  assert.equal(context.buildCoachingBlock('Привет', []), '', 'на паузе цель не коучится');
+});
+
+test('выключатель убирает цели из разговора и сохраняется', () => {
+  const { context, events } = coachHarness();
+  context.createGoal({ title: 'Наладить сон', why: 'Устал', success: 'Сплю 7 часов' });
+
+  assert.equal(context.isCoachingEnabled(), true, 'по умолчанию коучинг включён');
+  assert.notEqual(context.buildCoachingBlock('Привет', []), '');
+
+  context.setCoachingEnabled(false);
+  assert.equal(context.isCoachingEnabled(), false);
+  assert.equal(context.buildCoachingBlock('Привет', []), '', 'выключили — бот цели не видит');
+  assert.ok(events.filter(e => e === 'goals-updated').length >= 1, 'интерфейс узнаёт об изменении');
+
+  context.setCoachingEnabled(true);
+  assert.notEqual(context.buildCoachingBlock('Привет', []), '');
+});
+
+test('в интерфейсе есть понятный выключатель коучинга', () => {
+  const { context, toasts, getElement } = uiHarness();
+  context.createGoal({ title: 'Наладить сон', why: 'Устал', success: 'Сплю 7 часов' });
+  context.openGoalsModal();
+
+  assert.match(getElement('goalsBody').innerHTML, /🎯 В разговоре: вкл/);
+  assert.match(getElement('goalsBody').innerHTML, /aria-pressed="true"/);
+
+  context.goalsToggleCoaching();
+  assert.equal(context.isCoachingEnabled(), false);
+  assert.match(getElement('goalsBody').innerHTML, /🎯 В разговоре: выкл/);
+  assert.match(getElement('goalsBody').innerHTML, /Коучинг в разговоре выключен/, 'есть объяснение');
+  assert.equal(toasts.length, 1);
+});
+
+test('при тяжёлом состоянии коучинг выключается кодом, а не просьбой в промпте', () => {
+  const { context } = coachHarness();
+  const { goal } = context.createGoal({ title: 'Сменить работу', why: 'Выгорел', success: 'Оффер' });
+  context.setGoalNextStep(goal.id, 'Обновить резюме');
+
+  const block = context.buildCoachingBlock('Я выгорел, нет сил вообще ни на что', []);
+
+  assert.match(block, /ПОДДЕРЖКА ВАЖНЕЕ КОУЧИНГА/);
+  assert.doesNotMatch(block, /ПРАВИЛА КОУЧИНГА/, 'правила коучинга не подмешиваются');
+  assert.doesNotMatch(block, /Следующий шаг:/, 'шаг не показывается модели');
+  assert.doesNotMatch(block, /Обновить резюме/);
+});
+
+test('при кризисе добавляется мягкая рекомендация специалиста', () => {
+  const { context } = coachHarness();
+  context.createGoal({ title: 'Сменить работу', why: 'Тяжело', success: 'Оффер' });
+
+  const block = context.buildCoachingBlock('Я не хочу жить дальше, всё бессмысленно', []);
+
+  assert.match(block, /ПОДДЕРЖКА ВАЖНЕЕ КОУЧИНГА/);
+  assert.match(block, /специалист/);
+  assert.doesNotMatch(block, /ПРАВИЛА КОУЧИНГА/);
+  assert.equal(context.detectUserDistress('Хорошая погода, пошли гулять').level, 'none');
+});
+
+test('вопрос о цели не повторяется чаще разрешённого правила', () => {
+  const { context } = coachHarness();
+  context.createGoal({ title: 'Выучить испанский', why: 'Хочу говорить', success: 'Разговор 15 минут' });
+
+  const fresh = context.buildCoachingBlock('Привет', []);
+  assert.match(fresh, /не больше ОДНОГО вопроса/);
+
+  const askedBefore = [
+    { role: 'user', content: 'привет' },
+    { role: 'assistant', content: 'Как продвигается «Выучить испанский»?' },
+    { role: 'user', content: 'нормально' },
+  ];
+  const blocked = context.buildCoachingBlock('нормально', askedBefore);
+  assert.match(blocked, /НЕ спрашивай/, 'второй вопрос подряд запрещён');
+  assert.doesNotMatch(blocked, /не больше ОДНОГО вопроса/);
+});
+
+test('вопрос о другом не мешает спросить про цель', () => {
+  const { context } = coachHarness();
+  context.createGoal({ title: 'Выучить испанский', why: 'Хочу говорить', success: 'Разговор 15 минут' });
+
+  const history = [
+    { role: 'assistant', content: 'Как прошёл день?' },
+    { role: 'user', content: 'нормально' },
+  ];
+  assert.equal(context.isGoalQuestionAllowed(history), true);
+  assert.match(context.buildCoachingBlock('нормально', history), /не больше ОДНОГО вопроса/);
+});
+
+test('при внешнем препятствии триаж предлагает уменьшить шаг', () => {
+  const { context } = coachHarness();
+  const { goal } = context.createGoal({ title: 'Написать книгу', why: 'Хочу высказаться', success: 'Первая глава' });
+  context.setGoalNextStep(goal.id, 'Написать 500 слов');
+  context.addGoalCheckin(goal.id, 'stuck', 'Не хватило времени, завал на работе');
+  context.addGoalCheckin(goal.id, 'stuck', 'Опять работа до ночи');
+
+  assert.equal(context.classifyGoalObstacle(goal.id), 'external');
+  const block = context.buildCoachingBlock('ничего не выходит', []);
+  assert.match(block, /ТРИАЖ ЗАСТРЕВАНИЯ/);
+  assert.match(block, /уменьшенный шаг/);
+  assert.doesNotMatch(block, /ты опять|сколько можно|не подведи/i, 'нет давления и стыда по существу');
+});
+
+test('при сомнении в цели триаж возвращает к «зачем»', () => {
+  const { context } = coachHarness();
+  const { goal } = context.createGoal({ title: 'Пойти на курсы', why: 'Для роста', success: 'Сертификат' });
+  context.addGoalCheckin(goal.id, 'stuck', 'Это не моё, не вижу смысла');
+  context.addGoalCheckin(goal.id, 'stuck', 'Не хочу продолжать');
+
+  assert.equal(context.classifyGoalObstacle(goal.id), 'doubt');
+  const block = context.buildCoachingBlock('не знаю', []);
+  assert.match(block, /сомнение в самой цели/);
+  assert.match(block, /«зачем»/);
+});
+
+test('без данных о причине застревания бот спрашивает, а не догадывается', () => {
+  const hey = coachHarness();
+  const { goal } = hey.context.createGoal({ title: 'Бегать', why: 'Здоровье', success: '5 км' });
+  hey.context.addGoalCheckin(goal.id, 'stuck', '');
+  hey.context.addGoalCheckin(goal.id, 'no_time', '');
+
+  assert.equal(hey.context.classifyGoalObstacle(goal.id), 'mixed');
+  assert.match(hey.context.buildCoachingBlock('хм', []), /не додумывай/);
+});
+
+test('коучинг идёт после образа личности в промпте', () => {
+  const personaIndex = ui.indexOf('const personaBlock = getPersonaPromptBlock();');
+  const coachingIndex = ui.indexOf('const coachingBlock = typeof buildCoachingBlock');
+  const injection = ui.indexOf('${personaBlock}\n${coachingBlock}');
+
+  assert.ok(personaIndex > 0 && coachingIndex > personaIndex, 'коучинг вычисляется после образа');
+  assert.ok(injection > coachingIndex, 'в шаблоне коучинг стоит сразу после образа');
+});
+
+test('инструмент get_user_goals только читает и отдаёт цели', () => {
+  const { context } = coachHarness();
+  context.createGoal({ title: 'Собрать портфолио', why: 'Сменить работу', success: 'Три кейса' });
+
+  const tools = context.getToolDefinitions();
+  const names = tools.map(tool => tool.function.name);
+  assert.ok(names.includes('get_user_goals'), 'инструмент объявлен');
+
+  const writeTools = names.filter(name => /create|update|delete|set_|complete|archive|drop/i.test(name));
+  assert.equal(writeTools.length, 0, 'инструментов записи целей нет: ' + writeTools.join(','));
+
+  const answer = context.executeTool('get_user_goals', { reason: 'нужно понять шаг' });
+  assert.match(answer, /Собрать портфолио/);
+  assert.match(answer, /Сменить работу/);
+});
+
+test('реальный запрос в чат уносит цель в системный промпт', async () => {
+  const slice = (() => {
+    const from = ui.indexOf('async function processMessageWithTwoStages(userMessage)');
+    const to = ui.indexOf('function buildSystemPromptLegacy()', from);
+    assert.ok(from >= 0 && to > from);
+    return ui.slice(from, to);
+  })();
+
+  async function runTurn(message) {
+    const sent = [];
+    const { storage } = createStorage();
+    const context = vm.createContext({
+      console: { log() {}, error() {} },
+      localStorage: storage,
+      Event,
+      window: {},
+      document: { createElement: () => ({ textContent: '', innerHTML: '' }) },
+      getChatHistory: () => [{ role: 'user', content: 'привет' }],
+      updateThinkingMessage() {},
+      removeThinkingMessage() {},
+      findRelevantContext: async () => ({ compressed: false, facts: 'факты', traits: 'черты' }),
+      createStreamingMessage: () => ({ remove() {} }),
+      updateStreamingMessage() {},
+      finalizeStreamingMessage() {},
+      getLanguageName: () => 'Russian',
+      pickResponseArchetype: () => 'answer-first',
+      decideQuestionPolicyForThisTurn: () => ({ shouldAsk: false }),
+      insightMode: true,
+      getPersonaPromptBlock: () => '\n=== 🎭 ЭМУЛЯЦИЯ ЛИЧНОСТИ: ВКЛЮЧЕНА ===\nОБРАЗ: Шерлок',
+      streamResponse: async (messages, onChunk, onComplete) => {
+        sent.push(messages);
+        onComplete('<answer>Ответ</answer>');
+      },
+    });
+    vm.runInContext(app, context);
+    vm.runInContext(coachSource, context);
+    vm.runInContext(slice, context);
+
+    const { goal } = context.createGoal({ title: 'Выучить испанский', why: 'Хочу говорить с семьёй', success: 'Разговор 15 минут' });
+    context.setGoalNextStep(goal.id, 'Записаться на первый урок');
+    await context.processMessageWithTwoStages(message);
+    return { system: sent[0][0].content, context, goal };
+  }
+
+  const normal = await runTurn('Как продвигается с испанским?');
+  assert.match(normal.system, /КОУЧИНГ ЦЕЛЕЙ ПОЛЬЗОВАТЕЛЯ/);
+  assert.match(normal.system, /Записаться на первый урок/);
+  assert.ok(
+    normal.system.indexOf('ЭМУЛЯЦИЯ ЛИЧНОСТИ') < normal.system.indexOf('КОУЧИНГ ЦЕЛЕЙ'),
+    'коучинг идёт после образа и не вытесняется им'
+  );
+  assert.doesNotMatch(normal.system, /ПОДДЕРЖКА ВАЖНЕЕ КОУЧИНГА/);
+
+  const hard = await runTurn('Я выгорел и нет сил, ничего не могу больше');
+  assert.match(hard.system, /ПОДДЕРЖКА ВАЖНЕЕ КОУЧИНГА/, 'в тяжёлом состоянии включается поддержка');
+  assert.doesNotMatch(hard.system, /Записаться на первый урок/, 'шаг цели не показывается модели');
 });

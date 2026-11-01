@@ -2480,6 +2480,80 @@ function decideQuestionPolicyForThisTurn() {
     };
 }
 
+// ==================== GOAL COACHING BLOCK (🎯) ====================
+// Блок попадает в системный промпт основного ответа. Правила жёсткие и проверяются
+// тестами: одна коучинговая реплика за ход, не больше одного вопроса о цели за
+// несколько сообщений, при тяжёлом состоянии коучинг выключается до инъекции.
+
+function buildCoachingSupportBlock(level) {
+    const crisisLine = level === 'crisis'
+        ? `\nЕсли прозвучали мысли о самоповреждении — спокойно, без паники и без лекций скажи, что с таким лучше не оставаться одному, и мягко предложи обратиться к специалисту или в местную службу поддержки.\n`
+        : '';
+
+    return `\n=== ❗️ ПОДДЕРЖКА ВАЖНЕЕ КОУЧИНГА ===\n` +
+        `В сообщении пользователя есть признаки тяжёлого состояния. В этом ответе не спрашивай про цели, шаги и движение вперёд и не поднимай их сам.\n` +
+        `Сначала человек, потом цель: побудь рядом, отражай то, что услышал, без планов и без «а что ты сделаешь сегодня».\n` +
+        `Не диагностируй, не называй состояний, не обещай, что «само пройдёт», и не превращай это в коучинговый вопрос.${crisisLine}`;
+}
+
+function buildCoachingBlock(message, history) {
+    try {
+        if (typeof getActiveGoals !== 'function' || typeof getGoalsForPrompt !== 'function') return '';
+        if (typeof isCoachingEnabled === 'function' && !isCoachingEnabled()) return '';
+        if (getActiveGoals().length === 0) return '';
+
+        // Дистресс и кризис гасят коучинг в коде, а не просьбой в промпте.
+        const distress = typeof detectUserDistress === 'function'
+            ? detectUserDistress(message)
+            : { level: 'none' };
+        if (distress.level === 'crisis' || distress.level === 'distress') {
+            return buildCoachingSupportBlock(distress.level);
+        }
+
+        const goalsText = getGoalsForPrompt();
+        if (!goalsText) return '';
+
+        const coachable = typeof getCoachableGoals === 'function' ? getCoachableGoals() : [];
+        const allowQuestion = typeof isGoalQuestionAllowed === 'function' ? isGoalQuestionAllowed(history) : false;
+        const gap = typeof COACH_CONFIG === 'object' ? COACH_CONFIG.stuckStreakToTriage : 2;
+
+        const stuckGoal = coachable.find(goal =>
+            typeof getGoalStuckStreak === 'function' && getGoalStuckStreak(goal.id) >= gap);
+        const triageHint = stuckGoal && typeof getGoalTriageHint === 'function'
+            ? `\nТРИАЖ ЗАСТРЕВАНИЯ (для цели «${stuckGoal.title}»):\n${getGoalTriageHint(stuckGoal, allowQuestion)}\n`
+            : '';
+
+        const noStep = coachable.some(goal => !goal.nextStep || !goal.nextStep.text);
+        const stepHint = noStep
+            ? '\nУ одной из целей нет следующего шага. Один раз уместно предложить его сформулировать — маленьким и конкретным.\n'
+            : '';
+
+        const questionRule = allowQuestion
+            ? '3. Про цель можно задать не больше ОДНОГО вопроса — и только если он уместен сейчас.'
+            : '3. В последних ответах уже был вопрос о цели, поэтому в этом ответе про цель и следующий шаг НЕ спрашивай.';
+
+        return `\n=== 🎯 КОУЧИНГ ЦЕЛЕЙ ПОЛЬЗОВАТЕЛЯ ===\n` +
+            `Это цели, которые пользователь поставил себе сам. Ты помогаешь ему двигаться, но не управляешь целью.\n\n` +
+            `${goalsText}\n${stepHint}${triageHint}\n` +
+            `ПРАВИЛА КОУЧИНГА (нарушение — дефект, а не стиль):\n` +
+            `1. Цель принадлежит пользователю: не придумывай цели, не переформулируй его цель, не закрывай её и не объявляй провал.\n` +
+            `2. За один ответ — не больше ОДНОЙ коучинговой реплики. Это не отчёт, не чек-лист и не разбор на несколько пунктов.\n` +
+            `${questionRule}\n` +
+            `4. Застой не смягчай: «не сдвинулось» значит «не сдвинулось». Смягчать можно форму, но не факт.\n` +
+            `5. Шаг не работает — предложи уменьшить шаг. Цель под сомнением — вернись к его собственному «зачем» и оставь решение ему.\n` +
+            `6. Процентов, стриков, очков и уровней не существует. Не придумывай их и не считай.\n` +
+            `7. Запрещены стыд, страх, искусственная срочность, «в прошлый раз ты не сделал» и любая геймификация.\n` +
+            `8. Психологические наблюдения — только как догадка («мне кажется», «похоже»), с приглашением поправить. Никаких ярлыков, диагнозов и запретов по «типу личности».\n` +
+            `9. Поправка пользователя важнее любых твоих выводов и любых данных памяти.\n` +
+            `10. Коучинг важнее образа: если роль мешает помочь, помогает коучинг — манера роли при этом остаётся.\n` +
+            `11. Если разговор не про цели, не вытаскивай их каждый ответ: один уместный намёк — да, навязчивость — нет.\n`;
+    } catch (error) {
+        console.error('[Coaching] Failed to build block:', error.message);
+        return '';
+    }
+}
+// ==================== END GOAL COACHING BLOCK ====================
+
 // ==================== TWO-STAGE RESPONSE ARCHITECTURE ====================
 
 function selectGapForQuestion() {
@@ -2669,6 +2743,13 @@ if (last && last.role === 'user' && (last.content || '').trim() === (userMessage
         // 🎭 Эмуляция личности: блок добавляется только когда режим включён и промпт заполнен.
         const personaBlock = getPersonaPromptBlock();
 
+        // 🎯 Коучинг целей: идёт после образа, потому что коучинг важнее роли,
+        // и выключается кодом при признаках тяжёлого состояния. typeof — страховка
+        // от рассинхрона с закэшированной версией файла.
+        const coachingBlock = typeof buildCoachingBlock === 'function'
+            ? buildCoachingBlock(userMessage, historyWithoutCurrent)
+            : '';
+
         const systemPrompt = `${dictatedNote}Ты — персональный ИИ-ассистент, который ЗНАЕТ этого пользователя. Отвечай на ${langName}.
 === ТЕКУЩЕЕ ВРЕМЯ ===
 ${currentTimeInfo}
@@ -2676,6 +2757,7 @@ ${currentTimeInfo}
 ${contextBlock}
 ${insightModePrompt}
 ${personaBlock}
+${coachingBlock}
 
 === ⛔️ СТРОГИЙ ЗАПРЕТ: ВРЕМЕННОЙ КОНТЕКСТ ===
 1. ВСЕГДА разрешай относительные даты ("завтра", "вчера", "через неделю") относительно ВРЕМЕНИ ЗАПИСИ (recorded timestamp), а не текущего момента.
