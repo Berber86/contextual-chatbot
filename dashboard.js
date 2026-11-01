@@ -93,7 +93,7 @@
                 const active = dialog.classList.contains('active');
                 if (active && !previousFocus.has(dialog)) {
                     previousFocus.set(dialog, document.activeElement);
-                    const preferred = dialog.querySelector('.modal-close, .reports-close-btn, .help-modal-close, .you-close-btn, .you-help-modal-close, .dating-close-btn, .privacy-cancel-btn, .dialogs-close-btn');
+                    const preferred = dialog.querySelector('.modal-close, .goals-close-btn, .reports-close-btn, .help-modal-close, .you-close-btn, .you-help-modal-close, .dating-close-btn, .privacy-cancel-btn, .dialogs-close-btn');
                     const focusTarget = preferred || visibleFocusable(dialog)[0];
                     if (focusTarget) focusTarget.focus({ preventScroll: true });
                 } else if (!active && previousFocus.has(dialog)) {
@@ -134,6 +134,7 @@
                 else {
                     const closers = {
                         knowledgeModal: closeKnowledgeModal,
+                        goalsModal: closeGoalsModal,
                         reportsModal: closeReportsModal,
                         helpModal: closeHelpModal,
                         youModal: closeYouModal,

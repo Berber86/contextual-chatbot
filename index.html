@@ -124,6 +124,7 @@
     </style>
     <link rel="stylesheet" href="styles/emoji-font.css">
     <link rel="stylesheet" href="styles/workspace.css">
+    <link rel="stylesheet" href="styles/goals.css">
 </head>
 <body>
     <!-- Shared, inline icons keep the interface crisp without a network dependency. -->
@@ -134,6 +135,7 @@
         <symbol id="i-heart" viewBox="0 0 24 24"><path d="M20.3 8.8c0 4-4.6 7.4-8.3 10.2-3.7-2.8-8.3-6.2-8.3-10.2a4.3 4.3 0 0 1 8.3-1.5 4.3 4.3 0 0 1 8.3 1.5Z"/></symbol>
         <symbol id="i-dialogs" viewBox="0 0 24 24"><path d="M18.5 14.5a5.5 5.5 0 0 1-5.5 5.3c-.9 0-1.8-.2-2.6-.6L7 20l.8-3.1M5.5 13.5a5.5 5.5 0 0 1-.8-2.9A5.7 5.7 0 0 1 10.5 5h2a5.7 5.7 0 0 1 5.8 5.6 5.7 5.7 0 0 1-5.8 5.6h-2c-.8 0-1.6-.1-2.2-.4L5 16.5l.5-3Z"/></symbol>
         <symbol id="i-chart" viewBox="0 0 24 24"><path d="M5 19V11M10 19V5M15 19v-6M20 19V8"/><path d="M3 19.5h19"/></symbol>
+        <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/></symbol>
         <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M9.6 9.3a2.5 2.5 0 1 1 4.1 1.9c-1 .8-1.7 1.3-1.7 2.5M12 16.8h.01"/></symbol>
         <symbol id="i-settings" viewBox="0 0 24 24"><path d="M9.7 4.5 10.2 3h3.6l.5 1.5c.5.2 1 .4 1.4.6l1.5-.7 2.5 2.5-.7 1.5c.2.4.4.9.6 1.4l1.5.5v3.6l-1.5.5c-.2.5-.4 1-.6 1.4l.7 1.5-2.5 2.5-1.5-.7c-.4.2-.9.4-1.4.6l-.5 1.5h-3.6l-.5-1.5c-.5-.2-1-.4-1.4-.6l-1.5.7-2.5-2.5.7-1.5c-.2-.4-.4-.9-.6-1.4L3 13.8v-3.6l1.5-.5c.2-.5.4-1 .6-1.4l-.7-1.5 2.5-2.5 1.5.7c.4-.2.9-.4 1.3-.5Z"/><circle cx="12" cy="12" r="2.7"/></symbol>
         <symbol id="i-arrow-up-right" viewBox="0 0 24 24"><path d="M6 18 18 6M8 6h10v10"/></symbol>
@@ -168,6 +170,9 @@
             </button>
             <button class="header-btn nav-target" type="button" onclick="openKnowledgeModal()">
                 <svg class="icon" aria-hidden="true"><use href="#i-memory"></use></svg><span data-i18n="navMemory">Моя память</span>
+            </button>
+            <button class="header-btn nav-target" type="button" onclick="openGoalsModal()">
+                <svg class="icon" aria-hidden="true"><use href="#i-target"></use></svg><span data-i18n="navGoals">Цели</span>
             </button>
             <button class="header-btn nav-target" type="button" onclick="openYouModal()">
                 <svg class="icon" aria-hidden="true"><use href="#i-spark"></use></svg><span data-i18n="navSelf">Самопознание</span>
@@ -664,6 +669,23 @@
         </div>
     </div>
 
+    <!-- Goals modal -->
+    <div class="goals-modal-overlay" id="goalsModal" role="dialog" aria-modal="true" aria-label="Цели" data-workspace-dialog>
+        <div class="goals-modal">
+            <div class="goals-header">
+                <div class="goals-header-title">
+                    <span class="goals-header-icon" aria-hidden="true">🎯</span>
+                    <div>
+                        <h2>Цели</h2>
+                        <p>То, что вы поставили себе сами</p>
+                    </div>
+                </div>
+                <button class="goals-close-btn" type="button" onclick="closeGoalsModal()" aria-label="Закрыть цели">✕</button>
+            </div>
+            <div class="goals-body" id="goalsBody"></div>
+        </div>
+    </div>
+
     <!-- YOU Modal (Self-Discovery) -->
     <div class="you-modal-overlay" id="youModal" role="dialog" aria-modal="true" aria-label="Самопознание" data-workspace-dialog>
         <div class="you-header">
@@ -906,6 +928,7 @@
     <script src="app.js"></script>        <!-- 1. Базовые функции и конфигурация -->
     <script src="analytics.js"></script>  <!-- 2. Аналитические функции -->
     <script src="ui.js"></script>         <!-- 3. UI и взаимодействие -->
+    <script src="goals.js"></script>      <!-- 3.1 Цели пользователя -->
     <script src="you.js"></script>        <!-- 4. Модуль самопознания YOU -->
     <script src="dating.js"></script>     <!-- 5. Модуль знакомств -->
     <script src="reports.js"></script>    <!-- 6. Модуль отчётов -->
