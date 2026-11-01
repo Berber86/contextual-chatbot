@@ -1198,6 +1198,7 @@ const GOALS_CONFIG = {
     whyLimit: 1200,
     successLimit: 600,
     stepLimit: 300,
+    draftLimit: 200,       // максимальная длина шага, предложенного ботом
     noteLimit: 400,
     statuses: ['active', 'paused', 'done', 'dropped'],
     horizons: ['week', 'month', 'quarter', 'open'],
@@ -1378,10 +1379,13 @@ function setGoalStatus(id, status, reason) {
     });
 }
 
-function setGoalNextStep(id, text) {
+// source: 'user' — человек написал сам, 'coach' — бот предложил черновик,
+// а человек его поставил кнопкой. Решение всё равно за человеком.
+function setGoalNextStep(id, text, source) {
     const step = normalizeGoalText(text, GOALS_CONFIG.stepLimit);
+    const origin = source === 'coach' ? 'coach' : 'user';
     return writeGoal(id, goal => {
-        goal.nextStep = step ? { text: step, createdAt: Date.now() } : null;
+        goal.nextStep = step ? { text: step, createdAt: Date.now(), source: origin } : null;
         return goal;
     });
 }

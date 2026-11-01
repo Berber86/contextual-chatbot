@@ -83,7 +83,7 @@ function uiHarness() {
     },
     document: {
       getElementById: getElement,
-      createElement: () => ({ textContent: '', innerHTML: '' }),
+      createElement: () => ({ textContent: '', innerHTML: '', className: '', children: [], appendChild(child) { this.children.push(child); } }),
       body: { appendChild() {}, classList: { add() {}, remove() {} } },
     },
     escapeHtml: text => String(text == null ? '' : text),
@@ -968,4 +968,134 @@ test('экспорт везёт с собой обзоры и профиль, и
   const second = tuned.context.importGoalsPackage(payload);
   assert.equal(second.profile, false, 'настроенный профиль не перетирается');
   assert.equal(tuned.context.getCoachProfileData().params.directness, 'soft');
+});
+
+// ==================== ИНКРЕМЕНТ 4: ЧЕРНОВИК ШАГА ИЗ ЧАТА ====================
+
+test('строка «➡️ Шаг: …» отделяется от ответа и не показывается текстом', () => {
+  const { context } = uiHarness();
+
+  const withDraft = context.extractGoalStepDraft(
+    'Может, начать с малого?\n➡️ Шаг: Написать один абзац утром'
+  );
+  assert.equal(withDraft.text, 'Написать один абзац утром');
+  assert.equal(withDraft.cleaned, 'Может, начать с малого?', 'служебная строка уходит из текста');
+
+  const middle = context.extractGoalStepDraft('Про шаг: не путать с обычной фразой.\nПродолжаем.');
+  assert.equal(middle.text, '', 'обычный текст не считается черновиком');
+  assert.equal(middle.cleaned, middle.cleaned.trim());
+
+  const several = context.extractGoalStepDraft('➡️ Шаг: первый\nтекст\n➡️ Шаг: второй');
+  assert.equal(several.text, 'второй', 'берётся последняя строка');
+  assert.equal(several.cleaned, '➡️ Шаг: первый\nтекст');
+
+  const bold = context.extractGoalStepDraft('Мысль про шаг.\n**➡️ Шаг:** Написать абзац');
+  assert.equal(bold.text, 'Написать абзац', 'markdown вокруг маркера не мешает');
+  assert.equal(bold.cleaned, 'Мысль про шаг.');
+
+  const plainStepLine = context.extractGoalStepDraft('Шаг: просто текст без маркера');
+  assert.equal(plainStepLine.text, '', 'без стрелки это обычный текст, а не черновик');
+
+  const long = context.extractGoalStepDraft('➡️ Шаг: ' + 'я'.repeat(500));
+  assert.equal(long.text.length, read(context, 'GOALS_CONFIG').draftLimit, 'длина черновика ограничена');
+});
+
+test('черновик бота ставится только кликом и помечается как предложенный', () => {
+  const { context } = appHarness();
+  const { goal } = context.createGoal({ title: 'Бегать', why: 'Здоровье', success: '5 км' });
+
+  context.setGoalNextStep(goal.id, 'Купить кроссовки');
+  assert.equal(context.getGoalById(goal.id).nextStep.source, 'user', 'свой шаг — user');
+
+  context.setGoalNextStep(goal.id, 'Выйти на 10 минут', 'coach');
+  const step = context.getGoalById(goal.id).nextStep;
+  assert.equal(step.text, 'Выйти на 10 минут');
+  assert.equal(step.source, 'coach', 'видно, что формулировку предложил бот');
+
+  context.setGoalNextStep(goal.id, '', 'coach');
+  assert.equal(context.getGoalById(goal.id).nextStep, null, 'пустой черновик не ставится');
+});
+
+test('кнопка под ответом открывает выбор цели, шаг ставится кнопкой', () => {
+  const { context, getElement } = uiHarness();
+  const { goal } = context.createGoal({ title: 'Бегать', why: 'Здоровье', success: '5 км' });
+
+  const draftId = context.registerGoalStepDraft('Выйти на 10 минут');
+  assert.equal(draftId > 0, true);
+
+  context.goalsStartStepDraft(draftId);
+  const markup = getElement('goalsBody').innerHTML;
+  assert.match(markup, /Поставить шаг/);
+  assert.match(markup, /Выйти на 10 минут/, 'черновик виден целиком');
+  assert.match(markup, /Бегать/, 'предлагается активная цель');
+
+  context.goalsApplyStepDraft(goal.id);
+  assert.equal(context.getGoalById(goal.id).nextStep.text, 'Выйти на 10 минут');
+  assert.equal(context.getGoalById(goal.id).nextStep.source, 'coach');
+  assert.equal(read(context, 'goalsState').view, 'goal', 'после установки открывается карточка цели');
+  assert.match(getElement('goalsBody').innerHTML, /Формулировку предложил бот/);
+});
+
+test('к цели на паузе шаг не ставится — ни через выбор, ни напрямую', () => {
+  const { context, toasts } = uiHarness();
+  const { goal } = context.createGoal({ title: 'Бегать', why: 'Здоровье', success: '5 км' });
+  context.setGoalStatus(goal.id, 'paused');
+
+  // Через кнопку: активных целей нет, поэтому человек уходит в окно целей.
+  const draftId = context.registerGoalStepDraft('Выйти на 10 минут');
+  context.goalsStartStepDraft(draftId);
+  assert.match(toasts[toasts.length - 1].message, /Верните цель в работу/);
+  assert.equal(context.getGoalById(goal.id).nextStep, null);
+
+  // Защита в глубину: даже если экран выбора открыт, применение к паузе отклоняется.
+  read(context, "goalsState = { view: 'draft', selectedId: null, errors: [], draft: 'Выйти на 10 минут' }");
+  context.goalsApplyStepDraft(goal.id);
+  assert.equal(context.getGoalById(goal.id).nextStep, null, 'шаг не появился');
+  assert.match(toasts[toasts.length - 1].message, /верните её в работу/);
+});
+
+test('без целей кнопка ведёт в окно целей, а не молча ставит шаг', () => {
+  const { context, toasts } = uiHarness();
+  const draftId = context.registerGoalStepDraft('Написать абзац');
+
+  context.goalsStartStepDraft(draftId);
+  assert.equal(context.getGoals().length, 0);
+  assert.match(toasts[toasts.length - 1].message, /Сначала заведите цель/);
+});
+
+test('промпт требует черновик в понятном формате и не даёт ставить его самому', () => {
+  const { context } = coachHarness();
+  context.createGoal({ title: 'Бегать', why: 'Здоровье', success: '5 км' });
+
+  const block = context.buildCoachingBlock('привет', []);
+  assert.match(block, /➡️ Шаг:/, 'формат черновика указан модели');
+  assert.match(block, /ставит его пользователь сам/);
+  assert.match(block, /ты ничего не меняешь/);
+});
+
+test('черновик в чате не требует вызовов модели, а кнопка живёт в модуле целей', () => {
+  assert.doesNotMatch(goals, /callAPIWithRetry|callMemoryAPIWithRetry|callAPIOpenRouter|fetch\(/,
+    'постановка шага пишется локально');
+  assert.match(ui, /extractGoalStepDraft\(content\)/, 'ответ разбирается на черновик');
+  assert.match(ui, /window\.renderGoalStepDraftButton/, 'кнопка рисуется под ответом');
+  assert.match(ui, /addTTSButton\(element, goalDraft\.cleaned\)/, 'озвучка не читает служебную строку');
+});
+
+test('кнопка под ответом действительно открывает выбор цели (связка ui.js → goals.js)', () => {
+  const { context } = uiHarness();
+  const { goal } = context.createGoal({ title: 'Бегать', why: 'Здоровье', success: '5 км' });
+
+  // Так ui.js рисует кнопку после разбора ответа.
+  const message = { className: '', innerHTML: '', children: [], appendChild(child) { this.children.push(child); } };
+  context.window.renderGoalStepDraftButton(message, 'Выйти на 10 минут');
+
+  assert.equal(message.children.length, 1);
+  const box = message.children[0];
+  assert.match(box.innerHTML, /Выйти на 10 минут/);
+  const draftId = Number(box.innerHTML.match(/goalsStartStepDraft\((\d+)\)/)[1]);
+  assert.equal(draftId > 0, true);
+
+  context.goalsStartStepDraft(draftId);
+  context.goalsApplyStepDraft(goal.id);
+  assert.equal(context.getGoalById(goal.id).nextStep.text, 'Выйти на 10 минут');
 });
