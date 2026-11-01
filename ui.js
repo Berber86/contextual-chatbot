@@ -229,6 +229,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     
     // 5. UI состояния и API-настройки
+    // Переключатель эмуляции личности синхронизируется внутри initApiKeySettings.
     updateAskMeModeUI();
     updateInsightModeUI();
     initApiKeySettings();
@@ -845,6 +846,12 @@ function buildGreetingFromLensPrompt(langName, timeContext, lens, style = '', co
         ? `\n=== COMMUNICATION STYLE ===\n${truncateGreetingText(style, 1400)}\n`
         : '';
 
+    // 🎭 Эмуляция личности: приветствие тоже должно звучать в образе, иначе первый
+    // ответ выбивается из роли, которую пользователь включил.
+    const personaInstruction = typeof isPersonaEnabled === 'function' && isPersonaEnabled()
+        ? `\n=== 🎭 PERSONA (stay in this role) ===\n${truncateGreetingText(getPersonaPrompt(), 900)}\nSpeak in this character's voice and manner.\n`
+        : '';
+
     const forbiddenBlock = lens.forbiddenConcrete && lens.forbiddenConcrete.length > 0
         ? lens.forbiddenConcrete.map(x => `- ${x}`).join('\n')
         : '(none)';
@@ -858,7 +865,7 @@ function buildGreetingFromLensPrompt(langName, timeContext, lens, style = '', co
         system: `You are writing the FINAL proactive greeting for a returning user.
 
 IMPORTANT: Respond in ${langName}.
-${styleInstruction}
+${styleInstruction}${personaInstruction}
 === CURRENT TIME CONTEXT ===
 ${timeContextText}
 ${memoryBlock}${previousBlock}
@@ -1036,6 +1043,84 @@ function updateAskMeModeUI() {
     if (hint) hint.textContent = toggle.title;
 }
 
+// ==================== PERSONA EMULATION UI ====================
+// Пользователь попробовал включить эмуляцию без промпта: после сохранения промпта
+// включим режим автоматически — иначе ему пришлось бы щёлкать переключатель дважды.
+let personaEnablePending = false;
+
+function togglePersonaMode() {
+    const toggle = document.getElementById('personaModeToggle');
+    const next = toggle ? toggle.checked : !isPersonaMode();
+
+    // Без промпта эмулировать нечего: не включаем режим и сразу ведём к вкладке промпта.
+    if (next && !getPersonaPrompt()) {
+        personaEnablePending = true;
+        setPersonaMode(false);
+        updatePersonaModeUI();
+        openPersonaPromptTab();
+        return;
+    }
+    personaEnablePending = false;
+
+    setPersonaMode(next);
+    updatePersonaModeUI();
+    console.log(`[Persona] Mode ${next ? 'ON' : 'OFF'}`);
+}
+
+function updatePersonaModeUI() {
+    const toggle = document.getElementById('personaModeToggle');
+    if (toggle) toggle.checked = isPersonaMode();
+
+    const status = document.getElementById('personaModeStatus');
+    if (status) {
+        let key = 'personaModeNoPrompt';
+        if (isPersonaEnabled()) key = 'personaModeOn';
+        else if (getPersonaPrompt()) key = 'personaModeOff';
+        status.textContent = t(key);
+        status.classList.toggle('persona-status-on', isPersonaEnabled());
+    }
+
+    updatePersonaCounter();
+}
+
+function openPersonaPromptTab() {
+    closeSettingsMenu();
+    openKnowledgeModal();
+    switchTab('personaPrompt');
+}
+
+function updatePersonaCounter() {
+    const value = document.getElementById('personaCounter');
+    if (value) value.textContent = String(getPersonaMessagesLeft());
+
+    const badge = document.getElementById('personaCounterBadge');
+    if (badge) badge.style.display = isPersonaEnabled() ? '' : 'none';
+
+    refreshPersonaNotesTab();
+}
+
+// Перерисовываем открытую вкладку заметок после сохранения промпта или новой заметки.
+function refreshPersonaNotesTab() {
+    if (currentTab !== 'personaNotes') return;
+    const container = document.getElementById('structuredContainer');
+    const modal = document.getElementById('knowledgeModal');
+    if (!container || !modal || !modal.classList.contains('active')) return;
+    container.innerHTML = renderKnowledgeTabHeader('personaNotes') + renderPersonaNotesList();
+}
+
+// Прогресс заметок растёт только при включённой эмуляции: без роли счётчик не копится.
+function trackPersonaProgress() {
+    if (!isPersonaEnabled()) {
+        if (getPersonaCounter() !== 0) resetPersonaCounter();
+        updatePersonaCounter();
+        return false;
+    }
+
+    incrementPersonaCounter();
+    updatePersonaCounter();
+    return shouldUpdatePersonaNotes();
+}
+
 // ==================== MESSAGE COUNTER ====================
 function getMessageCounter() {
     return parseInt(localStorage.getItem(STORAGE_KEYS.messageCounter) || '0');
@@ -1050,7 +1135,9 @@ function incrementMessageCounter() {
         updateHypoCounter();
         updateGapsCounter();
     }
-    
+
+    updatePersonaCounter();
+
     return counter;
 }
 
@@ -1173,13 +1260,17 @@ function clearKnowledge() {
         localStorage.removeItem(STORAGE_KEYS.social);
         localStorage.removeItem(STORAGE_KEYS.gaps);
         localStorage.removeItem(STORAGE_KEYS.messageCounter);
-        
+        // Заметки об образе — тоже знания; промпт личности остаётся настройкой пользователя.
+        localStorage.removeItem(STORAGE_KEYS.personaNotes);
+        resetPersonaCounter();
+
         if (isLocal) {
             updateStyleCounter();
             updateHypoCounter();
             updateGapsCounter();
         }
-        
+
+        updatePersonaCounter();
         updateAskMeModeUI();
         window.dispatchEvent(new Event('memory-updated'));
         console.log('[System] All knowledge cleared');
@@ -1202,6 +1293,7 @@ function closeKnowledgeModal() {
     }
     hasUnsavedChanges = false;
     selectedItemId = null;
+    personaEnablePending = false;
     document.getElementById('knowledgeModal').classList.remove('active');
     document.body.classList.remove('modal-open');
 }
@@ -1219,7 +1311,8 @@ function switchTab(tab) {
         t.classList.toggle('active', t.dataset.tab === tab);
     });
 
-    ['styleInfo', 'hypothesesInfo', 'socialInfo', 'gapsInfo', 'factsInfo', 'traitsInfo', 'timelineInfo'].forEach(id => {
+    ['styleInfo', 'hypothesesInfo', 'socialInfo', 'gapsInfo', 'factsInfo', 'traitsInfo', 'timelineInfo',
+        'personaPromptInfo', 'personaNotesInfo'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.style.display = 'none';
     });
@@ -1229,10 +1322,10 @@ function switchTab(tab) {
     const socialContainer = document.getElementById('socialContainer');
     const readonlyIndicator = document.getElementById('readonlyIndicator');
 
-    const structuredTabs = ['facts', 'traits', 'timeline', 'hypotheses', 'gaps'];
+    const structuredTabs = ['facts', 'traits', 'timeline', 'hypotheses', 'gaps', 'personaNotes'];
     const isStructured = structuredTabs.includes(tab);
     const isSocial = tab === 'social';
-    const isTextarea = tab === 'style';
+    const isTextarea = tab === 'style' || tab === 'personaPrompt';
 
     if (textarea) textarea.style.display = isTextarea ? 'block' : 'none';
     if (structuredContainer) structuredContainer.style.display = isStructured ? 'block' : 'none';
@@ -1251,7 +1344,10 @@ function switchTab(tab) {
         if (readonlyIndicator) readonlyIndicator.style.display = 'flex';
         updateEditButtons(false);
     } else if (isTextarea) {
-        const content = localStorage.getItem(STORAGE_KEYS.style) || '';
+        // «Стиль общения» и «Промпт личности» — редактируемые тексты.
+        const content = tab === 'personaPrompt'
+            ? getPersonaPrompt()
+            : (localStorage.getItem(STORAGE_KEYS.style) || '');
         textarea.value = content;
         textarea.readOnly = false;
         textarea.classList.remove('readonly');
@@ -1300,6 +1396,14 @@ function getKnowledgeTabStats(tab) {
         const traits = data.contacts.reduce((sum, c) => sum + (c.traits?.length || 0), 0);
         return { icon: '👥', title: t('tabSocial').replace('👥', '').trim(), active: data.contacts.length, archived: 0, detail: `${data.contacts.length} контактов · ${facts} фактов · ${traits} черт` };
     }
+    if (tab === 'personaNotes') {
+        const notes = getPersonaNotesData().notes;
+        const notesLabel = notes.length ? `${notes.length} заметок` : 'пока нет заметок';
+        const detail = isPersonaEnabled()
+            ? `${notesLabel} · ${t('personaNotesNext').toLowerCase()} ${getPersonaMessagesLeft()} ${t('personaNotesUnit')}`
+            : `${notesLabel} · эмуляция выключена`;
+        return { icon: '📝', title: t('tabPersonaNotes').replace('📝', '').trim(), active: notes.length, archived: 0, detail };
+    }
     return { icon: '🗂️', title: tab, active: 0, archived: 0, detail: '' };
 }
 
@@ -1344,6 +1448,9 @@ function renderStructuredContent(tab) {
             break;
         case 'gaps':
             html = renderGapsList();
+            break;
+        case 'personaNotes':
+            html = renderPersonaNotesList();
             break;
     }
 
@@ -1563,6 +1670,43 @@ function renderGapsList() {
     return html;
 }
 
+// ==================== PERSONA NOTES RENDERING ====================
+function renderPersonaNotesList() {
+    const notes = getPersonaNotesData().notes;
+
+    if (notes.length === 0) {
+        const hint = isPersonaEnabled() ? '' :
+            `<p class="persona-notes-hint">${escapeHtml(t('settingsPersonaEmpty'))}</p>`;
+        return `
+            <div class="no-data persona-notes-empty">
+                <p>${escapeHtml(t('personaNotesEmpty'))}</p>
+                ${hint}
+            </div>
+        `;
+    }
+
+    // Свежие заметки — сверху.
+    const ordered = notes.slice().reverse();
+    let html = '<div class="structured-list persona-notes-list">';
+
+    ordered.forEach((note, i) => {
+        const kind = getPersonaNoteKind(note.kind);
+        html += `
+            <div class="structured-item persona-note-item">
+                <div class="item-header">
+                    <span class="item-index">[${notes.length - i}]</span>
+                    <span class="persona-note-kind">${kind.icon} ${escapeHtml(t(kind.labelKey))}</span>
+                    <span class="item-timestamp">${escapeHtml(formatTimestamp(note.createdAt))}</span>
+                </div>
+                <div class="item-text">${escapeHtml(note.text)}</div>
+            </div>
+        `;
+    });
+
+    html += '</div>';
+    return html;
+}
+
 function renderStructuredItem(item, index, type) {
     const conf = getConfidenceEmoji(item.confidence);
     const timestamp = item.timestamp ? formatTimestamp(item.timestamp) : '';
@@ -1735,10 +1879,14 @@ function renderContactDetailsInner(contact) {
 }
 
 // ==================== EDIT BUTTONS ====================
+// Вкладки с редактируемым текстом.
+const EDITABLE_TABS = ['style', 'personaPrompt'];
+
 function onTextareaChange() {
-    if (currentTab !== 'style') return;
-    
+    if (!EDITABLE_TABS.includes(currentTab)) return;
+
     const textarea = document.getElementById('knowledgeTextarea');
+    if (!textarea) return;
     const changed = textarea.value !== originalTabContent;
     hasUnsavedChanges = changed;
     updateEditButtons(changed);
@@ -1748,34 +1896,55 @@ function updateEditButtons(show) {
     const saveBtn = document.getElementById('saveBtn');
     const cancelBtn = document.getElementById('cancelBtn');
     const editIndicator = document.getElementById('editIndicator');
-    
-    if (currentTab !== 'style') {
+
+    if (!EDITABLE_TABS.includes(currentTab)) {
         if (saveBtn) saveBtn.style.display = 'none';
         if (cancelBtn) cancelBtn.style.display = 'none';
         if (editIndicator) editIndicator.classList.remove('visible');
         return;
     }
-    
+
     if (saveBtn) saveBtn.style.display = show ? 'block' : 'none';
     if (cancelBtn) cancelBtn.style.display = show ? 'block' : 'none';
     if (editIndicator) editIndicator.classList.toggle('visible', show);
 }
 
 function saveChanges() {
-    if (currentTab !== 'style') return;
-    
+    if (!EDITABLE_TABS.includes(currentTab)) return;
+
     const textarea = document.getElementById('knowledgeTextarea');
-    localStorage.setItem(STORAGE_KEYS.style, textarea.value);
+    if (!textarea) return;
+
+    if (currentTab === 'personaPrompt') {
+        const saved = setPersonaPrompt(textarea.value);
+        textarea.value = saved;
+        if (saved && personaEnablePending) {
+            // Промпт появился после попытки включить режим — включаем сразу.
+            setPersonaMode(true);
+            console.log('[Persona] Mode ON after prompt saved');
+        }
+        personaEnablePending = false;
+        // Пустой промпт — эмулировать нечего: честно выключаем режим.
+        if (!saved && isPersonaMode()) setPersonaMode(false);
+        updatePersonaModeUI();
+        console.log('[Persona] Prompt saved');
+    } else {
+        localStorage.setItem(STORAGE_KEYS.style, textarea.value);
+        console.log('[Knowledge] Style saved');
+    }
+
     originalTabContent = textarea.value;
     hasUnsavedChanges = false;
     updateEditButtons(false);
-    console.log('[Knowledge] Style saved');
+    refreshPersonaNotesTab();
 }
 
 function cancelChanges() {
     const textarea = document.getElementById('knowledgeTextarea');
+    if (!textarea) return;
     textarea.value = originalTabContent;
     hasUnsavedChanges = false;
+    personaEnablePending = false;
     updateEditButtons(false);
 }
 
@@ -2374,6 +2543,7 @@ Timeline: ${allTimeline || '(none)'}
 Social: ${allSocial || '(none)'}
 Hypotheses: ${allHypotheses || '(none)'}
 Style: ${style || '(none)'}
+${isPersonaEnabled() ? `Persona (role the assistant plays): ${getPersonaPrompt()}` : ''}
 
 === ⚠️ CRITICAL: TIME & LEGACY DATA SEMANTICS ===
 1. All records now include a recording timestamp (e.g., "[recorded: 10.06.2026 14:30]"). This is the GROUND TRUTH for when the user said the information.
@@ -2490,12 +2660,16 @@ if (last && last.role === 'user' && (last.content || '').trim() === (userMessage
             ? `=== ⚠️ СООБЩЕНИЕ НАДИКТАНО ГОЛОСОМ ===\nЭто сообщение пользователя получено через распознавание речи (voice-to-text, Whisper). В нём возможны:\n- ошибки распознавания речи (неверно услышанные слова, омофоны, опечатки, перестановки);\n- слова-паразиты и повторы («ээ», «ну», «типа», «короче», «как бы»);\n- неточности в пунктуации или регистре.\nУчитывай именно СМЫСЛ сказанного, а не букву текста. Не придавай значения мелким огрехам распознавания, не исправляй их формально и не делай выводов из артефактов автоматического транскрибирования.\n\n`
             : '';
 
+        // 🎭 Эмуляция личности: блок добавляется только когда режим включён и промпт заполнен.
+        const personaBlock = getPersonaPromptBlock();
+
         const systemPrompt = `${dictatedNote}Ты — персональный ИИ-ассистент, который ЗНАЕТ этого пользователя. Отвечай на ${langName}.
 === ТЕКУЩЕЕ ВРЕМЯ ===
 ${currentTimeInfo}
 
 ${contextBlock}
 ${insightModePrompt}
+${personaBlock}
 
 === ⛔️ СТРОГИЙ ЗАПРЕТ: ВРЕМЕННОЙ КОНТЕКСТ ===
 1. ВСЕГДА разрешай относительные даты ("завтра", "вчера", "через неделю") относительно ВРЕМЕНИ ЗАПИСИ (recorded timestamp), а не текущего момента.
@@ -2916,7 +3090,13 @@ async function sendMessage(event) {
         
         // Background analysis
         runBackgroundAnalysis();
-        
+
+        // Эмуляция личности: каждые N сообщений бот пишет заметку об образе
+        if (trackPersonaProgress()) {
+            console.log('[Persona] Updating notes...');
+            runPersonaNotesUpdate();
+        }
+
         if (shouldUpdateGaps()) {
             console.log('[Gaps] Updating...');
             runGapsUpdate();
@@ -2987,6 +3167,8 @@ function initApiKeySettings() {
     // активная платная модель в переключателе
     const activeModel = getChatModel();
     document.querySelectorAll('.model-switch .ms-opt').forEach(b => b.classList.toggle('active', b.dataset.model === activeModel));
+    // состояние переключателя эмуляции личности
+    updatePersonaModeUI();
 }
 
 window.saveLocalKey = function() {

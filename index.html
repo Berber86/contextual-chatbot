@@ -231,6 +231,16 @@
                     </label>
                     <div class="settings-hint" id="ttsVoiceHint" data-i18n="settingsTtsVoiceHint">Голос для кнопки «Озвучить» в ответах бота (HeyGen Voice Turbo, бесплатно до 30.11.2026).</div>
                     <div class="settings-divider"></div>
+                    <label class="settings-item settings-check" title="Бот отвечает в образе из промпта личности">
+                        <span data-i18n="settingsPersona">Эмуляция личности</span>
+                        <input type="checkbox" id="personaModeToggle" onchange="togglePersonaMode()">
+                    </label>
+                    <div class="settings-hint" id="personaModeStatus"></div>
+                    <button class="settings-item settings-action" type="button" onclick="openPersonaPromptTab()" data-close-settings>
+                        <span data-i18n="settingsPersonaPrompt">Промпт личности</span>
+                    </button>
+                    <div class="settings-hint" data-i18n="settingsPersonaHint">Бот будет отвечать в образе из промпта личности. Заметки об образе обновляются каждые 5 сообщений.</div>
+                    <div class="settings-divider"></div>
                     <button class="settings-item settings-action" type="button" onclick="clearChat()" data-close-settings>
                         <span data-i18n="btnClearChat">Очистить чат</span>
                     </button>
@@ -320,6 +330,7 @@
                 <div class="counter-badge"><span data-i18n="counterStyle">🎭 Стиль:</span> <span class="style-count" id="styleCounter">10</span></div>
                 <div class="counter-badge"><span data-i18n="counterHypotheses">💡 Гипотезы:</span> <span class="hypo-count" id="hypoCounter">16</span></div>
                 <div class="counter-badge"><span data-i18n="counterGaps">🔍 Пробелы:</span> <span class="gaps-count" id="gapsCounter">6</span></div>
+                <div class="counter-badge" id="personaCounterBadge"><span data-i18n="counterPersona">🎭 Эмуляция:</span> <span class="persona-count" id="personaCounter">5</span></div>
             </div>
         </div>
     </main>
@@ -506,6 +517,12 @@
             </section>
             
             <section class="help-section">
+                <h2>🎭 Эмуляция личности</h2>
+                <p>Напишите роль в разделе «Промпт личности» (например: «Ты — Шерлок Холмс») и включите переключатель в настройках — бот будет отвечать в этом образе.</p>
+                <p>Каждые 5 сообщений бот сам записывает заметку о том, как складывается образ: это его «память о роли». Заметки видны во вкладке «Заметки личности» и не дают боту выпадать из характера.</p>
+            </section>
+
+            <section class="help-section">
                 <h2>🔮 Самопознание</h2>
                 <p>Откройте раздел «Самопознание» в меню и пройдите интерактивный тест личности. Узнайте свои качества, ценности и приоритетные сферы жизни.</p>
             </section>
@@ -575,6 +592,12 @@
             <button class="modal-tab" data-tab="gaps" onclick="switchTab('gaps')" data-i18n="tabGaps">
                 🔍 White Spots
             </button>
+            <button class="modal-tab" data-tab="personaPrompt" onclick="switchTab('personaPrompt')" data-i18n="tabPersonaPrompt">
+                🎭 Промпт личности
+            </button>
+            <button class="modal-tab" data-tab="personaNotes" onclick="switchTab('personaNotes')" data-i18n="tabPersonaNotes">
+                📝 Заметки личности
+            </button>
         </div>
         
         <div class="modal-content">
@@ -600,6 +623,12 @@
             </div>
             <div id="gapsInfo" class="tab-info" style="display: none;" data-i18n="gapsInfo">
                 <strong>🔍 White Spots</strong> — important topics about you that remain unknown. The AI uses these to ask better questions. Updated every 6 messages. Read-only.
+            </div>
+            <div id="personaPromptInfo" class="tab-info" style="display: none;" data-i18n="personaPromptInfo">
+                <strong>🎭 Промпт личности</strong> — роль, в образе которой бот отвечает в чате. Опишите характер, манеру речи и привычки. Пока промпт пуст, эмуляция выключена.
+            </div>
+            <div id="personaNotesInfo" class="tab-info" style="display: none;" data-i18n="personaNotesInfo">
+                <strong>📝 Заметки личности</strong> — бот сам записывает наблюдения об образе каждые 5 сообщений. Только для чтения.
             </div>
             
             <!-- Readonly indicator -->

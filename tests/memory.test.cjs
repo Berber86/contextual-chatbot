@@ -123,6 +123,6 @@ test('memory provider default is persisted, independently of later chat changes'
 
 test('all memory extraction and periodic updates use the memory provider wrapper', () => {
   const analytics = fs.readFileSync('analytics.js', 'utf8');
-  assert.equal((analytics.match(/await callMemoryAPIWithRetry\(prompt, 2\)/g) || []).length, 9);
+  assert.equal((analytics.match(/await callMemoryAPIWithRetry\(prompt, 2\)/g) || []).length, 10);
   assert.doesNotMatch(analytics, /callAPIWithRetry\(/);
 });

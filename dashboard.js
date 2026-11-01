@@ -26,10 +26,13 @@
         const timeline = getTimelineData() || {};
         const hypotheses = getHypothesesData() || {};
         const social = getSocialData() || {};
+        const personaNotes = typeof getPersonaNotesData === 'function' ? (getPersonaNotesData() || {}) : {};
+        const personaNoteCount = Array.isArray(personaNotes.notes) ? personaNotes.notes.length : 0;
         const factCount = countActive(facts.facts);
         const traitCount = countActive(traits.traits);
         const eventCount = countActive(timeline.events);
-        const hasMemory = factCount + traitCount + eventCount + countActive(hypotheses.hypotheses) + countActive(social.contacts) > 0 ||
+        const hasMemory = factCount + traitCount + eventCount + countActive(hypotheses.hypotheses) +
+            countActive(social.contacts) + personaNoteCount > 0 ||
             Boolean(facts.legacy_text || traits.legacy_text || timeline.legacy_text);
 
         setText('memoryFacts', factCount);
@@ -190,6 +193,7 @@
     });
 
     window.addEventListener('memory-updated', window.refreshMemoryOverview);
+    window.addEventListener('persona-updated', window.refreshMemoryOverview);
     window.addEventListener('storage', window.refreshMemoryOverview);
     document.addEventListener('visibilitychange', function () {
         if (document.visibilityState === 'visible') window.refreshMemoryOverview();
