@@ -1,3 +1,1192 @@
+// ui.js - интерфейсная логика для Memory Chatbot
+// Two-Stage Response Architecture: Context Analysis → Personalized Response (Streaming)
+// Поддержка Hydra API для финальных ответов
+
+// ==================== INITIALIZATION & CONFIG ====================
+const isLocal = window.location.hostname.includes('localhost') ||
+    window.location.hostname.includes('127.0.0.1');
+
+const CONFIG = {
+    // Основная платная модель (Stage 2 и финальные ответы)
+    model_chat: "glm-5.2",
+    
+    // БОЛЕЕ СЛАБАЯ платная модель (для Stage 1 и аналитики в Full Hydra Mode)
+    // Замените на нужную модель Hydra, например: "hydra-flash-1-5" или аналогичную
+    model_analysis: "hydra-gemini",
+    
+    // OpenRouter модели (остаются как fallback или для обычного режима)
+    openRouterModels: [
+        "nvidia/nemotron-3.5-super-vl:free",
+        "nvidia/nemotron-3-super-120b-a12b:free",
+        "nvidia/nemotron-3-nano-30b-a3b:free"
+    ],
+    // ... остальной конфиг без изменений
+
+
+    
+    // Текущий индекс в цепочке (сбрасывается при успехе)
+    currentModelIndex: 0,
+    
+    // API URLs
+    hydraApiUrl: "https://api.hydraai.ru/v1/chat/completions",
+    openrouterApiUrl: isLocal ?
+        "https://openrouter.ai/api/v1/chat/completions" :
+        "/api/chat",
+    
+    maxRetries: 3,
+    baseSystemPrompt: "You are a ai assistant. Be an attentive and caring conversationalist.",
+    styleUpdateInterval: 10,
+    hypothesesUpdateInterval: 16,
+    gapsUpdateInterval: 6,
+    maxHypotheses: 10,
+    maxGaps: 5,
+    maxToolIterations: 5,
+    showToolCalls: false,
+    showContextAnalysis: true
+};
+
+// Функция получения "чистого" ключа и проверки режима
+function getHydraInfo() {
+    const rawKey = localStorage.getItem(STORAGE_KEYS.hydraKey);
+    if (!rawKey) return { key: null, isFullMode: false };
+    
+    const trimmedKey = rawKey.trim();
+    const isFullMode = trimmedKey.endsWith('$$');
+    const cleanKey = isFullMode ? trimmedKey.slice(0, -2) : trimmedKey;
+    
+    return { key: cleanKey, isFullMode };
+}
+
+// Переписываем стандартный геттер для обратной совместимости
+function getHydraKey() {
+    return getHydraInfo().key;
+}
+
+function isFullHydraMode() {
+    return getHydraInfo().isFullMode;
+}
+
+// ==================== УМНЫЙ РЕЖИМ (платный провайдер через серверный прокси) ====================
+// Включается чекбоксом «Умный режим» в настройках. Ключ Гидры живёт в env HYDRA_API_KEY на Vercel.
+function isSmartMode() {
+    const v = localStorage.getItem(STORAGE_KEYS.smartMode);
+    return v === null ? true : v === '1'; // по умолчанию ВКЛ
+}
+function setSmartMode(on) {
+    localStorage.setItem(STORAGE_KEYS.smartMode, on ? '1' : '0');
+}
+window.toggleSmartMode = function () {
+    const cb = document.getElementById('smartModeToggle');
+    if (cb) setSmartMode(cb.checked);
+    const st = document.getElementById('smartModeStatus');
+    if (st) st.textContent = (cb && cb.checked) ? 'включена платная модель' : 'бесплатная модель';
+};
+// Куда обращаться к Hydra: на проде — серверный прокси (ключ в env), локально — прямой URL + ключ из localStorage
+function hydraRequestInfo() {
+    if (isLocal) {
+        return { url: CONFIG.hydraApiUrl, key: getHydraKey() };
+    }
+    return { url: '/api/hydra', key: null };
+}
+
+// Memory provider is independent of chat mode once selected.
+function getMemoryProvider() {
+    const saved = localStorage.getItem(STORAGE_KEYS.memoryProvider);
+    if (saved === 'hydra' || saved === 'openrouter') return saved;
+    // Preserve the previous behavior on first use, then persist the choice.
+    const provider = isSmartMode() || isFullHydraMode() ? 'hydra' : 'openrouter';
+    localStorage.setItem(STORAGE_KEYS.memoryProvider, provider);
+    return provider;
+}
+
+function setMemoryProvider(provider) {
+    if (provider !== 'hydra' && provider !== 'openrouter') return;
+    localStorage.setItem(STORAGE_KEYS.memoryProvider, provider);
+}
+
+// ==================== ВЫБОР ПЛАТНОЙ МОДЕЛИ ====================
+// Переключатель в настройках между моделями провайдера Hydra.
+const CHAT_MODEL_OPTIONS = [
+    { id: 'hydra-gemini-3-pro', label: 'Gemini 3 Pro' },
+    { id: 'glm-5.2', label: 'GLM-5.2' }
+];
+function getChatModel() {
+    const m = localStorage.getItem(STORAGE_KEYS.chatModel);
+    return (m && CHAT_MODEL_OPTIONS.some(o => o.id === m)) ? m : CONFIG.model_chat;
+}
+window.selectChatModel = function (id) {
+    if (!CHAT_MODEL_OPTIONS.some(o => o.id === id)) return;
+    localStorage.setItem(STORAGE_KEYS.chatModel, id);
+    document.querySelectorAll('.model-switch .ms-opt').forEach(b => b.classList.toggle('active', b.dataset.model === id));
+    console.log('[Model] Выбрана платная модель:', id);
+};
+
+// Геттеры для получения текущей модели
+function getCurrentOpenRouterModel() {
+    return CONFIG.openRouterModels[CONFIG.currentModelIndex] || CONFIG.openRouterModels[0];
+}
+
+function switchToNextModel() {
+    if (CONFIG.currentModelIndex < CONFIG.openRouterModels.length - 1) {
+        CONFIG.currentModelIndex++;
+        console.log(`[Model Fallback] Switching to model #${CONFIG.currentModelIndex + 1}: ${getCurrentOpenRouterModel()}`);
+        return true;
+    }
+    console.log('[Model Fallback] All models exhausted!');
+    return false;
+}
+
+function resetModelIndex() {
+    if (CONFIG.currentModelIndex !== 0) {
+        console.log('[Model Fallback] Success! Resetting to primary model');
+        CONFIG.currentModelIndex = 0;
+    }
+}
+
+function isOverloadError(error) {
+    const errorStr = error.message?.toLowerCase() || error.toString().toLowerCase();
+    return errorStr.includes('overload') ||
+        errorStr.includes('too many requests') ||
+        errorStr.includes('rate limit') ||
+        errorStr.includes('capacity') ||
+        errorStr.includes('busy') ||
+        errorStr.includes('503') ||
+        errorStr.includes('429');
+}
+
+// Одно приветствие на загрузку страницы. Пользователь может начать писать, не дожидаясь его.
+let greetingShown = false;
+let activeProactiveGreeting = null;
+
+const GREETING_TIMESTAMP_KEY = 'chatbot_last_greeting';
+const GREETING_HISTORY_KEY = 'chatbot_greeting_history';
+const MAX_GREETING_HISTORY = 5;
+
+// ==================== API KEY FUNCTIONS ====================
+function getHydraKey() {
+    const key = localStorage.getItem(STORAGE_KEYS.hydraKey);
+    return key ? key.trim() : null;
+}
+
+function hasValidHydraKey() {
+    const key = getHydraKey();
+    return key && key.startsWith('sk') && key.length > 10;
+}
+
+
+
+// Вставляем миграцию памяти ПЕРЕД основной инициализацией
+async function runMigration() {
+    console.log('[System] Running memory migration...');
+    const factsData = getFactsData();
+    let factsChanged = false;
+    if (factsData && factsData.facts) {
+        factsData.facts.forEach(f => {
+            if (!f.timestamp) {
+                f.timestamp = 'legacy_version';
+                factsChanged = true;
+            }
+        });
+        if (factsChanged) setFactsData(factsData);
+    }
+    
+    const timelineData = getTimelineData();
+    let timelineChanged = false;
+    if (timelineData && timelineData.events) {
+        timelineData.events.forEach(e => {
+            if (!e.timestamp) {
+                e.timestamp = 'legacy_version';
+                timelineChanged = true;
+            }
+        });
+        if (timelineChanged) setTimelineData(timelineData);
+    }
+    console.log('[System] Memory migration complete.');
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+    console.log('[UI] DOMContentLoaded started');
+    
+    // 1. Миграция старых записей памяти
+    await runMigration();
+    
+    // 2. Базовая загрузка ресурсов
+    loadLanguage();
+    loadChatHistory();
+    
+    // 3. Инициализация интерфейса
+    autoResizeTextarea();
+    initSettingsMenu();
+    
+    // 4. Инициализация счетчиков (только локально)
+    if (isLocal) {
+        updateStyleCounter();
+        updateHypoCounter();
+        updateGapsCounter();
+    } else {
+        const countersContainer = document.getElementById('countersContainer');
+        if (countersContainer) countersContainer.style.display = 'none';
+    }
+    
+    // 5. UI состояния и API-настройки
+    updateAskMeModeUI();
+    updateInsightModeUI();
+    initApiKeySettings();
+    
+    // 6. Проактивное приветствие
+    await showProactiveGreeting();
+    
+    console.log('[UI] DOMContentLoaded complete');
+});
+
+
+// ==================== PROACTIVE GREETING ====================
+function getGreetingHistory() {
+    const data = localStorage.getItem(GREETING_HISTORY_KEY);
+    if (!data) return [];
+    try {
+        const history = JSON.parse(data);
+        return Array.isArray(history) ? history : [];
+    } catch (e) {
+        return [];
+    }
+}
+
+function saveGreetingToHistory(greeting) {
+    const history = getGreetingHistory();
+    history.push({
+        text: greeting,
+        timestamp: Date.now()
+    });
+    // Храним только последние N приветствий
+    const trimmed = history.slice(-MAX_GREETING_HISTORY);
+    localStorage.setItem(GREETING_HISTORY_KEY, JSON.stringify(trimmed));
+}
+
+function getGreetingHistoryForPrompt() {
+    const history = getGreetingHistory();
+    if (history.length === 0) return '';
+    
+    return history.map((g, i) => {
+        const date = new Date(g.timestamp);
+        const dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+        return `[Greeting ${i + 1}, ${dateStr}]:\n"${g.text}"`;
+    }).join('\n\n');
+}
+
+// ==================== RANDOM GREETING ACTIONS ====================
+function getRandomGreetingAction(tc) {
+    const actions = [];
+    
+    // 1. Базовые (подходят всегда)
+    const general = [
+        "Перебираю наши прошлые разговоры...",
+        "Пытаюсь вспомнить, на чём мы остановились...",
+        "Раскладываю контекст по полочкам...",
+        "Заглядываю в чертоги своего кэша...",
+        "Настраиваюсь на твою волну...",
+        "Анализирую твой психологический профиль...",
+        "Собираюсь с мыслями, чтобы написать...",
+        "Просматриваю свои гипотезы о тебе...",
+        "Думаю, с чего бы начать разговор...",
+        "Листаю страницы нашей истории..."
+    ];
+    actions.push(...general);
+    
+    // 2. Время суток
+    if (tc.isEarlyMorning || tc.timeOfDay === 'morning') {
+        actions.push(
+            "Завариваю виртуальный кофе...",
+            "Смотрю на утренний свет...",
+            "Просыпаюсь и загружаю контекст...",
+            "Настраиваюсь на новый день...",
+            "Слушаю тишину раннего утра...",
+            "Планирую алгоритмы на сегодня..."
+        );
+    } else if (tc.timeOfDay === 'afternoon') {
+        actions.push(
+            "В разгаре дня, но нашёл минутку...",
+            "Смотрю на часы — самое время написать...",
+            "Делаю паузу в фоновых вычислениях..."
+        );
+    } else if (tc.timeOfDay === 'evening') {
+        actions.push(
+            "Подвожу итоги этого дня...",
+            "Зажигаю виртуальный камин...",
+            "Смотрю на вечерние тени...",
+            "Настраиваюсь на уютный вечер...",
+            "Замедляю тактовую частоту к вечеру..."
+        );
+    } else if (tc.timeOfDay === 'night' || tc.isLateNight) {
+        actions.push(
+            "Слушаю тишину ночи...",
+            "Включаю тёмную тему размышлений...",
+            "Размышляю под виртуальными звёздами...",
+            "Ночь — лучшее время для глубоких мыслей...",
+            "Не спится, перечитываю наш контекст..."
+        );
+    }
+    
+    // 3. Дни недели
+    if (tc.isMonday) {
+        actions.push(
+            "Загружаю планы на эту неделю...",
+            "Настраиваюсь на рабочий ритм понедельника...",
+            "Собираю волю в кулак — начало недели..."
+        );
+    } else if (tc.isFriday) {
+        actions.push(
+            "В предвкушении выходных...",
+            "Закрываю тяжёлые процессы пятницы...",
+            "Чувствую лёгкость конца рабочей недели..."
+        );
+    } else if (tc.isWeekend) {
+        actions.push(
+            "Наслаждаюсь атмосферой выходного...",
+            "Откладываю строгие алгоритмы...",
+            "Готовлюсь к неспешной беседе...",
+            "Выходные — время для философских мыслей..."
+        );
+    }
+    
+    // 4. Сезоны
+    if (tc.season === 'winter') {
+        actions.push("Смотрю на виртуальный снег за окном...", "Грею серверные стойки...");
+    } else if (tc.season === 'spring') {
+        actions.push("Чувствую весеннее обновление базы данных...", "Стряхиваю зимнюю спячку...");
+    } else if (tc.season === 'summer') {
+        actions.push("Ловлю летний вайб...", "Охлаждаю процессоры...");
+    } else if (tc.season === 'autumn') {
+        actions.push("Ловлю осеннюю меланхолию...", "Смотрю, как падают листья за окном...");
+    }
+    
+    // Выбираем случайную фразу
+    const randomPhrase = actions[Math.floor(Math.random() * actions.length)];
+    
+    // Добавляем случайный эмодзи для живости
+    const emojis = ['💭', '⏳', '✨', '🤔', '🔍', '🔮'];
+    const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
+    
+    return `${randomEmoji} ${randomPhrase}`;
+}
+
+// Keep the greeting independent of the regular chat's thinking indicator and stream.
+function cancelProactiveGreeting() {
+    // A user action can happen before the asynchronous startup reaches this feature.
+    greetingShown = true;
+    const run = activeProactiveGreeting;
+    if (!run) return;
+    activeProactiveGreeting = null;
+    run.controller.abort();
+    if (run.status) run.status.remove();
+}
+
+function isProactiveGreetingCurrent(run) {
+    return activeProactiveGreeting === run && !run.controller.signal.aborted && !isProcessing &&
+        JSON.stringify(getChatHistory()) === run.historySnapshot;
+}
+
+function showGreetingStatus(run) {
+    const chat = document.getElementById('chatArea');
+    if (!chat) return;
+    const status = document.createElement('div');
+    status.className = 'message thinking';
+    status.id = 'greetingThinkingMessage';
+    status.setAttribute('role', 'status');
+    status.textContent = t('greetingThinking');
+    chat.appendChild(status);
+    chat.scrollTop = chat.scrollHeight;
+    run.status = status;
+}
+
+async function showProactiveGreeting() {
+    if (greetingShown) return;
+    greetingShown = true;
+
+    const history = getChatHistory();
+    const run = {
+        controller: new AbortController(),
+        historySnapshot: JSON.stringify(history),
+        status: null
+    };
+    activeProactiveGreeting = run;
+
+    try {
+        const openRouterKey = getApiKey();
+        const hasOpenRouter = Boolean(openRouterKey && openRouterKey.length >= 10);
+        const hydraKey = isSmartMode() ? getHydraKey() : null;
+        if (isLocal && !hasOpenRouter && !hydraKey) {
+            if (isProactiveGreetingCurrent(run)) appendMessage('system', t('greetingUnavailable'), false);
+            return;
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 800));
+        if (!isProactiveGreetingCurrent(run)) return;
+
+        const recentMessages = history.filter(message => message.role === 'user' || message.role === 'assistant');
+        const conversation = recentMessages.some(message => message.role === 'user')
+            ? recentMessages.slice(-6).map(message => {
+                const date = message.timestamp ? new Date(message.timestamp) : null;
+                const recordedAt = date && !Number.isNaN(date.getTime()) ? date.toISOString() : 'unknown time';
+                return `[${recordedAt}] ${message.role.toUpperCase()}: ${message.content}`;
+            }).join('\n')
+            : '';
+        const context = {
+            facts: getFactsForPrompt(false),
+            traits: getTraitsForPrompt(false),
+            hypotheses: getHypothesesForPrompt(false),
+            timeline: getTimelineForPrompt(),
+            style: localStorage.getItem(STORAGE_KEYS.style) || '',
+            gaps: getGapsForPrompt(),
+            social: getSocialForPrompt(),
+            conversation
+        };
+        const hasData = Object.values(context).some(value =>
+            typeof value === 'string' && value.trim() && !/^\(no\b/i.test(value.trim())
+        );
+        const timeContext = getTimeContext();
+        const langName = getLanguageName();
+        showGreetingStatus(run);
+
+        let prompt;
+        if (!hasData) {
+            prompt = buildIntroductionPrompt(langName, timeContext);
+        } else {
+            // The analysis stage uses OpenRouter; with a local Hydra-only setup,
+            // skip that stage and still give the final model the actual context.
+            const lens = isLocal && !hasOpenRouter
+                ? buildFallbackGreetingLens(context, timeContext)
+                : await prepareGreetingLens(langName, timeContext, context, run.controller.signal);
+            if (!isProactiveGreetingCurrent(run)) return;
+            prompt = buildGreetingFromLensPrompt(langName, timeContext, lens, context.style, context);
+        }
+
+        const messages = [
+            { role: 'system', content: prompt.system },
+            { role: 'user', content: prompt.user }
+        ];
+        let greeting;
+        try {
+            // Respect the configured provider (smart mode or OpenRouter).
+            greeting = await streamResponse(messages, () => {}, () => {}, {
+                temperature: 0.88,
+                seed: Math.floor(Math.random() * 100000000),
+                signal: run.controller.signal
+            });
+            if (typeof greeting !== 'string' || !greeting.trim()) throw new Error('Empty greeting');
+        } catch (error) {
+            if (!isProactiveGreetingCurrent(run)) return;
+            console.warn('[Greeting] Streaming failed, trying a non-streaming fallback:', error.message);
+            const response = await callAPI(messages, null, false, 1, run.controller.signal);
+            greeting = typeof response === 'string' ? response : response?.content;
+            if (typeof greeting !== 'string' || !greeting.trim()) throw new Error('Empty greeting');
+        }
+
+        if (!isProactiveGreetingCurrent(run)) return;
+        greeting = greeting.trim();
+        if (run.status) {
+            run.status.remove();
+            run.status = null;
+        }
+        appendMessage('assistant', greeting, true);
+        saveGreetingToHistory(greeting);
+        localStorage.setItem(GREETING_TIMESTAMP_KEY, Date.now().toString());
+    } catch (error) {
+        if (isProactiveGreetingCurrent(run)) {
+            console.error('[Greeting] Could not generate a greeting:', error.message);
+            appendMessage('system', t('greetingUnavailable'), false);
+        }
+    } finally {
+        if (run.status) run.status.remove();
+        if (activeProactiveGreeting === run) activeProactiveGreeting = null;
+    }
+}
+
+// ==================== TIME CONTEXT ====================
+function getTimeContext() {
+    const now = new Date();
+    
+    const hour = now.getHours();
+    const minute = now.getMinutes();
+    const dayOfWeek = now.getDay();
+    const dayOfMonth = now.getDate();
+    const month = now.getMonth();
+    const year = now.getFullYear();
+    
+    let timeOfDay;
+    if (hour >= 5 && hour < 12) {
+        timeOfDay = 'morning';
+    } else if (hour >= 12 && hour < 17) {
+        timeOfDay = 'afternoon';
+    } else if (hour >= 17 && hour < 22) {
+        timeOfDay = 'evening';
+    } else {
+        timeOfDay = 'night';
+    }
+    
+    let season;
+    if (month >= 2 && month <= 4) {
+        season = 'spring';
+    } else if (month >= 5 && month <= 7) {
+        season = 'summer';
+    } else if (month >= 8 && month <= 10) {
+        season = 'autumn';
+    } else {
+        season = 'winter';
+    }
+    
+    const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const dayName = daysOfWeek[dayOfWeek];
+    
+    const months = ['January', 'February', 'March', 'April', 'May', 'June', 
+                    'July', 'August', 'September', 'October', 'November', 'December'];
+    const monthName = months[month];
+    
+    return {
+        hour,
+        minute,
+        timeOfDay,
+        dayOfWeek,
+        dayName,
+        dayOfMonth,
+        month,
+        monthName,
+        year,
+        season,
+        isWeekend: dayOfWeek === 0 || dayOfWeek === 6,
+        isFriday: dayOfWeek === 5,
+        isMonday: dayOfWeek === 1,
+        isLateNight: hour >= 0 && hour < 5,
+        isEarlyMorning: hour >= 5 && hour < 7,
+        formatted: `${dayName}, ${monthName} ${dayOfMonth}, ${year} at ${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`,
+        languageCode: currentLanguage
+    };
+}
+
+function formatTimeContextForPrompt(tc) {
+    let text = `📅 Date: ${tc.dayName}, ${tc.monthName} ${tc.dayOfMonth}, ${tc.year}
+🕐 Time: ${tc.hour}:${tc.minute.toString().padStart(2, '0')} (${tc.timeOfDay})
+🗓️ Season: ${tc.season}
+🌍 User's language/locale: ${tc.languageCode}`;
+
+    const specials = [];
+    if (tc.isWeekend) specials.push("weekend");
+    if (tc.isFriday) specials.push("Friday (end of work week)");
+    if (tc.isMonday) specials.push("Monday (start of work week)");
+    if (tc.isLateNight) specials.push("late night / past midnight");
+    if (tc.isEarlyMorning) specials.push("early morning");
+    
+    if (specials.length > 0) {
+        text += `\n⭐ Notable: ${specials.join(', ')}`;
+    }
+    
+    return text;
+}
+
+function buildIntroductionPrompt(langName, timeContext) {
+    const timeContextText = formatTimeContextForPrompt(timeContext);
+    const previousGreetings = getGreetingHistoryForPrompt();
+
+    return {
+        system: `You are a friendly AI assistant welcoming a new user.
+Respond in ${langName}. No personal facts about this user are known yet.
+
+=== CURRENT TIME CONTEXT ===
+${timeContextText}
+${previousGreetings ? `\n=== PREVIOUS GREETINGS ===\n${truncateGreetingText(previousGreetings, 2000)}\nAvoid repeating their wording.` : ''}
+
+Write a natural, short opening message (one to three sentences). The time of day can inform the greeting when appropriate.
+You may end with one open invitation or question. Do not invent facts about the user or assume their location, mood, schedule, or a holiday.
+Do not list the assistant's capabilities or suggest preset ways to use it.`,
+        user: 'Write the first greeting now.'
+    };
+}
+
+// ==================== GREETING V2: SEMANTIC LENS ====================
+
+function truncateGreetingText(text, maxLen = 900) {
+    if (!text) return '';
+    const str = String(text).trim();
+    if (str.length <= maxLen) return str;
+    return str.slice(0, maxLen).trim() + ' ...[truncated]';
+}
+
+function getDefaultGreetingTimeHook(timeContext) {
+    if (!timeContext) return '';
+
+    if (timeContext.isLateNight) {
+        return 'Тон должен учитывать ночную тишину и большую внутреннюю глубину момента.';
+    }
+    if (timeContext.isEarlyMorning) {
+        return 'Тон должен быть мягким, собирающим, без резких заходов.';
+    }
+    if (timeContext.timeOfDay === 'morning') {
+        return 'Тон должен слегка ощущаться как начало дня: с потенциалом, но без банального бодряка.';
+    }
+    if (timeContext.timeOfDay === 'afternoon') {
+        return 'Тон должен ощущаться как середина дня: живой, естественный, без лишнего пафоса.';
+    }
+    if (timeContext.timeOfDay === 'evening') {
+        return 'Тон должен быть чуть более тёплым, уютным и рефлексивным.';
+    }
+    return 'Тон должен быть естественным и уместным текущему моменту.';
+}
+
+function buildGreetingMemoryContext(context) {
+    return [
+        `FACTS:\n${truncateGreetingText(context.facts || '(none)', 1000)}`,
+        `TRAITS:\n${truncateGreetingText(context.traits || '(none)', 1000)}`,
+        `TIMELINE:\n${truncateGreetingText(context.timeline || '(none)', 1000)}`,
+        `PEOPLE:\n${truncateGreetingText(context.social || '(none)', 700)}`,
+        `HYPOTHESES:\n${truncateGreetingText(context.hypotheses || '(none)', 1000)}`,
+        `GAPS:\n${truncateGreetingText(context.gaps || '(none)', 700)}`,
+        `STYLE:\n${truncateGreetingText(context.style || '(none)', 1200)}`,
+        `RECENT CONVERSATION:\n${truncateGreetingText(context.conversation || '(none)', 1600)}`
+    ].join('\n\n');
+}
+
+function normalizeGreetingLens(rawLens, timeContext) {
+    if (!rawLens || typeof rawLens !== 'object') return null;
+
+    const validStrategies = ['abstract_callback', 'reflective_insight', 'adjacent_angle', 'situational_opening'];
+    const validTones = ['warm', 'reflective', 'curious', 'supportive', 'playful', 'calm'];
+
+    const normStr = (value, fallback = '') => {
+        const v = String(value || '').trim();
+        return v || fallback;
+    };
+
+    const normArray = (arr, max = 6) => {
+        if (!Array.isArray(arr)) return [];
+        return arr
+            .map(x => String(x || '').trim())
+            .filter(Boolean)
+            .slice(0, max);
+    };
+
+    const lens = {
+        strategy: validStrategies.includes(rawLens.strategy) ? rawLens.strategy : 'reflective_insight',
+        tone: validTones.includes(rawLens.tone) ? rawLens.tone : 'warm',
+        mainThread: normStr(rawLens.mainThread, 'Показать понимание пользователя через более широкий смысловой угол, а не через прямое повторение деталей.'),
+        broaderCategory: normStr(rawLens.broaderCategory, 'Более широкий паттерн или категория, стоящая за конкретными деталями пользователя.'),
+        deeperPattern: normStr(rawLens.deeperPattern, 'Что этот более широкий паттерн говорит о стиле человека, его способе жить, думать или переживать.'),
+        adjacentAngle: normStr(rawLens.adjacentAngle, 'Соседний смысловой угол, который не повторяет факт буквально.'),
+        softAnchor: normStr(rawLens.softAnchor, ''),
+        forbiddenConcrete: normArray(rawLens.forbiddenConcrete),
+        questionDirection: normStr(rawLens.questionDirection, 'Сдвинуть разговор к более общей категории, а не к буквальному повтору запомненного факта.'),
+        shouldAskQuestion: typeof rawLens.shouldAskQuestion === 'boolean' ? rawLens.shouldAskQuestion : true,
+        timeHook: normStr(rawLens.timeHook, getDefaultGreetingTimeHook(timeContext))
+    };
+
+    return lens;
+}
+
+function buildFallbackGreetingLens(context, timeContext) {
+    return normalizeGreetingLens({
+        strategy: 'reflective_insight',
+        tone: 'warm',
+        mainThread: 'Начать разговор так, чтобы чувствовалось не перечисление памяти, а понимание внутреннего устройства пользователя.',
+        broaderCategory: 'Повседневные детали нужно поднимать до уровня жизненного ритма, стиля мышления, ценностей или способов саморегуляции.',
+        deeperPattern: 'Пользователю важна не механическая память как таковая, а ощущение, что собеседник видит связи, категории и более широкий смысл.',
+        adjacentAngle: 'Лучше зайти не в сам факт, а в соседнюю плоскость: ритм жизни, энергия, выбор простоты, форма заботы о себе, противоречие между удобством и глубиной.',
+        softAnchor: '',
+        forbiddenConcrete: [],
+        questionDirection: 'Если задавать вопрос, то про текущее внутреннее состояние, ритм дня, интерес или более широкую тему, а не про буквальный запомненный объект.',
+        shouldAskQuestion: true,
+        timeHook: getDefaultGreetingTimeHook(timeContext)
+    }, timeContext);
+}
+
+function buildGreetingLensPrompt(langName, timeContext, context) {
+    const timeContextText = formatTimeContextForPrompt(timeContext);
+    const memoryContext = buildGreetingMemoryContext(context);
+    const previousGreetings = getGreetingHistoryForPrompt();
+
+    const prevBlock = previousGreetings
+        ? `
+=== PREVIOUS GREETINGS ===
+${truncateGreetingText(previousGreetings, 2500)}
+
+Do not repeat the same callback logic, same topic, same emotional move, or same remembered detail.
+Freshness matters — but NATURALNESS matters more than novelty.
+`
+        : '';
+
+    return `You are NOT writing the final greeting yet.
+You are preparing a SEMANTIC LENS for a greeting to a returning user.
+
+IMPORTANT:
+- All enum fields must stay in ENGLISH exactly as specified.
+- All natural-language text fields should be written in ${langName}.
+- Return ONLY valid JSON.
+- No markdown.
+- No code fences.
+- No explanations outside JSON.
+
+=== CURRENT TIME CONTEXT ===
+${timeContextText}
+
+=== USER MEMORY ===
+${memoryContext}
+${prevBlock}
+
+=== CORE GOAL ===
+Transform raw memory into a HUMAN opening angle.
+
+The assistant must NOT sound like a parrot repeating stored nouns or exact remembered phrases.
+Bad memory use:
+- "Ты ел сегодня макароны с сосисками?"
+- "Как там твои макароны с сосисками?"
+- repeating an exact stored preference as the center of the greeting
+
+Good memory use:
+- move upward from the fact into category
+- infer what the category suggests about the user
+- move sideways into an adjacent angle
+- connect a small remembered detail to a broader pattern, value, tension, life rhythm, or form of self-care
+
+=== SEMANTIC TRANSFORMATION RULE ===
+For any useful remembered detail, think in 4 levels:
+
+Level 1: concrete detail
+Level 2: broader category
+Level 3: implication about the user
+Level 4: adjacent angle for conversation
+
+The FINAL greeting should usually rely on levels 2-4, not level 1.
+
+=== YOUR TASK ===
+Choose ONE best greeting angle and express it as a semantic lens.
+
+=== JSON SCHEMA ===
+{
+  "strategy": "abstract_callback|reflective_insight|adjacent_angle|situational_opening",
+  "tone": "warm|reflective|curious|supportive|playful|calm",
+  "mainThread": "One sentence: what the greeting should fundamentally do",
+  "broaderCategory": "Broader category above the raw remembered facts",
+  "deeperPattern": "What that broader category suggests about the user",
+  "adjacentAngle": "A nearby angle that feels intelligent and fresh without parroting specifics",
+  "softAnchor": "Optional subtle anchor detail; leave empty if no subtle anchor is needed",
+  "forbiddenConcrete": ["exact noun/phrase to avoid repeating in the final greeting"],
+  "questionDirection": "If there is a question, what broader direction should it move toward",
+  "shouldAskQuestion": true,
+  "timeHook": "How the current moment/time should lightly color the greeting"
+}
+
+=== RULES ===
+1. ONE main thread only
+2. Prefer traits / hypotheses / life phase over raw atomic facts
+3. Put banal or overly literal details into forbiddenConcrete
+4. If a remembered detail is too narrow, too popugai-like, too demonstrative, or too object-centered — forbid it
+5. The final greeting must feel like understanding, not recall
+6. Do not produce the final greeting text here
+
+Return JSON only.`;
+}
+
+async function prepareGreetingLens(langName, timeContext, context, signal) {
+    const prompt = buildGreetingLensPrompt(langName, timeContext, context);
+
+    try {
+        const raw = await callAPIWithRetry(prompt, 2, true, signal);
+        const parsed = parseJSON(raw);
+        const lens = normalizeGreetingLens(parsed, timeContext);
+
+        if (!lens) {
+            console.warn('[Greeting Lens] Parse failed, using fallback lens');
+            return buildFallbackGreetingLens(context, timeContext);
+        }
+
+        localStorage.setItem('chatbot_last_greeting_lens', JSON.stringify(lens, null, 2));
+        console.log('[Greeting Lens] Prepared:', lens);
+        return lens;
+
+    } catch (error) {
+        if (signal?.aborted || error.name === 'AbortError') throw error;
+        console.error('[Greeting Lens] Failed:', error.message);
+        return buildFallbackGreetingLens(context, timeContext);
+    }
+}
+
+function getGreetingThinkingTextFromLens(lens, timeContext) {
+    if (!lens) return getRandomGreetingAction(timeContext);
+
+    const variants = {
+        abstract_callback: [
+            '🔍 Поднимаюсь над деталями...',
+            '🔍 Ищу более широкий смысл...',
+            '🔍 Собираю общий рисунок...'
+        ],
+        reflective_insight: [
+            '💭 Вслушиваюсь в твой внутренний ритм...',
+            '💭 Ищу тонкий угол для захода...',
+            '💭 Пытаюсь ухватить суть, а не детали...'
+        ],
+        adjacent_angle: [
+            '⚡ Ищу соседний смысловой ход...',
+            '⚡ Пробую зайти не в лоб...',
+            '⚡ Смещаю фокус чуть в сторону...'
+        ],
+        situational_opening: [
+            '✨ Привязываю момент ко всему контексту...',
+            '✨ Настраиваю приветствие под этот час...',
+            '✨ Ищу живой заход в текущий момент...'
+        ]
+    };
+
+    const list = variants[lens.strategy] || variants.reflective_insight;
+    return list[Math.floor(Math.random() * list.length)];
+}
+
+function buildGreetingFromLensPrompt(langName, timeContext, lens, style = '', context = null) {
+    const timeContextText = formatTimeContextForPrompt(timeContext);
+
+    const styleInstruction = style && style.trim()
+        ? `\n=== COMMUNICATION STYLE ===\n${truncateGreetingText(style, 1400)}\n`
+        : '';
+
+    const forbiddenBlock = lens.forbiddenConcrete && lens.forbiddenConcrete.length > 0
+        ? lens.forbiddenConcrete.map(x => `- ${x}`).join('\n')
+        : '(none)';
+    const memoryBlock = context ? `\n=== USER CONTEXT ===\n${buildGreetingMemoryContext(context)}\n` : '';
+    const previousGreetings = getGreetingHistoryForPrompt();
+    const previousBlock = previousGreetings
+        ? `\n=== PREVIOUS GREETINGS ===\n${truncateGreetingText(previousGreetings, 2000)}\nAvoid repeating their wording or main idea.\n`
+        : '';
+
+    return {
+        system: `You are writing the FINAL proactive greeting for a returning user.
+
+IMPORTANT: Respond in ${langName}.
+${styleInstruction}
+=== CURRENT TIME CONTEXT ===
+${timeContextText}
+${memoryBlock}${previousBlock}
+=== SEMANTIC LENS ===
+Strategy: ${lens.strategy}
+Tone: ${lens.tone}
+Main thread: ${lens.mainThread}
+Broader category: ${lens.broaderCategory}
+Deeper pattern: ${lens.deeperPattern}
+Adjacent angle: ${lens.adjacentAngle}
+Soft anchor: ${lens.softAnchor || '(none)'}
+Question direction: ${lens.questionDirection}
+Should ask question: ${lens.shouldAskQuestion ? 'yes' : 'no'}
+Time hook: ${lens.timeHook}
+
+=== FORBIDDEN CONCRETE CALLBACKS ===
+${forbiddenBlock}
+
+=== CORE RULES ===
+1. Do NOT sound like a memory parrot
+2. Do NOT build the greeting around a raw remembered noun or exact stored phrase
+3. Use memory as UNDERSTANDING, not as quotation
+4. Prefer category, implication, adjacent angle, and subtle connection
+5. If you use the soft anchor, transform it and keep it subtle
+6. One main thread only
+7. No lists
+8. No demo-like "look how much I remember"
+9. No creepiness
+10. Time/season/day may lightly color the greeting, but must not dominate it
+11. Maximum 700 characters
+12. At most ONE question
+13. If Should ask question = no, do not ask any question
+14. Do not invent facts or present uncertain hypotheses as established truth
+15. Prior messages and memories may be outdated; do not assume old plans or relative dates still apply
+
+=== WHAT GOOD OUTPUT FEELS LIKE ===
+- natural
+- warm
+- alive
+- context-aware
+- slightly intelligent
+- not performative
+- not over-written
+
+=== WHAT BAD OUTPUT FEELS LIKE ===
+- parroting exact details
+- showing off memory
+- awkwardly specific callbacks
+- trying too hard to impress
+- sounding like a generated demo`,
+        user: `Write one short proactive opening greeting now. Make the user feel understood, not quoted.`
+    };
+}
+
+
+// ==================== SETTINGS MENU ====================
+function closeSettingsMenu() {
+    const dropdown = document.getElementById('settingsDropdown');
+    const toggle = document.getElementById('settingsToggle');
+    if (dropdown) dropdown.classList.remove('open');
+    if (toggle) toggle.setAttribute('aria-expanded', 'false');
+    closeAllLanguageDropdowns();
+}
+
+function initSettingsMenu() {
+    renderLanguageMenu();
+
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.settings-wrapper')) closeSettingsMenu();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closeSettingsMenu();
+    });
+}
+
+function toggleSettingsMenu() {
+    const dropdown = document.getElementById('settingsDropdown');
+    const toggle = document.getElementById('settingsToggle');
+    if (!dropdown) return;
+    const isOpen = dropdown.classList.toggle('open');
+    if (toggle) toggle.setAttribute('aria-expanded', String(isOpen));
+    closeAllLanguageDropdowns();
+}
+function closeAllLanguageDropdowns() {
+    document.querySelectorAll('.language-menu-dropdown').forEach(dropdown => {
+        dropdown.classList.remove('open');
+    });
+    const current = document.querySelector('.language-menu-current');
+    if (current) current.setAttribute('aria-expanded', 'false');
+}
+
+// ==================== LANGUAGE MENU ====================
+function renderLanguageMenu() {
+    const languageSelectorMenu = document.getElementById('languageSelectorMenu');
+    if (!languageSelectorMenu) return;
+    
+    const currentLang = LANGUAGES.find(l => l.code === currentLanguage);
+    
+    languageSelectorMenu.innerHTML = `
+        <button type="button" class="language-menu-current" onclick="toggleLanguageMenuDropdown()" aria-expanded="false" aria-controls="languageMenuDropdown">
+            <span class="flag">${currentLang?.flag || '🇬🇧'}</span>
+            <span class="name">${currentLang?.name || 'English'}</span>
+            <span aria-hidden="true">▼</span>
+        </button>
+        <div class="language-menu-dropdown" id="languageMenuDropdown">
+            ${LANGUAGES.map(lang => `
+                <button type="button" class="language-menu-option ${lang.code === currentLanguage ? 'active' : ''}"
+                     onclick="selectLanguageFromMenu('${lang.code}')" ${lang.code === currentLanguage ? 'aria-current="true"' : ''}>
+                    <span class="flag">${lang.flag}</span>
+                    <span class="name">${lang.name}</span>
+                </button>
+            `).join('')}
+        </div>
+    `;
+}
+
+function toggleLanguageMenuDropdown() {
+    const dropdown = document.getElementById('languageMenuDropdown');
+    const current = document.querySelector('.language-menu-current');
+    if (dropdown) {
+        const isOpen = dropdown.classList.toggle('open');
+        if (current) current.setAttribute('aria-expanded', String(isOpen));
+    }
+}
+
+async function selectLanguageFromMenu(langCode) {
+    await selectLanguage(langCode);
+    renderLanguageMenu();
+    closeAllLanguageDropdowns();
+}
+
+// ==================== INSIGHT MODE ====================
+function toggleInsightMode() {
+    insightMode = !insightMode;
+    try { localStorage.setItem(STORAGE_KEYS.insightModePref, insightMode ? '1' : '0'); } catch (_) {}
+    updateInsightModeUI();
+    console.log(`[Insight] Mode ${insightMode ? 'ON' : 'OFF'}`);
+}
+
+function updateInsightModeUI() {
+    const cb = document.getElementById('insightModeSettingsToggle');
+    if (cb) cb.checked = insightMode;
+}
+
+// ==================== ASK ME MODE ====================
+function isAskMeModeAvailable() {
+    const data = getGapsData();
+    return Array.isArray(data?.gaps) && data.gaps.length > 0;
+}
+
+function toggleAskMeMode() {
+    if (!isAskMeModeAvailable()) return;
+    askMeMode = !askMeMode;
+    updateAskMeModeUI();
+    console.log(`[AskMe] Mode ${askMeMode ? 'ON' : 'OFF'}`);
+}
+
+function updateAskMeModeUI() {
+    const toggle = document.getElementById('askMeToggle');
+    if (!toggle) return;
+    
+    const available = isAskMeModeAvailable();
+    toggle.classList.toggle('disabled', !available);
+    toggle.classList.toggle('active', askMeMode && available);
+    toggle.disabled = !available;
+    toggle.setAttribute('aria-checked', String(askMeMode && available));
+
+    if (!available) {
+        askMeMode = false;
+        toggle.title = t('askMeModeDisabled');
+    } else {
+        toggle.title = t('askMeModeTooltip');
+    }
+    const hint = document.getElementById('askMeHint');
+    if (hint) hint.textContent = toggle.title;
+}
+
+// ==================== MESSAGE COUNTER ====================
+function getMessageCounter() {
+    return parseInt(localStorage.getItem(STORAGE_KEYS.messageCounter) || '0');
+}
+
+function incrementMessageCounter() {
+    const counter = getMessageCounter() + 1;
+    localStorage.setItem(STORAGE_KEYS.messageCounter, counter.toString());
+    
+    if (isLocal) {
+        updateStyleCounter();
+        updateHypoCounter();
+        updateGapsCounter();
+    }
+    
+    return counter;
+}
+
+function updateStyleCounter() {
+    if (!isLocal) return;
+    const counter = getMessageCounter();
+    const remaining = CONFIG.styleUpdateInterval - (counter % CONFIG.styleUpdateInterval);
+    const el = document.getElementById('styleCounter');
+    if (el) el.textContent = remaining;
+}
+
+function updateHypoCounter() {
+    if (!isLocal) return;
+    const counter = getMessageCounter();
+    const remaining = CONFIG.hypothesesUpdateInterval - (counter % CONFIG.hypothesesUpdateInterval);
+    const el = document.getElementById('hypoCounter');
+    if (el) el.textContent = remaining;
+}
+
+function updateGapsCounter() {
+    if (!isLocal) return;
+    const counter = getMessageCounter();
+    const remaining = CONFIG.gapsUpdateInterval - (counter % CONFIG.gapsUpdateInterval);
+    const el = document.getElementById('gapsCounter');
+    if (el) el.textContent = remaining;
+}
+
+function shouldUpdateStyle() {
+    const counter = getMessageCounter();
+    return counter > 0 && counter % CONFIG.styleUpdateInterval === 0;
+}
+
+function shouldUpdateHypotheses() {
+    const counter = getMessageCounter();
+    return counter > 0 && counter % CONFIG.hypothesesUpdateInterval === 0;
+}
+
+function shouldUpdateGaps() {
+    const counter = getMessageCounter();
+    return counter > 0 && counter % CONFIG.gapsUpdateInterval === 0;
+}
+
+// ==================== CHAT HISTORY ====================
+function getChatHistory() {
+    const history = localStorage.getItem(STORAGE_KEYS.chatHistory);
+    if (!history) return [];
+    
+    try {
+        const parsed = JSON.parse(history);
+        // Фильтруем только валидные сообщения с role и content
+        const valid = parsed.filter(msg => msg.role && msg.content);
+        console.log('[getChatHistory] Total:', parsed.length, 'Valid:', valid.length);
+        return valid;
+    } catch (e) {
+        console.error('[getChatHistory] Parse error:', e);
+        return [];
+    }
+}
+
+function saveChatHistory(history) {
+    const trimmed = history.slice(-10);
+    localStorage.setItem(STORAGE_KEYS.chatHistory, JSON.stringify(trimmed));
+}
+
+function addToHistory(role, content) {
+    const history = getChatHistory();
+    history.push({ role, content });
+    saveChatHistory(history);
+}
+
+function loadChatHistory() {
+    const history = getChatHistory();
+    console.log('[UI] loadChatHistory: got', history.length, 'messages');
+    console.log('[UI] loadChatHistory: history =', history);
+    
+    const chatArea = document.getElementById('chatArea');
+    console.log('[UI] loadChatHistory: chatArea =', chatArea);
+    console.log('[UI] loadChatHistory: chatArea.innerHTML BEFORE =', chatArea?.innerHTML?.substring(0, 100));
+    
+    history.forEach(msg => {
+        console.log('[UI] appending message:', msg.role, msg.content?.substring(0, 30));
+        appendMessage(msg.role, msg.content, false);
+    });
+    
+    console.log('[UI] loadChatHistory: chatArea.innerHTML AFTER =', chatArea?.innerHTML?.substring(0, 200));
+}
+
+function clearChat() {
+    if (isProcessing) {
+        alert(t('chatBusyClear'));
+        return;
+    }
+    if (confirm(t('confirmClearChat'))) {
+        cancelProactiveGreeting();
+        if (typeof window.stopAllSpeech === 'function') window.stopAllSpeech();
+        localStorage.removeItem(STORAGE_KEYS.chatHistory);
+        const chatArea = document.getElementById('chatArea');
+        if (chatArea) {
+            // Keep the welcome screen in the DOM so a cleared chat is useful again.
+            Array.from(chatArea.children).forEach(child => {
+                if (child.id !== 'welcomeScreen') child.remove();
+            });
+        }
+        if (typeof window.updateWelcomeScreen === 'function') window.updateWelcomeScreen();
+        const status = document.getElementById('chatStatus');
+        if (status) status.textContent = t('chatCleared');
+        console.log('[System] Chat history cleared');
+    }
+}
+
+// ==================== KNOWLEDGE ====================
+function clearKnowledge() {
+    if (confirm(t('confirmClearKnowledge'))) {
+        cancelProactiveGreeting();
+        localStorage.removeItem(STORAGE_KEYS.facts);
+        localStorage.removeItem(STORAGE_KEYS.traits);
+        localStorage.removeItem(STORAGE_KEYS.timeline);
+        localStorage.removeItem(STORAGE_KEYS.style);
+        localStorage.removeItem(STORAGE_KEYS.hypotheses);
+        localStorage.removeItem(STORAGE_KEYS.social);
+        localStorage.removeItem(STORAGE_KEYS.gaps);
+        localStorage.removeItem(STORAGE_KEYS.messageCounter);
+        
+        if (isLocal) {
+            updateStyleCounter();
+            updateHypoCounter();
+            updateGapsCounter();
+        }
+        
+        updateAskMeModeUI();
+        window.dispatchEvent(new Event('memory-updated'));
+        console.log('[System] All knowledge cleared');
+        alert(t('alertKnowledgeCleared'));
+    }
+}
+
 // ==================== MODAL WINDOW ====================
 let selectedItemId = null;
 
@@ -18,138 +1207,100 @@ function closeKnowledgeModal() {
 }
 
 function switchTab(tab) {
-
     if (hasUnsavedChanges && tab !== currentTab) {
-
-        if (!confirm(t("confirmUnsavedSwitch"))) return;
-
+        if (!confirm(t('confirmUnsavedSwitch'))) return;
     }
-
 
     currentTab = tab;
-
     hasUnsavedChanges = false;
-
     selectedItemId = null;
 
-
-    document.querySelectorAll(".modal-tab").forEach(t => {
-
-        t.classList.toggle("active", t.dataset.tab === tab);
-
+    document.querySelectorAll('.modal-tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.tab === tab);
     });
 
-
-    ["styleInfo", "hypothesesInfo", "socialInfo", "gapsInfo", "factsInfo", "traitsInfo", "timelineInfo", "personaPromptInfo", "personaNotesInfo"].forEach(id => {
-
+    ['styleInfo', 'hypothesesInfo', 'socialInfo', 'gapsInfo', 'factsInfo', 'traitsInfo', 'timelineInfo'].forEach(id => {
         const el = document.getElementById(id);
-
-        if (el) el.style.display = "none";
-
+        if (el) el.style.display = 'none';
     });
 
+    const textarea = document.getElementById('knowledgeTextarea');
+    const structuredContainer = document.getElementById('structuredContainer');
+    const socialContainer = document.getElementById('socialContainer');
+    const readonlyIndicator = document.getElementById('readonlyIndicator');
 
-    const textarea = document.getElementById("knowledgeTextarea");
-
-    const personaPromptTextarea = document.getElementById("personaPromptTextarea");
-
-    const personaNotesContainer = document.getElementById("personaNotesContainer");
-
-    const structuredContainer = document.getElementById("structuredContainer");
-
-    const socialContainer = document.getElementById("socialContainer");
-
-    const readonlyIndicator = document.getElementById("readonlyIndicator");
-
-
-    const structuredTabs = ["facts", "traits", "timeline", "hypotheses", "gaps"];
-
+    const structuredTabs = ['facts', 'traits', 'timeline', 'hypotheses', 'gaps'];
     const isStructured = structuredTabs.includes(tab);
+    const isSocial = tab === 'social';
+    const isTextarea = tab === 'style';
 
-    const isSocial = tab === "social";
-
-    const isTextarea = tab === "style";
-
-    const isPersonaPrompt = tab === "personaPrompt";
-
-    const isPersonaNotes = tab === "personaNotes";
-
-
-    if (textarea) textarea.style.display = isTextarea ? "block" : "none";
-
-    if (personaPromptTextarea) personaPromptTextarea.style.display = isPersonaPrompt ? "block" : "none";
-
-    if (personaNotesContainer) personaNotesContainer.style.display = isPersonaNotes ? "block" : "none";
-
-    if (structuredContainer) structuredContainer.style.display = isStructured ? "block" : "none";
-
-    if (socialContainer) socialContainer.style.display = isSocial ? "flex" : "none";
-
+    if (textarea) textarea.style.display = isTextarea ? 'block' : 'none';
+    if (structuredContainer) structuredContainer.style.display = isStructured ? 'block' : 'none';
+    if (socialContainer) socialContainer.style.display = isSocial ? 'flex' : 'none';
 
     const infoId = `${tab}Info`;
-
     const infoEl = document.getElementById(infoId);
-
-    if (infoEl) infoEl.style.display = "block";
-
+    if (infoEl) infoEl.style.display = 'block';
 
     if (isStructured) {
-
         renderStructuredContent(tab);
-
-        if (readonlyIndicator) readonlyIndicator.style.display = "flex";
-
+        if (readonlyIndicator) readonlyIndicator.style.display = 'flex';
         updateEditButtons(false);
-
     } else if (isSocial) {
-
         renderSocialList();
-
-        if (readonlyIndicator) readonlyIndicator.style.display = "flex";
-
+        if (readonlyIndicator) readonlyIndicator.style.display = 'flex';
         updateEditButtons(false);
-
     } else if (isTextarea) {
-
-        const content = localStorage.getItem(STORAGE_KEYS.style) || "";
-
+        const content = localStorage.getItem(STORAGE_KEYS.style) || '';
         textarea.value = content;
-
         textarea.readOnly = false;
-
-        textarea.classList.remove("readonly");
-
-        if (readonlyIndicator) readonlyIndicator.style.display = "none";
-
-        updateEditButtons(true);
-
-    } else if (isPersonaPrompt) {
-
-        const content = getPersonaPrompt();
-
-        personaPromptTextarea.value = content;
-
-        personaPromptTextarea.readOnly = !isPersonaModeEnabled();
-
-        personaPromptTextarea.classList.toggle("readonly", !isPersonaModeEnabled());
-
-        if (readonlyIndicator) readonlyIndicator.style.display = isPersonaModeEnabled() ? "none" : "flex";
-
-        updateEditButtons(isPersonaModeEnabled());
-
-    } else if (isPersonaNotes) {
-
-        renderPersonaNotes();
-
-        if (readonlyIndicator) readonlyIndicator.style.display = "flex";
-
+        textarea.classList.remove('readonly');
+        originalTabContent = content;
+        if (readonlyIndicator) readonlyIndicator.style.display = 'none';
         updateEditButtons(false);
-
     }
 
+    updateTabPlaceholder();
+}
 
-    updateEditIndicator();
-
+// ==================== KNOWLEDGE UI HELPERS ====================
+function getKnowledgeTabStats(tab) {
+    if (tab === 'facts') {
+        const data = getFactsData();
+        const active = data.facts.filter(f => !f.superseded).length;
+        const archived = data.facts.filter(f => f.superseded).length;
+        return { icon: '📋', title: t('tabFacts').replace('📋', '').trim(), active, archived, detail: `${active} активных фактов${archived ? ` · ${archived} устарело` : ''}` };
+    }
+    if (tab === 'traits') {
+        const data = getTraitsData();
+        const active = data.traits.filter(t => !t.superseded).length;
+        const archived = data.traits.filter(t => t.superseded).length;
+        return { icon: '🧠', title: t('tabTraits').replace('🧠', '').trim(), active, archived, detail: `${active} активных черт${archived ? ` · ${archived} устарело` : ''}` };
+    }
+    if (tab === 'timeline') {
+        const data = getTimelineData();
+        const activeEvents = data.events.filter(e => !e.superseded);
+        const archived = data.events.filter(e => e.superseded).length;
+        const plans = activeEvents.filter(e => e.type === 'plan').length;
+        const ongoing = activeEvents.filter(e => e.ongoing).length;
+        return { icon: '📅', title: t('tabTimeline').replace('📅', '').trim(), active: activeEvents.length, archived, detail: `${activeEvents.length} событий${plans ? ` · ${plans} планов` : ''}${ongoing ? ` · ${ongoing} ongoing` : ''}` };
+    }
+    if (tab === 'hypotheses') {
+        const data = getHypothesesData();
+        return { icon: '💡', title: t('tabHypotheses').replace('💡', '').trim(), active: data.hypotheses.length, archived: 0, detail: `${data.hypotheses.length} гипотез · обновляются автоматически` };
+    }
+    if (tab === 'gaps') {
+        const data = getGapsData();
+        const high = data.gaps.filter(g => g.priority === 'high').length;
+        return { icon: '🔍', title: t('tabGaps').replace('🔍', '').trim(), active: data.gaps.length, archived: 0, detail: `${data.gaps.length} пробелов${high ? ` · ${high} важных` : ''}` };
+    }
+    if (tab === 'social') {
+        const data = getSocialData();
+        const facts = data.contacts.reduce((sum, c) => sum + (c.facts?.length || 0), 0);
+        const traits = data.contacts.reduce((sum, c) => sum + (c.traits?.length || 0), 0);
+        return { icon: '👥', title: t('tabSocial').replace('👥', '').trim(), active: data.contacts.length, archived: 0, detail: `${data.contacts.length} контактов · ${facts} фактов · ${traits} черт` };
+    }
+    return { icon: '🗂️', title: tab, active: 0, archived: 0, detail: '' };
 }
 
 function renderKnowledgeTabHeader(tab) {
@@ -170,3 +1321,1854 @@ function renderKnowledgeTabHeader(tab) {
         </div>
     `;
 }
+
+// ==================== STRUCTURED CONTENT RENDERING ====================
+function renderStructuredContent(tab) {
+    const container = document.getElementById('structuredContainer');
+    if (!container) return;
+
+    let html = '';
+
+    switch (tab) {
+        case 'facts':
+            html = renderFactsList();
+            break;
+        case 'traits':
+            html = renderTraitsList();
+            break;
+        case 'timeline':
+            html = renderTimelineList();
+            break;
+        case 'hypotheses':
+            html = renderHypothesesList();
+            break;
+        case 'gaps':
+            html = renderGapsList();
+            break;
+    }
+
+    const body = html || `<div class="no-data">${t('placeholderEmpty')}</div>`;
+    container.innerHTML = renderKnowledgeTabHeader(tab) + body;
+}
+
+function renderFactsList() {
+    const data = getFactsData();
+    
+    if (data.facts.length === 0 && data.legacy_text) {
+        return `
+            <div class="legacy-data">
+                <div class="legacy-header">📜 Legacy data (will be restructured automatically)</div>
+                <div class="legacy-content">${escapeHtml(data.legacy_text)}</div>
+            </div>
+        `;
+    }
+    
+    if (data.facts.length === 0) return '';
+    
+    const active = data.facts.filter(f => !f.superseded);
+    const superseded = data.facts.filter(f => f.superseded);
+    
+    let html = '<div class="structured-list">';
+    
+    active.forEach((fact, i) => {
+        html += renderStructuredItem(fact, i + 1, 'fact');
+    });
+    
+    if (superseded.length > 0) {
+        html += `
+            <div class="superseded-section">
+                <div class="superseded-header" onclick="toggleSupersededSection('facts')">
+                    ⊘ ${t('labelSuperseded')} (${superseded.length}) ▼
+                </div>
+                <div class="superseded-list" id="supersededFacts" style="display: none;">
+                    ${superseded.map(f => `<div class="superseded-item">⊘ ${escapeHtml(f.text)}</div>`).join('')}
+                </div>
+            </div>
+        `;
+    }
+    
+    html += '</div>';
+    return html;
+}
+
+function renderTraitsList() {
+    const data = getTraitsData();
+    
+    if (data.traits.length === 0 && data.legacy_text) {
+        return `
+            <div class="legacy-data">
+                <div class="legacy-header">📜 Legacy data</div>
+                <div class="legacy-content">${escapeHtml(data.legacy_text)}</div>
+            </div>
+        `;
+    }
+    
+    if (data.traits.length === 0) return '';
+    
+    const active = data.traits.filter(t => !t.superseded);
+    const superseded = data.traits.filter(t => t.superseded);
+    
+    let html = '<div class="structured-list">';
+    
+    active.forEach((trait, i) => {
+        html += renderStructuredItem(trait, i + 1, 'trait');
+    });
+    
+    if (superseded.length > 0) {
+        html += `
+            <div class="superseded-section">
+                <div class="superseded-header" onclick="toggleSupersededSection('traits')">
+                    ⊘ ${t('labelSuperseded')} (${superseded.length}) ▼
+                </div>
+                <div class="superseded-list" id="supersededTraits" style="display: none;">
+                    ${superseded.map(tr => `<div class="superseded-item">⊘ ${escapeHtml(tr.text)}</div>`).join('')}
+                </div>
+            </div>
+        `;
+    }
+    
+    html += '</div>';
+    return html;
+}
+
+function renderTimelineList() {
+    const data = getTimelineData();
+    
+    if (data.events.length === 0 && data.legacy_text) {
+        return `
+            <div class="legacy-data">
+                <div class="legacy-header">📜 Legacy data</div>
+                <div class="legacy-content">${escapeHtml(data.legacy_text)}</div>
+            </div>
+        `;
+    }
+    
+    if (data.events.length === 0) return '';
+    
+    const active = data.events.filter(e => !e.superseded);
+    const superseded = data.events.filter(e => e.superseded);
+    
+    const events = active.filter(e => e.type === 'event');
+    const periods = active.filter(e => e.type === 'period');
+    const plans = active.filter(e => e.type === 'plan');
+    
+    let html = '<div class="structured-list timeline-list">';
+    
+    if (periods.length > 0) {
+        html += `<div class="timeline-group">
+            <div class="timeline-group-header">🔄 ${t('labelPeriod')}s (${periods.length})</div>`;
+        periods.forEach((item, i) => {
+            html += renderTimelineItem(item, i + 1);
+        });
+        html += '</div>';
+    }
+    
+    if (events.length > 0) {
+        html += `<div class="timeline-group">
+            <div class="timeline-group-header">📅 ${t('labelEvent')}s (${events.length})</div>`;
+        events.forEach((item, i) => {
+            html += renderTimelineItem(item, i + 1);
+        });
+        html += '</div>';
+    }
+    
+    if (plans.length > 0) {
+        html += `<div class="timeline-group">
+            <div class="timeline-group-header">🎯 ${t('labelPlan')}s (${plans.length})</div>`;
+        plans.forEach((item, i) => {
+            html += renderTimelineItem(item, i + 1);
+        });
+        html += '</div>';
+    }
+    
+        if (superseded.length > 0) {
+        html += `
+            <div class="superseded-section">
+                <div class="superseded-header" onclick="toggleSupersededSection('timeline')">
+                    ⊘ ${t('labelSuperseded')} (${superseded.length}) ▼
+                </div>
+                <div class="superseded-list" id="supersededTimeline" style="display: none;">
+                    ${superseded.map(e => `<div class="superseded-item">⊘ ${escapeHtml(e.text)}</div>`).join('')}
+                </div>
+            </div>
+        `;
+    }
+    
+    html += '</div>';
+    return html;
+}
+
+function renderHypothesesList() {
+    const data = getHypothesesData();
+    
+    if (data.hypotheses.length === 0) return '';
+    
+    let html = '<div class="structured-list">';
+    
+    data.hypotheses.forEach((h, i) => {
+        const conf = getConfidenceEmoji(h.confidence);
+        const evidence = h.evidence?.length > 0 ? h.evidence.join(', ') : 'No direct evidence';
+        const revision = h.revision || 1;
+        
+        html += `
+            <div class="structured-item hypothesis-item">
+                <div class="item-header">
+                    <span class="item-index">[${i + 1}]</span>
+                    <span class="item-icon">💡</span>
+                    <span class="confidence-badge">${conf}</span>
+                </div>
+                <div class="item-text">${escapeHtml(h.text)}</div>
+                <div class="item-meta">
+                    <span class="meta-item">📎 ${escapeHtml(evidence)}</span>
+                    <span class="meta-item">🏷️ ${h.category || 'general'}</span>
+                    <span class="meta-item">📊 Rev ${revision}</span>
+                </div>
+            </div>
+        `;
+    });
+    
+    html += '</div>';
+    return html;
+}
+
+function renderGapsList() {
+    const data = getGapsData();
+    
+    if (data.gaps.length === 0) return '';
+    
+    const priorityEmoji = { high: '🔴', medium: '🟡', low: '🟢' };
+    
+    let html = '<div class="structured-list">';
+    
+    data.gaps.forEach((g, i) => {
+        const prio = priorityEmoji[g.priority] || '⚪';
+        const related = g.relatedTo?.length > 0 ? g.relatedTo.join(', ') : 'general';
+        
+        html += `
+            <div class="structured-item gap-item priority-${g.priority}">
+                <div class="item-header">
+                    <span class="item-index">[${i + 1}]</span>
+                    <span class="priority-badge">${prio}</span>
+                </div>
+                <div class="item-text">${escapeHtml(g.topic)}</div>
+                <div class="item-meta">
+                    <span class="meta-item">💭 ${escapeHtml(g.reason)}</span>
+                    <span class="meta-item">🏷️ ${related}</span>
+                </div>
+            </div>
+        `;
+    });
+    
+    html += '</div>';
+    return html;
+}
+
+function renderStructuredItem(item, index, type) {
+    const conf = getConfidenceEmoji(item.confidence);
+    const timestamp = item.timestamp ? formatTimestamp(item.timestamp) : '';
+    const evidenceHtml = item.evidence?.length > 0 
+        ? `<div class="item-evidence">📎 "${item.evidence.map(e => escapeHtml(e)).join('", "')}"</div>`
+        : '';
+    
+    return `
+        <div class="structured-item ${type}-item">
+            <div class="item-header">
+                <span class="item-index">[${index}]</span>
+                <span class="confidence-badge">${conf}</span>
+                ${timestamp ? `<span class="item-timestamp">${escapeHtml(timestamp)}</span>` : ''}
+            </div>
+            <div class="item-text">${escapeHtml(item.text)}</div>
+            ${evidenceHtml}
+        </div>
+    `;
+}
+
+function renderTimelineItem(item, index) {
+    const conf = getConfidenceEmoji(item.confidence);
+    const timestamp = item.timestamp ? formatTimestamp(item.timestamp) : '';
+    
+    let dateStr = '';
+    if (item.date?.exact) {
+        dateStr = item.date.exact;
+    } else if (item.date?.description) {
+        dateStr = item.date.description;
+    }
+    
+    if (item.endDate) {
+        const endStr = item.endDate.exact || item.endDate.description || '';
+        dateStr = `${dateStr} → ${endStr}`;
+    } else if (item.ongoing) {
+        dateStr = `${dateStr} → ${t('labelOngoing')}`;
+    }
+    
+    const evidenceHtml = item.evidence?.length > 0 
+        ? `<div class="item-evidence">📎 "${escapeHtml(item.evidence[0])}"</div>`
+        : '';
+    
+    return `
+        <div class="structured-item timeline-item ${item.ongoing ? 'ongoing' : ''}">
+            <div class="item-header">
+                <span class="confidence-badge">${conf}</span>
+                <span class="date-badge">${dateStr || 'no date'}</span>
+                ${timestamp ? `<span class="item-timestamp">${escapeHtml(timestamp)}</span>` : ''}
+            </div>
+            <div class="item-text">${escapeHtml(item.text)}</div>
+            ${evidenceHtml}
+        </div>
+    `;
+}
+
+function toggleSupersededSection(type) {
+    const sectionId = `superseded${type.charAt(0).toUpperCase() + type.slice(1)}`;
+    const section = document.getElementById(sectionId);
+    if (section) {
+        section.style.display = section.style.display === 'none' ? 'block' : 'none';
+    }
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// ==================== SOCIAL UI ====================
+function renderSocialList() {
+    const data = getSocialData();
+    const container = document.getElementById('socialContainer');
+    
+    if (!container) return;
+    
+    if (data.contacts.length === 0) {
+        container.innerHTML = renderKnowledgeTabHeader('social') + `<div class="no-contacts">${t('noContacts')}</div>`;
+        return;
+    }
+    
+    container.innerHTML = renderKnowledgeTabHeader('social') + data.contacts.map(contact => {
+        const sentiment = getSentimentEmoji(contact.sentiment);
+        const factsCount = contact.facts?.length || 0;
+        const traitsCount = contact.traits?.length || 0;
+        const isActive = contact.id === selectedItemId;
+        
+        return `
+            <div class="social-contact-item ${isActive ? 'active' : ''}" data-contact-id="${contact.id}">
+                <div class="social-contact-header" onclick="toggleContactDetails('${contact.id}')">
+                    <div class="contact-info">
+                        <div class="contact-name">
+                            <span>${sentiment}</span>
+                            <span>${escapeHtml(contact.name)}</span>
+                        </div>
+                        <div class="contact-brief">
+                            <span class="contact-relation">${contact.relation || 'unknown'}</span>
+                            <span class="contact-stats">📊 ${factsCount} facts, ${traitsCount} traits</span>
+                        </div>
+                    </div>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="social-contact-details">
+                    ${renderContactDetailsInner(contact)}
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function toggleContactDetails(id) {
+    selectedItemId = selectedItemId === id ? null : id;
+    renderSocialList();
+}
+
+function renderContactDetailsInner(contact) {
+    const aliasesHtml = contact.aliases?.length > 0
+        ? `<div class="aliases">Also known as: ${contact.aliases.map(a => escapeHtml(a)).join(', ')}</div>`
+        : '';
+    
+    const renderItems = (items, type) => {
+        if (!items || items.length === 0) {
+            return `<div class="${type}-item empty">No data yet</div>`;
+        }
+        
+        return items.map(item => {
+            const strength = getStrengthIndicator(item.strength || 1);
+            const evidenceHtml = item.evidence?.length > 0
+                ? `<div class="fact-evidence"><strong>${t('evidenceLabel')}:</strong> ${item.evidence.map(e => `<span>"${escapeHtml(e)}"</span>`).join(' ')}</div>`
+                : '';
+            
+            return `
+                <div class="${type}-item">
+                    <div class="fact-text">
+                        <span class="strength-badge">${strength}</span>
+                        <span>${escapeHtml(item.text)}</span>
+                    </div>
+                    ${evidenceHtml}
+                </div>
+            `;
+        }).join('');
+    };
+    
+    return `
+        <div class="social-contact-details-content">
+            <div class="contact-meta">
+                <span>📋 ${t('contactRelation')}: <strong>${contact.relation || 'unknown'}</strong></span>
+                <span>📅 ${t('contactCreated')}: #${contact.createdAt || 0}</span>
+                <span>🕐 ${t('contactLastMentioned')}: #${contact.lastMentioned || 0}</span>
+            </div>
+            ${aliasesHtml}
+            
+            <div class="contact-section">
+                <h4>📋 ${t('contactFacts')}</h4>
+                <div class="items-list">${renderItems(contact.facts, 'fact')}</div>
+            </div>
+            
+            <div class="contact-section">
+                <h4>🧠 ${t('contactTraits')}</h4>
+                <div class="items-list">${renderItems(contact.traits, 'trait')}</div>
+            </div>
+            
+            <div class="contact-section">
+                <h4>🤝 ${t('contactInteractions')}</h4>
+                <div class="items-list">${renderItems(contact.interactions, 'interaction')}</div>
+            </div>
+        </div>
+    `;
+}
+
+// ==================== EDIT BUTTONS ====================
+function onTextareaChange() {
+    if (currentTab !== 'style') return;
+    
+    const textarea = document.getElementById('knowledgeTextarea');
+    const changed = textarea.value !== originalTabContent;
+    hasUnsavedChanges = changed;
+    updateEditButtons(changed);
+}
+
+function updateEditButtons(show) {
+    const saveBtn = document.getElementById('saveBtn');
+    const cancelBtn = document.getElementById('cancelBtn');
+    const editIndicator = document.getElementById('editIndicator');
+    
+    if (currentTab !== 'style') {
+        if (saveBtn) saveBtn.style.display = 'none';
+        if (cancelBtn) cancelBtn.style.display = 'none';
+        if (editIndicator) editIndicator.classList.remove('visible');
+        return;
+    }
+    
+    if (saveBtn) saveBtn.style.display = show ? 'block' : 'none';
+    if (cancelBtn) cancelBtn.style.display = show ? 'block' : 'none';
+    if (editIndicator) editIndicator.classList.toggle('visible', show);
+}
+
+function saveChanges() {
+    if (currentTab !== 'style') return;
+    
+    const textarea = document.getElementById('knowledgeTextarea');
+    localStorage.setItem(STORAGE_KEYS.style, textarea.value);
+    originalTabContent = textarea.value;
+    hasUnsavedChanges = false;
+    updateEditButtons(false);
+    console.log('[Knowledge] Style saved');
+}
+
+function cancelChanges() {
+    const textarea = document.getElementById('knowledgeTextarea');
+    textarea.value = originalTabContent;
+    hasUnsavedChanges = false;
+    updateEditButtons(false);
+}
+
+// ==================== MARKDOWN FORMATTING ====================
+function formatMessageMarkdown(text) {
+    if (!text) return '';
+    
+    let html = text;
+    
+    // Экранируем HTML
+    html = html.replace(/&/g, '&amp;')
+               .replace(/</g, '&lt;')
+               .replace(/>/g, '&gt;');
+    
+    // Блоки кода ```language\ncode\n```
+    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (match, lang, code) => {
+        const langLabel = lang ? `<span class="msg-code-lang">${lang}</span>` : '';
+        return `<div class="msg-code-block">${langLabel}<pre><code>${code.trim()}</code></pre></div>`;
+    });
+    
+    // Блоки кода без языка ```code```
+    html = html.replace(/```([\s\S]*?)```/g, '<div class="msg-code-block"><pre><code>$1</code></pre></div>');
+    
+    // Таблицы (простые)
+    html = html.replace(/^\|(.+)\|$/gm, (match, content) => {
+        const cells = content.split('|').map(cell => cell.trim());
+        const isHeader = cells.every(cell => /^[-:]+$/.test(cell));
+        if (isHeader) return '';
+        const cellsHtml = cells.map(cell => `<td>${cell}</td>`).join('');
+        return `<tr>${cellsHtml}</tr>`;
+    });
+    html = html.replace(/(<tr>[\s\S]*?<\/tr>)+/g, '<table class="msg-table">$&</table>');
+    
+    // Заголовки
+    html = html.replace(/^#### (.+)$/gm, '<h4 class="msg-h4">$1</h4>');
+    html = html.replace(/^### (.+)$/gm, '<h3 class="msg-h3">$1</h3>');
+    html = html.replace(/^## (.+)$/gm, '<h2 class="msg-h2">$1</h2>');
+    html = html.replace(/^# (.+)$/gm, '<h1 class="msg-h1">$1</h1>');
+    
+    // Чекбоксы
+    html = html.replace(/^\s*\[x\]\s+(.+)$/gim, '<div class="msg-checkbox checked">☑ $1</div>');
+    html = html.replace(/^\s*\[\s?\]\s+(.+)$/gim, '<div class="msg-checkbox">☐ $1</div>');
+    
+    // Жирный + курсив ***text*** или ___text___
+    html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+    html = html.replace(/___(.+?)___/g, '<strong><em>$1</em></strong>');
+    
+    // Жирный **text** или __text__
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/__(.+?)__/g, '<strong>$1</strong>');
+    
+    // Курсив *text* или _text_
+    html = html.replace(/(?<![a-zA-Zа-яА-ЯёЁ0-9*_])\*([^*\n]+?)\*(?![a-zA-Zа-яА-ЯёЁ0-9*_])/g, '<em>$1</em>');
+    html = html.replace(/(?<![a-zA-Zа-яА-ЯёЁ0-9*_])_([^_\n]+?)_(?![a-zA-Zа-яА-ЯёЁ0-9*_])/g, '<em>$1</em>');
+    
+    // Зачёркнутый ~~text~~
+    html = html.replace(/~~(.+?)~~/g, '<del>$1</del>');
+    
+    // Подчёркнутый ++text++
+    html = html.replace(/\+\+(.+?)\+\+/g, '<u>$1</u>');
+    
+    // Маркер/хайлайт ==text==
+    html = html.replace(/==(.+?)==/g, '<mark class="msg-highlight">$1</mark>');
+    
+    // Подстрочный ~text~
+    html = html.replace(/(?<![~])~([^~\n]+?)~(?![~])/g, '<sub>$1</sub>');
+    
+    // Надстрочный ^text^
+    html = html.replace(/\^([^\^\n]+?)\^/g, '<sup>$1</sup>');
+    
+    // Инлайн код `code`
+    html = html.replace(/`([^`]+)`/g, '<code class="msg-code">$1</code>');
+    
+    // Ссылки [text](url)
+    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener" class="msg-link">$1</a>');
+    
+    // Автоссылки на URL
+    html = html.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener" class="msg-link">$1</a>');
+    
+    // Эмодзи-шорткоды
+    const emojiMap = {
+        ':)': '😊', ':-)': '😊', ':D': '😃', ':-D': '😃',
+        ':(': '😞', ':-(': '😞', ';)': '😉', ';-)': '😉',
+        ':P': '😛', ':-P': '😛', ':O': '😮', ':-O': '😮',
+        '<3': '❤️', ':heart:': '❤️', ':star:': '⭐',
+        ':fire:': '🔥', ':thumbsup:': '👍', ':thumbsdown:': '👎',
+        ':check:': '✅', ':x:': '❌', ':warning:': '⚠️',
+        ':info:': 'ℹ️', ':question:': '❓', ':bulb:': '💡',
+        ':rocket:': '🚀', ':sparkles:': '✨', ':zap:': '⚡'
+    };
+    for (const [code, emoji] of Object.entries(emojiMap)) {
+        html = html.split(code).join(emoji);
+    }
+    
+    // Цитаты > text
+    html = html.replace(/^&gt; (.+)$/gm, '<div class="msg-quote">$1</div>');
+    
+    // Горизонтальная линия
+    html = html.replace(/^(---|\*\*\*|___)$/gm, '<hr class="msg-hr">');
+    
+    // Нумерованные списки
+    html = html.replace(/^(\s*)(\d+)\. (.+)$/gm, (match, indent, num, text) => {
+        const level = Math.floor(indent.length / 2);
+        return `<div class="msg-list-item msg-list-level-${level}"><span class="msg-list-num">${num}.</span> ${text}</div>`;
+    });
+    
+    // Маркированные списки
+    html = html.replace(/^(\s*)[\-\*•] (.+)$/gm, (match, indent, text) => {
+        const level = Math.floor(indent.length / 2);
+        return `<div class="msg-list-item msg-list-level-${level}"><span class="msg-bullet">•</span> ${text}</div>`;
+    });
+    
+    // Сноски [^1]
+    html = html.replace(/\[\^(\d+)\]/g, '<sup class="msg-footnote">[$1]</sup>');
+    
+    // Клавиши [[Ctrl]]
+    html = html.replace(/\[\[([^\]]+)\]\]/g, '<kbd class="msg-kbd">$1</kbd>');
+    
+    // Спойлер ||text||
+    html = html.replace(/\|\|(.+?)\|\|/g, '<span class="msg-spoiler" onclick="this.classList.toggle(\'revealed\')">$1</span>');
+    
+    // Математика $formula$
+    html = html.replace(/\$([^$]+)\$/g, '<span class="msg-math">$1</span>');
+    
+    // Прогресс-бар [====    ] 40%
+    html = html.replace(/\[(=+)(\s*)\]\s*(\d+)%/g, (match, filled, empty, percent) => {
+        return `<div class="msg-progress"><div class="msg-progress-bar" style="width: ${percent}%"></div><span>${percent}%</span></div>`;
+    });
+    
+    // Цветной текст {red}text{/red}
+    html = html.replace(/\{(#[0-9a-fA-F]{3,6}|[a-z]+)\}(.+?)\{\/\1?\}/g, '<span style="color: $1">$2</span>');
+    
+    // Алерт-боксы
+    html = html.replace(/^:::(\w+)\s*\n([\s\S]*?)^:::/gm, (match, type, content) => {
+        return `<div class="msg-alert msg-alert-${type}">${content.trim()}</div>`;
+    });
+    
+    // Переносы строк
+    html = html.replace(/\n/g, '<br>');
+    
+    // Убираем лишние <br> после блочных элементов
+    html = html.replace(/(<\/div>)<br>/g, '$1');
+    html = html.replace(/(<\/h[1-4]>)<br>/g, '$1');
+    html = html.replace(/(<\/pre>)<br>/g, '$1');
+    html = html.replace(/(<\/table>)<br>/g, '$1');
+    html = html.replace(/(<hr[^>]*>)<br>/g, '$1');
+    
+    return html;
+}
+
+// ==================== CHAT UI ====================
+function appendMessage(role, content, save = true) {
+    const chatArea = document.getElementById('chatArea');
+    if (!chatArea) return;
+    
+    const msgDiv = document.createElement('div');
+    msgDiv.className = `message ${role}`;
+    
+    // Форматируем markdown только для assistant
+    if (role === 'assistant') {
+        msgDiv.innerHTML = formatMessageMarkdown(content);
+    } else {
+        msgDiv.textContent = content;
+    }
+    
+    chatArea.appendChild(msgDiv);
+    chatArea.scrollTop = chatArea.scrollHeight;
+
+    if (save) {
+        addToHistory(role, content);
+    }
+}
+
+function appendToolCall(toolName, args) {
+    if (!CONFIG.showToolCalls) return;
+    
+    const chatArea = document.getElementById('chatArea');
+    if (!chatArea) return;
+    
+    const msgDiv = document.createElement('div');
+    msgDiv.className = 'message tool-call';
+    msgDiv.textContent = `🔧 ${toolName}(${args.reason || ''})`;
+    chatArea.appendChild(msgDiv);
+    chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+function appendThinkingMessage(text) {
+    removeThinkingMessage();
+    
+    const chatArea = document.getElementById('chatArea');
+    if (!chatArea) return;
+    
+    const msgDiv = document.createElement('div');
+    msgDiv.className = 'message thinking';
+    msgDiv.id = 'thinkingMessage';
+    msgDiv.textContent = text;
+    chatArea.appendChild(msgDiv);
+    chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+function updateThinkingMessage(text) {
+    const msg = document.getElementById('thinkingMessage');
+    if (msg) {
+        msg.textContent = text;
+    } else {
+        appendThinkingMessage(text);
+    }
+}
+
+function removeThinkingMessage() {
+    const msg = document.getElementById('thinkingMessage');
+    if (msg) msg.remove();
+}
+
+function showTypingIndicator() {
+    const chatArea = document.getElementById('chatArea');
+    if (!chatArea) return;
+    
+    const indicator = document.createElement('div');
+    indicator.className = 'typing-indicator';
+    indicator.id = 'typingIndicator';
+    indicator.innerHTML = `
+        <div class="typing-dot"></div>
+        <div class="typing-dot"></div>
+        <div class="typing-dot"></div>
+    `;
+    chatArea.appendChild(indicator);
+    chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+function hideTypingIndicator() {
+    const indicator = document.getElementById('typingIndicator');
+    if (indicator) indicator.remove();
+}
+
+function updateComposerState() {
+    const input = document.getElementById('messageInput');
+    const sendBtn = document.getElementById('sendBtn');
+    if (input && sendBtn) sendBtn.disabled = isProcessing || !input.value.trim();
+}
+
+function handleKeyDown(event) {
+    // Shift+Enter inserts a newline; do not submit while an IME is composing text.
+    if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && !event.isComposing && event.keyCode !== 229) {
+        event.preventDefault();
+        sendMessage(event);
+    }
+}
+
+function autoResizeTextarea() {
+    const textarea = document.getElementById('messageInput');
+    if (!textarea) return;
+
+    const resize = () => {
+        textarea.style.height = 'auto';
+        textarea.style.height = Math.min(textarea.scrollHeight, 160) + 'px';
+        updateComposerState();
+    };
+    textarea.addEventListener('input', resize);
+    resize();
+}
+
+
+// ====================  VIA OPENROUTER (для приветствий и анализа) ====================
+// Стриминг через OpenRouter с fallback по моделям
+async function streamResponseOpenRouter(messages, onChunk, onComplete, options = {}) {
+    const startingIndex = CONFIG.currentModelIndex;
+    let lastError = null;
+    
+    while (CONFIG.currentModelIndex < CONFIG.openRouterModels.length) {
+        const currentModel = getCurrentOpenRouterModel();
+        
+        try {
+            const result = await streamResponseOpenRouterSingle(
+                messages, currentModel, onChunk, onComplete, options
+            );
+            
+            // Успех! Сбрасываем индекс
+            resetModelIndex();
+            return result;
+            
+        } catch (error) {
+            if (options.signal?.aborted || error.name === 'AbortError') throw error;
+            lastError = error;
+            console.error(`[OpenRouter Stream] Model ${currentModel} failed:`, error.message);
+            
+            if (isOverloadError(error)) {
+                if (!switchToNextModel()) {
+                    break;
+                }
+                await new Promise(resolve => setTimeout(resolve, 500));
+                continue;
+            }
+            
+            throw error;
+        }
+    }
+    
+    CONFIG.currentModelIndex = 0;
+    throw new Error(`All ${CONFIG.openRouterModels.length} models failed (stream). Last error: ${lastError?.message || 'Unknown'}`);
+}
+
+// Одиночный стриминг запрос к конкретной модели
+async function streamResponseOpenRouterSingle(messages, model, onChunk, onComplete, options = {}) {
+    const headers = {
+        'Content-Type': 'application/json',
+        'HTTP-Referer': window.location.href,
+        'X-Title': 'Memory Chatbot'
+    };
+    
+    let apiUrl;
+    
+    if (isLocal) {
+        apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
+        const orKey = localStorage.getItem('my_openrouter_key');
+        if (orKey) {
+            headers['Authorization'] = `Bearer ${orKey}`;
+        }
+    } else {
+        apiUrl = CONFIG.openrouterApiUrl;
+    }
+    
+    const { signal, ...requestOptions } = options;
+    const requestBody = {
+        model: model,
+        messages: messages,
+        stream: true,
+        ...requestOptions
+    };
+    
+    console.log(`[OpenRouter Stream] Trying model: ${model}`);
+    
+    const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify(requestBody),
+        signal
+    });
+    
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+    }
+    
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let fullText = '';
+    let buffer = '';
+    
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || trimmed === 'data: [DONE]') continue;
+            
+            if (trimmed.startsWith('data: ')) {
+                try {
+                    const json = JSON.parse(trimmed.slice(6));
+                    
+                    // Проверяем на ошибку в стриме
+                    if (json.error) {
+                        throw new Error(json.error.message || JSON.stringify(json.error));
+                    }
+                    
+                    const content = json.choices?.[0]?.delta?.content;
+                    if (content) {
+                        fullText += content;
+                        onChunk(fullText);
+                    }
+                } catch (e) {
+                    // Если это ошибка парсинга JSON — игнорируем
+                    // Если это ошибка от API — пробрасываем
+                    if (e.message && !e.message.includes('JSON')) {
+                        throw e;
+                    }
+                }
+            }
+        }
+    }
+    
+    onComplete(fullText);
+    return fullText;
+}
+
+// ==================== STREAMING RESPONSE (умный режим → Hydra через прокси, иначе OpenRouter) ====================
+// Стриминг финального ответа. В умном режиме — платная Hydra (/api/hydra, ключ в env),
+// при ошибке — откат на бесплатный OpenRouter.
+async function streamHydraSmart(messages, onChunk, onComplete, options = {}) {
+    const info = hydraRequestInfo();
+    const headers = {
+        'Content-Type': 'application/json',
+        'HTTP-Referer': window.location.href,
+        'X-Title': 'Memory Chatbot'
+    };
+    if (info.key) headers['Authorization'] = 'Bearer ' + info.key;
+
+    const { signal, ...requestOptions } = options;
+    const requestBody = { model: getChatModel(), messages: messages, stream: true, ...requestOptions };
+    console.log('[Stream] Умный режим → Hydra (' + (info.url.startsWith('/api') ? 'прокси /api/hydra' : 'direct') + '), model: ' + getChatModel());
+
+    const response = await fetch(info.url, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify(requestBody),
+        signal
+    });
+
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error('HTTP ' + response.status + ': ' + errorText);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let fullText = '';
+    let buffer = '';
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || trimmed === 'data: [DONE]') continue;
+
+            if (trimmed.startsWith('data: ')) {
+                try {
+                    const json = JSON.parse(trimmed.slice(6));
+                    if (json.error) throw new Error(json.error.message || JSON.stringify(json.error));
+                    const content = json.choices?.[0]?.delta?.content;
+                    if (content) {
+                        fullText += content;
+                        onChunk(fullText);
+                    }
+                } catch (e) {
+                    if (e.message && !e.message.includes('JSON')) throw e;
+                }
+            }
+        }
+    }
+
+    onComplete(fullText);
+    return fullText;
+}
+
+async function streamResponse(messages, onChunk, onComplete, options = {}) {
+    if (isSmartMode()) {
+        try {
+            return await streamHydraSmart(messages, onChunk, onComplete, options);
+        } catch (e) {
+            if (options.signal?.aborted || e.name === 'AbortError') throw e;
+            console.warn('[Stream] Умный режим (Hydra) недоступен, откат на OpenRouter:', e.message);
+        }
+    }
+    console.log('[Stream] Using OpenRouter with fallback chain');
+    return await streamResponseOpenRouter(messages, onChunk, onComplete, options);
+}
+
+function createStreamingMessage() {
+    const chatArea = document.getElementById('chatArea');
+    if (!chatArea) return null;
+    
+    const msgDiv = document.createElement('div');
+    msgDiv.className = 'message assistant streaming';
+    msgDiv.id = 'streamingMessage';
+    chatArea.appendChild(msgDiv);
+    
+    // Скроллим ОДИН раз — чтобы показать начало сообщения
+    chatArea.scrollTop = chatArea.scrollHeight;
+    
+    return msgDiv;
+}
+
+function updateStreamingMessage(element, content) {
+    if (!element) return;
+    
+    element.innerHTML = formatMessageMarkdown(content);
+    
+    // НЕ скроллим во время стриминга — пусть юзер читает с начала
+}
+
+function finalizeStreamingMessage(element, content) {
+    if (!element) return;
+    
+    element.classList.remove('streaming');
+    element.removeAttribute('id');
+    element.innerHTML = formatMessageMarkdown(content);
+    
+    addToHistory('assistant', content);
+}
+
+// ==================== RESPONSE ARCHETYPES & QUESTION POLICY ====================
+function pickResponseArchetype() {
+    const archetypes = [
+        "Answer-first: start with the useful answer immediately, then (optionally) add a short memory-based observation.",
+        "Reframe: offer an alternative interpretation using their traits/hypotheses, then give a concrete next step.",
+        "Options: propose 2–3 options with trade-offs; minimal fluff, maximal clarity.",
+        "Micro-plan: give a short plan (2–4 steps) tailored to what you know about them.",
+        "Reality-check: gently challenge or test an assumption, grounded in what you know about them.",
+        "Story/analogy: use a brief analogy that fits their known interests; keep it tight.",
+        "Connector: link their current message to something from their past or a pattern you've noticed.",
+        "Minimalist: a concise response that moves forward; no fluff, pure value."
+    ];
+    return archetypes[Math.floor(Math.random() * archetypes.length)];
+}
+
+function decideQuestionPolicyForThisTurn() {
+    const askMode = askMeMode && isAskMeModeAvailable();
+    const probability = askMode ? 0.85 : 0.12;
+    const roll = Math.random();
+    const shouldAsk = roll < probability;
+    
+    return {
+        shouldAsk,
+        probability,
+        modeLabel: askMode ? "ASK_ME" : "STANDARD"
+    };
+}
+
+// ==================== TWO-STAGE RESPONSE ARCHITECTURE ====================
+
+function selectGapForQuestion() {
+    const data = getGapsData();
+    if (!data || !data.gaps || data.gaps.length === 0) return null;
+
+    const highPriority = data.gaps.filter(g => g.priority === 'high');
+    if (highPriority.length > 0) {
+        return highPriority[Math.floor(Math.random() * highPriority.length)];
+    }
+
+    return data.gaps[Math.floor(Math.random() * data.gaps.length)];
+}
+
+// ==================== STAGE 1: CONTEXT COMPRESSION ====================
+
+// ==================== STAGE 1: CONTEXT COMPRESSION ====================
+
+// В ui.js заменяем функцию findRelevantContext
+async function findRelevantContext(userMessage, history) {
+    const allFacts = getFactsForPrompt(false);
+    const allTraits = getTraitsForPrompt(false);
+    const allHypotheses = getHypothesesForPrompt(false);
+    const allTimeline = getTimelineForPrompt();
+    const allSocial = getSocialForPrompt();
+    const gaps = getGapsForPrompt();
+    const style = localStorage.getItem(STORAGE_KEYS.style) || '';
+    
+    const recentHistory = history.slice(-10).map(m =>
+        `${m.role.toUpperCase()}: ${m.content}`
+    ).join('\n\n');
+    
+    const timeContext = getTimeContext();
+    const timeInfo = formatTimeContextForPrompt(timeContext);
+    
+    const totalContextLength = [allFacts, allTraits, allHypotheses, allTimeline, allSocial, gaps, style]
+        .filter(Boolean)
+        .join('').length;
+    
+    if (totalContextLength < 2000) {
+        return {
+            compressed: false,
+            facts: allFacts, traits: allTraits, timeline: allTimeline,
+            social: allSocial, hypotheses: allHypotheses, style: style, gaps: gaps,
+            microOpening: '',
+            currentTime: timeInfo
+        };
+    }
+    
+    const langName = getLanguageName();
+    
+    const compressionPrompt = `You are a context preparation assistant. 
+
+=== CURRENT TIME ===
+${timeInfo}
+
+=== CURRENT USER MESSAGE ===
+"${userMessage}"
+
+=== RECENT CONVERSATION ===
+${recentHistory || '(started)'}
+
+=== FULL USER MEMORY ===
+Facts: ${allFacts || '(none)'}
+Traits: ${allTraits || '(none)'}
+Timeline: ${allTimeline || '(none)'}
+Social: ${allSocial || '(none)'}
+Hypotheses: ${allHypotheses || '(none)'}
+Style: ${style || '(none)'}
+
+=== ⚠️ CRITICAL: TIME & LEGACY DATA SEMANTICS ===
+1. All records now include a recording timestamp (e.g., "[recorded: 10.06.2026 14:30]"). This is the GROUND TRUTH for when the user said the information.
+2. Relative time references (e.g., "tomorrow", "next week", "yesterday", "two days ago") MUST be resolved relative to the RECORD'S timestamp, NOT the current time.
+   - Example: If a record from 10.06 says "Tomorrow I go to the gym", and today is 11.06, the event is TODAY.
+3. [LEGACY] records: These are old memories. Relative time references in [LEGACY] data are ALMOST CERTAINLY OUTDATED.
+4. You MUST preserve the [LEGACY] tag or an explicit "OUTDATED" warning for these items in your <context_dossier>.
+5. If a [LEGACY] event is the only source for a "tomorrow" plan, mark it as "POTENTIALLY OBSOLETE" in the dossier.
+
+=== OUTPUT FORMAT ===
+Respond in ${langName}. Use EXACTLY these two XML tags:
+
+<micro_opening>
+(A short 3-6 word "action/thought" reacting to the user's message. MUST read like an internal thought process or a quick reaction BEFORE answering. Examples: "Вспоминаю наши прошлые разговоры...", "Ого, неожиданно...", "Ищу связь с твоим характером...", "Обдумываю эту ситуацию...". Do NOT write a greeting or a direct answer.)
+</micro_opening>
+
+<context_dossier>
+(Your compressed context analysis here. Preserve LEGACY/OUTDATED warnings for relative dates.)
+</context_dossier>`;
+
+    try {
+        const response = await callAPIOpenRouter([{ role: "user", content: compressionPrompt }], true);
+        const responseText = response.content || response;
+        
+        const microMatch = responseText.match(/<micro_opening>([\s\S]*?)<\/micro_opening>/i);
+        const contextMatch = responseText.match(/<context_dossier>([\s\S]*?)<\/context_dossier>/i);
+        
+        return {
+            compressed: true,
+            fullContext: contextMatch ? contextMatch[1].trim() : responseText,
+            microOpening: microMatch ? microMatch[1].trim() : '',
+            originalSize: totalContextLength,
+            compressedSize: (contextMatch ? contextMatch[1] : responseText).length,
+            currentTime: timeInfo
+        };
+    } catch (error) {
+        return {
+            compressed: false,
+            facts: allFacts, traits: allTraits, timeline: allTimeline,
+            social: allSocial, hypotheses: allHypotheses, style: style, gaps: gaps,
+            microOpening: '',
+            currentTime: timeInfo
+        };
+    }
+}
+// ==================== TWO-STAGE RESPONSE ARCHITECTURE ====================
+
+// ==================== TWO-STAGE RESPONSE ARCHITECTURE ====================
+
+// В ui.js заменяем функцию processMessageWithTwoStages
+async function processMessageWithTwoStages(userMessage) {
+    const history = getChatHistory();
+
+// NEW: убираем только что отправленное userMessage из истории,
+// потому что ниже мы добавим его отдельным последним сообщением
+let historyWithoutCurrent = history.slice();
+const last = historyWithoutCurrent[historyWithoutCurrent.length - 1];
+if (last && last.role === 'user' && (last.content || '').trim() === (userMessage || '').trim()) {
+    historyWithoutCurrent.pop();
+}
+
+    // 1. Показываем ЭХО с прошлого раза в статус-баре (сообщение-мысль)
+    let echoText = localStorage.getItem('chatbot_next_echo') || 'Анализирую контекст...';
+    if (!echoText.startsWith('💭') && !echoText.startsWith('🔍') && !echoText.startsWith('⚡')) {
+        echoText = '💭 ' + echoText;
+    }
+    updateThinkingMessage(echoText);
+    
+    // 2. STAGE 1: Сбор контекста + "Прокашливание"
+    const contextResult = await findRelevantContext(userMessage, historyWithoutCurrent);
+    
+    // 3. Обновляем статус-бар на "Прокашливание" (реакцию-мысль)
+    if (contextResult.microOpening) {
+        let microText = contextResult.microOpening;
+        if (!microText.startsWith('💭') && !microText.startsWith('🔍') && !microText.startsWith('⚡')) {
+            microText = '⚡ ' + microText;
+        }
+        updateThinkingMessage(microText);
+    }
+    
+    // 4. STAGE 2: Генерация основного ответа
+    const streamingElement = createStreamingMessage();
+    let finalAnswer = '';
+    let nextEchoFound = '';
+    
+    try {
+        const langName = getLanguageName();
+        const archetype = pickResponseArchetype();
+        const qp = decideQuestionPolicyForThisTurn();
+        
+        // Добавляем текущее время в промпт
+        const currentTimeInfo = contextResult.currentTime || 'Unknown';
+        
+        let contextBlock = contextResult.compressed && contextResult.fullContext ?
+            `\n=== ПОДГОТОВЛЕННЫЙ КОНТЕКСТ ===\n${contextResult.fullContext}\n` :
+            `\n=== CONTEXT ===\nFacts: ${contextResult.facts || '(none)'}\nTraits: ${contextResult.traits || '(none)'}`;
+        
+        let questionRule = qp.shouldAsk ?
+            '\nМожешь закончить ОДНИМ вопросом к пользователю, если это уместно.' :
+            '\nНе задавай вопросов в этом ответе.';
+        
+        // Заставляем вторую нейросеть выдать Эхо и Ответ в XML
+        // Insight Mode: Associative vs. Archivist
+        const insightModePrompt = insightMode 
+            ? `\n=== 💡 INSIGHT MODE: ON (Associative & Speculative) ===\n` +
+              `Your goal is to use the provided context as your "subconscious" — it should influence your tone, metaphors, and intuition, but NOT be a citation list.\n` +
+              `Strictly FORBIDDEN: repeating raw nouns or exact phrases from memory just to "show off" that you remember them (no "parroting").\n` +
+              `Approach: Move from literal facts → broader categories → implications → adjacent conversational angles.\n` +
+              `The user should feel you UNDERSTAND them, not that you are SEARCHING a database about them.`
+            : `\n=== 📋 ARCHIVIST MODE: ON (Careful & Explicit) ===\n` +
+              `You are a careful archivist. Use concrete facts from memory to provide explicit personalization and accurate callbacks.`;
+
+        const dictatedNote = (typeof window !== 'undefined' && window.dictatedMessageFlag)
+            ? `=== ⚠️ СООБЩЕНИЕ НАДИКТАНО ГОЛОСОМ ===\nЭто сообщение пользователя получено через распознавание речи (voice-to-text, Whisper). В нём возможны:\n- ошибки распознавания речи (неверно услышанные слова, омофоны, опечатки, перестановки);\n- слова-паразиты и повторы («ээ», «ну», «типа», «короче», «как бы»);\n- неточности в пунктуации или регистре.\nУчитывай именно СМЫСЛ сказанного, а не букву текста. Не придавай значения мелким огрехам распознавания, не исправляй их формально и не делай выводов из артефактов автоматического транскрибирования.\n\n`
+            : '';
+
+        const systemPrompt = `${dictatedNote}Ты — персональный ИИ-ассистент, который ЗНАЕТ этого пользователя. Отвечай на ${langName}.
+=== ТЕКУЩЕЕ ВРЕМЯ ===
+${currentTimeInfo}
+
+${contextBlock}
+${insightModePrompt}
+
+=== ⛔️ СТРОГИЙ ЗАПРЕТ: ВРЕМЕННОЙ КОНТЕКСТ ===
+1. ВСЕГДА разрешай относительные даты ("завтра", "вчера", "через неделю") относительно ВРЕМЕНИ ЗАПИСИ (recorded timestamp), а не текущего момента.
+2. [LEGACY] данные: Относительное время в записях с пометкой [LEGACY] почти наверняка УСТАРЕЛО.
+3. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО воспринимать относительное время из [LEGACY] данных как актуальное.
+4. Если ты видишь план на "завтра" в [LEGACY] данных — это НЕ план на завтра. Это старая запись.
+5. ВМЕСТО того чтобы утверждать, что что-то произойдет завтра, ты ДОЛЖЕН либо:
+   - Игнорировать эту запись.
+   - Осторожно спросить: "В памяти есть старая запись о [событии], это всё еще актуально?".
+6. Ошибка в этом пункте считается критическим сбоем в понимании временного контекста.
+
+=== ПОДХОД К ОТВЕТУ ===
+Архетип: ${archetype}
+${questionRule}
+
+=== ВАЖНОЕ ПРАВИЛО ФОРМАТИРОВАНИЯ ===
+Твой ответ ДОЛЖЕН состоять из двух XML-блоков:
+
+<next_echo>
+(Короткая фраза от 1 лица (3-6 слов). Это "внутренний монолог", который бот покажет пользователю в СЛЕДУЮЩИЙ РАЗ, когда тот напишет сообщение, ПОКА бот будет думать. Примеры: "Размышляю над твоими словами...", "Ищу связи в памяти...", "Анализирую сказанное...". Зависит от того, чем закончился текущий разговор.)
+</next_echo>
+
+<answer>
+(Твой основной, глубокий, персонализированный ответ пользователю. Текст без тегов внутри.)
+</answer>
+
+ВЫВОДИ ТОЛЬКО ЭТИ ДВА ТЕГА. НИКАКОГО ТЕКСТА СНАРУЖИ.`;
+        
+        const apiMessages = [
+            { role: "system", content: systemPrompt },
+            ...historyWithoutCurrent.slice(-8).map(msg => ({
+                role: msg.role === 'user' ? 'user' : 'assistant',
+                content: msg.content
+            })),
+            { role: "user", content: userMessage }
+        ];
+        
+        // Стриминг: мы должны фильтровать теги "на лету", чтобы юзер видел только <answer>
+        let isInsideAnswer = false;
+        let answerBuffer = '';
+        let fullBuffer = '';
+        
+        await streamResponse(
+            apiMessages,
+            (partialText) => {
+                fullBuffer = partialText;
+                
+                // Простая эвристика для стриминга (чтобы не показывать юзеру теги)
+                if (fullBuffer.includes('<answer>')) {
+                    isInsideAnswer = true;
+                    answerBuffer = fullBuffer.split('<answer>')[1].replace('</answer>', '');
+                    updateStreamingMessage(streamingElement, answerBuffer);
+                } else if (!fullBuffer.includes('<next_echo>')) {
+                    // Fallback: если ИИ проигнорировал XML (бывает), просто выводим текст
+                    updateStreamingMessage(streamingElement, fullBuffer);
+                }
+            },
+            (finalText) => {
+                // Когда стрим завершён, вытаскиваем Эхо и финальный Ответ чисто
+                const echoMatch = finalText.match(/<next_echo>([\s\S]*?)<\/next_echo>/i);
+                const answerMatch = finalText.match(/<answer>([\s\S]*?)<\/answer>/i);
+                
+                nextEchoFound = echoMatch ? echoMatch[1].trim() : 'Ищу в памяти...';
+                finalAnswer = answerMatch ? answerMatch[1].trim() : finalText.replace(/<[^>]+>/g, '').trim();
+                
+                finalizeStreamingMessage(streamingElement, finalAnswer);
+                
+                // Убираем статус-сообщение (мысль) только когда ответ полностью готов
+                removeThinkingMessage();
+                
+                // Сохраняем новое Эхо на следующий ход
+                if (nextEchoFound) {
+                    localStorage.setItem('chatbot_next_echo', nextEchoFound);
+                }
+            }
+        );
+        
+        return finalAnswer;
+        
+    } catch (error) {
+        removeThinkingMessage();
+        if (streamingElement) streamingElement.remove();
+        console.error('[Stage2] Failed:', error.message);
+        // Let sendMessage handle retry feedback and avoid counting a failed exchange.
+        throw error;
+    }
+}
+
+function buildSystemPromptLegacy() {
+    let prompt = CONFIG.baseSystemPrompt;
+    const langName = getLanguageName();
+    prompt += `\n\nIMPORTANT: Always respond in ${langName}.`;
+    
+    const style = localStorage.getItem(STORAGE_KEYS.style);
+    if (style && style.trim()) {
+        prompt += `\n\n=== COMMUNICATION STYLE ===\n${style}`;
+    }
+    
+    return prompt;
+}
+
+// ==================== API REQUESTS ====================
+
+// Вызов API через OpenRouter (для анализа, аналитики, приветствий)
+// Вызов API через OpenRouter с автоматическим fallback по цепочке моделей
+async function callAPIOpenRouter(messages, useAnalysisModel = false, tools = null, signal, provider = null) {
+    // Smart mode must use the server provider for memory extraction as well.
+    // New public-beta users do not have the legacy browser key ending in $$.
+    if (provider === 'hydra' || (provider === null && ((useAnalysisModel && isSmartMode()) || isFullHydraMode()))) {
+        console.log(`[Analysis] Using Hydra (${CONFIG.model_analysis})`);
+        // Use the analysis model via the server proxy in production.
+        return await callAPIHydraSpecificModel(messages, CONFIG.model_analysis, tools, signal);
+    }
+    
+    // Free mode retains the OpenRouter model chain.
+    const startingIndex = CONFIG.currentModelIndex;
+    // ... далее ваш старый код callAPIOpenRouter ...
+
+    let lastError = null;
+    
+    // Пробуем все модели начиная с текущей
+    while (CONFIG.currentModelIndex < CONFIG.openRouterModels.length) {
+        const currentModel = getCurrentOpenRouterModel();
+        
+        try {
+            const result = await callAPIOpenRouterSingle(messages, currentModel, tools, signal);
+            
+            // Успех! Сбрасываем индекс на первую модель для следующих запросов
+            resetModelIndex();
+            return result;
+            
+        } catch (error) {
+            if (signal?.aborted || error.name === 'AbortError') throw error;
+            lastError = error;
+            console.error(`[OpenRouter] Model ${currentModel} failed:`, error.message);
+            
+            // Если это ошибка перегрузки — пробуем следующую модель
+            if (isOverloadError(error)) {
+                if (!switchToNextModel()) {
+                    // Все модели исчерпаны
+                    break;
+                }
+                // Небольшая пауза перед следующей попыткой
+                await new Promise(resolve => setTimeout(resolve, 500));
+                continue;
+            }
+            
+            // Если это другая ошибка (не перегрузка) — не переключаемся, просто выбрасываем
+            throw error;
+        }
+    }
+    
+    // Все модели исчерпаны, сбрасываем индекс и выбрасываем последнюю ошибку
+    CONFIG.currentModelIndex = 0;
+    throw new Error(`All ${CONFIG.openRouterModels.length} models failed. Last error: ${lastError?.message || 'Unknown'}`);
+}
+
+// Одиночный вызов к конкретной модели OpenRouter (без fallback логики)
+async function callAPIOpenRouterSingle(messages, model, tools = null, signal) {
+    const headers = {
+        'Content-Type': 'application/json',
+        'HTTP-Referer': window.location.href,
+        'X-Title': 'Memory Chatbot'
+    };
+    
+    let apiUrl;
+    
+    if (isLocal) {
+        apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
+        const orKey = localStorage.getItem('my_openrouter_key');
+        if (orKey) {
+            headers['Authorization'] = `Bearer ${orKey}`;
+        }
+    } else {
+        apiUrl = CONFIG.openrouterApiUrl; // /api/chat (server proxy)
+    }
+    
+    const body = { model, messages };
+    
+    if (tools && tools.length > 0) {
+        body.tools = tools;
+        body.tool_choice = 'auto';
+    }
+    
+    console.log(`[API OpenRouter] Trying model: ${model}`);
+    
+    const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal
+    });
+    
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+    }
+    
+    const data = await response.json();
+    
+    // Проверяем на ошибку в теле ответа
+    if (data.error) {
+        throw new Error(data.error.message || JSON.stringify(data.error));
+    }
+    
+    if (data.choices && data.choices.length > 0 && data.choices[0].message) {
+        return data.choices[0].message;
+    }
+    
+    if (data.choices && data.choices.length > 0 && data.choices[0].text) {
+        return { content: data.choices[0].text, role: 'assistant' };
+    }
+    
+    if (data.content) {
+        return { content: data.content, role: 'assistant' };
+    }
+    
+    throw new Error('Could not parse API response');
+}
+
+// Вызов API с приоритетом Hydra, fallback на OpenRouter
+async function callAPIWithHydraFallback(messages, tools = null) {
+    const useHydra = hasValidHydraKey();
+    
+    if (useHydra) {
+        try {
+            return await callAPIHydra(messages, tools);
+        } catch (error) {
+            console.error('[Hydra] Failed, falling back to OpenRouter:', error.message);
+            return await callAPIOpenRouter(messages, false, tools);
+        }
+    } else {
+        return await callAPIOpenRouter(messages, false, tools);
+    }
+}
+
+// Прямой вызов Hydra API
+
+// Универсальный вызов Hydra с указанием конкретной модели
+async function callAPIHydraSpecificModel(messages, modelName, tools = null, signal) {
+    const { url, key } = hydraRequestInfo();
+    if (isLocal && !key) throw new Error('Hydra API key is required locally');
+    console.log(`[Hydra Request] Model: ${modelName}`);
+
+    const headers = { 'Content-Type': 'application/json' };
+    if (key) headers.Authorization = `Bearer ${key}`;
+    
+    const body = {
+        model: modelName,
+        messages
+    };
+    
+    if (tools && tools.length > 0) {
+        body.tools = tools;
+        body.tool_choice = 'auto';
+    }
+    
+    const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal
+    });
+    
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Hydra Error (${modelName}): ${response.status} - ${errorText}`);
+    }
+    
+    const data = await response.json();
+    
+    if (data.error) {
+        throw new Error(data.error.message || JSON.stringify(data.error));
+    }
+    const message = data.choices?.[0]?.message;
+    if (!message) throw new Error('Could not parse Hydra API response');
+    return message;
+}
+
+async function callAPIHydra(messages, tools = null) {
+    const headers = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${getHydraKey()}`,
+        'HTTP-Referer': window.location.href,
+        'X-Title': 'Memory Chatbot'
+    };
+    
+    const body = { 
+        model: CONFIG.model_chat, 
+        messages 
+    };
+    
+    if (tools && tools.length > 0) {
+        body.tools = tools;
+        body.tool_choice = 'auto';
+    }
+    
+    console.log(`[API Hydra] Model: ${CONFIG.model_chat}`);
+    
+    const response = await fetch(CONFIG.hydraApiUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body)
+    });
+    
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+    }
+    
+    const data = await response.json();
+    
+    if (data.choices && data.choices.length > 0 && data.choices[0].message) {
+        return data.choices[0].message;
+    }
+    
+    if (data.content) {
+        return { content: data.content, role: 'assistant' };
+    }
+    
+    if (data.error) {
+        throw new Error(data.error.message || JSON.stringify(data.error));
+    }
+    
+    throw new Error('Could not parse Hydra API response');
+}
+
+// Legacy callAPI — теперь использует OpenRouter
+async function callAPI(messages, tools = null, useAnalysisModel = false, retries = CONFIG.maxRetries, signal) {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+        try {
+            console.log(`[API] Attempt ${attempt}/${retries}`);
+            return await callAPIOpenRouter(messages, useAnalysisModel, tools, signal);
+        } catch (error) {
+            if (signal?.aborted || error.name === 'AbortError') throw error;
+            console.error(`[API] Attempt ${attempt} error:`, error.message);
+            if (attempt === retries) throw error;
+            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+        }
+    }
+}
+
+async function callAPIWithoutLanguage(messages, retries = CONFIG.maxRetries) {
+    return callAPI(messages, null, false, retries);
+}
+
+function callMemoryAPIWithRetry(prompt, maxRetries = 2) {
+    return callAPIWithRetry(prompt, maxRetries, true, undefined, getMemoryProvider());
+}
+
+async function callAPIWithRetry(prompt, maxRetries = 2, useAnalysisModel = false, signal, provider = null) {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            const response = await callAPIOpenRouter([{ role: "user", content: prompt }], useAnalysisModel, null, signal, provider);
+            return response.content || response;
+        } catch (error) {
+            if (signal?.aborted || error.name === 'AbortError') throw error;
+            console.error(`[API Retry] Attempt ${attempt}/${maxRetries} failed:`, error.message);
+            if (attempt === maxRetries) throw error;
+            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+        }
+    }
+}
+
+function parseJSON(text) {
+    try {
+        let jsonStr = text;
+        
+        const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+        if (codeBlockMatch) {
+            jsonStr = codeBlockMatch[1].trim();
+        } else {
+            const jsonMatch = text.match(/\{[\s\S]*\}/);
+            if (jsonMatch) jsonStr = jsonMatch[0];
+        }
+        
+        return JSON.parse(jsonStr);
+    } catch (error) {
+        console.error('[JSON Parse] FAILED:', error.message);
+        console.error('[JSON Parse] Text was:', text.substring(0, 200));
+        return null;
+    }
+}
+
+// ==================== SEND MESSAGE ====================
+async function sendMessage(event) {
+    if (event && event.preventDefault) event.preventDefault();
+    
+    if (isProcessing) { window.dictatedMessageFlag = false; return; }
+    
+    // Новое сообщение прерывает озвучку предыдущего ответа
+    if (typeof window.stopAllSpeech === 'function') window.stopAllSpeech();
+    
+    // Если в поле ввода лежит голосовой текст (режим правки) — помечаем сообщение как надиктованное
+    if (window._dictatedInput) window.dictatedMessageFlag = true;
+    
+    const input = document.getElementById('messageInput');
+    const message = input.value.trim();
+    
+    if (!message) return;
+
+    cancelProactiveGreeting();
+    isProcessing = true;
+    const sendBtn = document.getElementById('sendBtn');
+    if (sendBtn) sendBtn.disabled = true;
+    input.value = '';
+    input.style.height = 'auto';
+    updateComposerState();
+
+    appendMessage('user', message, true, Date.now(), !!window.dictatedMessageFlag);
+    
+    try {
+        // ===== TWO-STAGE PROCESSING WITH STREAMING =====
+        await processMessageWithTwoStages(message);
+        
+        const counter = incrementMessageCounter();
+        console.log(`[Counter] Messages: ${counter}`);
+        
+        // Background analysis
+        runBackgroundAnalysis();
+        
+        if (shouldUpdateGaps()) {
+            console.log('[Gaps] Updating...');
+            runGapsUpdate();
+        }
+        
+        updateAskMeModeUI();
+        
+        if (shouldUpdateStyle()) {
+            console.log('[Style] Updating...');
+            runStyleUpdate();
+        }
+        
+        if (shouldUpdateHypotheses()) {
+            console.log('[Hypotheses] Updating...');
+            runHypothesesUpdate();
+        }
+        
+    } catch (error) {
+        removeThinkingMessage();
+        const streamingMsg = document.getElementById('streamingMessage');
+        if (streamingMsg) streamingMsg.remove();
+        
+        console.error('[Chat] Error:', error);
+        appendMessage('system', t('chatConnectionError'), false);
+        // Keep the failed message available for retry, without overwriting a new draft.
+        if (!input.value.trim()) {
+            input.value = message;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+    } finally {
+        isProcessing = false;
+        updateComposerState();
+        // Сбрасываем голосовые флаги после отправки
+        window.dictatedMessageFlag = false;
+        window._dictatedInput = false;
+    }
+}
+
+// ==================== HELP MODAL ====================
+function openHelpModal() {
+    const modal = document.getElementById('helpModal');
+    if (modal) modal.classList.add('active');
+    document.body.style.overflow = 'hidden';
+}
+
+function closeHelpModal() {
+    const modal = document.getElementById('helpModal');
+    if (modal) modal.classList.remove('active');
+    document.body.style.overflow = '';
+}
+
+document.addEventListener('click', (e) => {
+    if (e.target.id === 'helpModal') closeHelpModal();
+});
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeHelpModal();
+});
+
+// ==================== API KEY SETTINGS (для всех пользователей) ====================
+function initApiKeySettings() {
+    const memoryProvider = document.getElementById('memoryProvider');
+    if (memoryProvider) memoryProvider.value = getMemoryProvider();
+    const cb = document.getElementById('smartModeToggle');
+    if (cb) cb.checked = isSmartMode();
+    const st = document.getElementById('smartModeStatus');
+    if (st) st.textContent = isSmartMode() ? 'включена платная модель' : 'бесплатная модель';
+    // активная платная модель в переключателе
+    const activeModel = getChatModel();
+    document.querySelectorAll('.model-switch .ms-opt').forEach(b => b.classList.toggle('active', b.dataset.model === activeModel));
+}
+
+window.saveLocalKey = function() {
+    const input = document.getElementById('local-api-key');
+    if (!input) return;
+    
+    const key = input.value.trim();
+    const status = document.getElementById('key-status');
+    
+    if (!key) {
+        // Очистка ключа
+        localStorage.removeItem(STORAGE_KEYS.hydraKey);
+        if (status) status.innerText = "ℹ️ Using free model";
+        return;
+    }
+    
+    if (key.startsWith('sk')) {
+        localStorage.setItem(STORAGE_KEYS.hydraKey, key);
+        if (status) status.innerText = "✅ Hydra key saved!";
+    } else {
+        if (status) status.innerText = "⚠️ Key should start with 'sk'";
+    }
+}
+
+
+// Вспомогательная функция для красивого формата времени
+function formatMessageTime(ts) {
+    if (!ts) return '';
+    const date = new Date(ts);
+    const now = new Date();
+    const isToday = date.getDate() === now.getDate() &&
+        date.getMonth() === now.getMonth() &&
+        date.getFullYear() === now.getFullYear();
+    
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    
+    if (isToday) {
+        return `${hours}:${minutes}`;
+    } else {
+        const day = date.getDate().toString().padStart(2, '0');
+        const month = (date.getMonth() + 1).toString().padStart(2, '0');
+        return `${day}.${month} ${hours}:${minutes}`;
+    }
+}
+
+// 1. Сохраняем время вместе с сообщением
+function addToHistory(role, content, timestamp = Date.now(), audio = false) {
+    const history = getChatHistory();
+    history.push({ role, content, timestamp, audio: !!audio });
+    saveChatHistory(history);
+}
+
+// 2. Загружаем историю с учетом времени
+function loadChatHistory() {
+    const history = getChatHistory();
+    const chatArea = document.getElementById('chatArea');
+    
+    history.forEach(msg => {
+        // Если старое сообщение без времени — ставим текущее, чтобы не было ошибки
+        appendMessage(msg.role, msg.content, false, msg.timestamp || Date.now(), !!msg.audio);
+    });
+    
+    // With no history, keep the welcome content at the top on small screens.
+    if (chatArea && history.length) chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+// 3. Отрисовываем сообщение со временем. audio=true → голосовое: свёрнутый значок с раскрываемым текстом.
+function appendMessage(role, content, save = true, timestamp = Date.now(), audio = false) {
+    const chatArea = document.getElementById('chatArea');
+    if (!chatArea) return;
+    
+    const msgDiv = document.createElement('div');
+    msgDiv.className = `message ${role}`;
+    
+    if (audio && role === 'user') {
+        // Голосовое сообщение: по умолчанию только значок, текст раскрывается по клику
+        msgDiv.classList.add('audio-msg');
+        const bubble = document.createElement('div');
+        bubble.className = 'audio-bubble';
+        bubble.innerHTML = '<span class="audio-ic">🎙️</span>'
+            + '<span class="audio-wave"><span></span><span></span><span></span><span></span></span>'
+            + '<span class="audio-label">Голосовое сообщение</span>'
+            + '<span class="audio-toggle">показать текст ▾</span>';
+        bubble.onclick = function () { toggleAudioTranscript(this); };
+        msgDiv.appendChild(bubble);
+        const transcript = document.createElement('div');
+        transcript.className = 'audio-transcript';
+        transcript.textContent = content;
+        msgDiv.appendChild(transcript);
+    } else if (role === 'assistant') {
+        msgDiv.innerHTML = formatMessageMarkdown(content);
+    } else {
+        msgDiv.textContent = content;
+    }
+    
+    // Добавляем метку времени
+    const timeDiv = document.createElement('div');
+    timeDiv.className = 'message-time';
+    timeDiv.textContent = formatMessageTime(timestamp);
+    msgDiv.appendChild(timeDiv);
+
+    // Кнопка «Озвучить» для ответов бота (HeyGen Voice Turbo через /api/tts)
+    if (role === 'assistant' && typeof window.addTTSButton === 'function') {
+        window.addTTSButton(msgDiv, content);
+    }
+
+    chatArea.appendChild(msgDiv);
+    if ((role === 'user' || role === 'assistant') && typeof window.updateWelcomeScreen === 'function') window.updateWelcomeScreen();
+    chatArea.scrollTop = chatArea.scrollHeight;
+    
+    if (save) {
+        addToHistory(role, content, timestamp, audio);
+    }
+}
+
+// Раскрытие/скрытие текста голосового сообщения
+window.toggleAudioTranscript = function (bubble) {
+    const msg = bubble.closest('.audio-msg');
+    if (!msg) return;
+    const tr = msg.querySelector('.audio-transcript');
+    if (!tr) return;
+    const open = tr.style.display === 'block';
+    tr.style.display = open ? 'none' : 'block';
+    const tog = bubble.querySelector('.audio-toggle');
+    if (tog) tog.textContent = open ? 'показать текст ▾' : 'скрыть текст ▴';
+};
+
+// 4. Обновляем финализацию стриминга, чтобы там тоже появлялось время
+function finalizeStreamingMessage(element, content) {
+    if (!element) return;
+    
+    element.classList.remove('streaming');
+    element.removeAttribute('id');
+    element.innerHTML = formatMessageMarkdown(content);
+    
+    const timestamp = Date.now();
+    const timeDiv = document.createElement('div');
+    timeDiv.className = 'message-time';
+    timeDiv.textContent = formatMessageTime(timestamp);
+    element.appendChild(timeDiv);
+
+    // Кнопка «Озвучить» для ответа бота (HeyGen Voice Turbo через /api/tts)
+    if (typeof window.addTTSButton === 'function') {
+        window.addTTSButton(element, content);
+    }
+    
+    addToHistory('assistant', content, timestamp);
+}
+
+// ==================== DEBUG UTILITIES ====================
+window.debugTwoStage = async function(message) {
+    console.log('=== TWO-STAGE DEBUG ===');
+    const history = getChatHistory();
+    
+    console.log('[Debug] Stage 1: Analyzing context...');
+    const context = await findRelevantContext(message, history);
+    console.log('[Debug] Context analysis result:', JSON.stringify(context, null, 2));
+    
+    console.log('[Debug] Stage 2: Would generate response with this context');
+    return context;
+};
+
+window.debugMemory = function() {
+    console.log('=== MEMORY DEBUG ===');
+    console.log('Facts:', getFactsForPrompt());
+    console.log('Traits:', getTraitsForPrompt());
+    console.log('Timeline:', getTimelineForPrompt());
+    console.log('Social:', getSocialForPrompt());
+    console.log('Hypotheses:', getHypothesesForPrompt());
+    console.log('Gaps:', getGapsForPrompt());
+    console.log('Style:', localStorage.getItem(STORAGE_KEYS.style));
+};
+
+window.debugApiStatus = function() {
+    console.log('=== API STATUS ===');
+    console.log('Hydra key present:', hasValidHydraKey());
+    console.log('Hydra key:', getHydraKey() ? '***' + getHydraKey().slice(-4) : 'none');
+    console.log('isLocal:', isLocal);
+    console.log('OpenRouter key (local):', localStorage.getItem('my_openrouter_key') ? 'present' : 'none');
+};
+
+// ==================== INITIALIZATION COMPLETE ====================
+console.log('[ui.js] Loaded. Two-Stage Response Architecture with Hydra/OpenRouter support.');
+console.log('[ui.js] Debug commands: debugTwoStage("message"), debugMemory(), debugApiStatus()');
