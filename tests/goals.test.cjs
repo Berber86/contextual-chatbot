@@ -772,18 +772,31 @@ test('дрейф случается не чаще раза в неделю и о
 
 test('дрейф идёт по одной ступени, даже если данные говорят «до упора»', () => {
   const { context } = coachHarness();
-  context.setCoachParam('reflection', 'deep', 'вручную');
-  context.createGoal({ title: 'Бегать', why: 'Здоровье', success: '5 км' });
+  const { goal } = context.createGoal({ title: 'Бегать', why: 'Здоровье', success: '5 км' });
+  context.addGoalCheckin(goal.id, 'stuck', 'Понял, что причина в усталости');
+  context.addGoalCheckin(goal.id, 'stuck', 'Потому что вечером нет сил');
 
+  context.setCoachParam('reflection', 'action', 'вручную');
   const reflection = context.suggestCoachDrift().suggestions.find(item => item.param === 'reflection');
-  assert.equal(reflection.to, 'medium', 'deep → medium, а не deep → action');
+  assert.equal(reflection.to, 'medium', 'action → medium, а не прыжок action → deep');
 
   context.setCoachParam('structure', 'stepwise', 'вручную');
   for (let i = 0; i < 3; i++) {
     context.createGoal({ title: `Цель ${i}`, why: 'Зачем', success: 'Признак' });
   }
   const structure = context.suggestCoachDrift().suggestions.find(item => item.param === 'structure');
-  assert.equal(structure.to, 'medium', 'stepwise → medium, а не stepwise → free');
+  assert.equal(structure.to, 'medium', 'stepwise → medium, а не прыжок stepwise → free');
+});
+
+test('рефлексия не понижается автоматически: меньше рефлексии — не наш вывод', () => {
+  const { context } = coachHarness();
+  const { goal } = context.createGoal({ title: 'Бегать', why: 'Здоровье', success: '5 км' });
+  context.addGoalCheckin(goal.id, 'stuck', 'Нет времени');
+  context.addGoalCheckin(goal.id, 'moved', 'Вышел');
+
+  context.setCoachParam('reflection', 'deep', 'вручную');
+  const reflection = context.suggestCoachDrift().suggestions.find(item => item.param === 'reflection');
+  assert.equal(reflection, undefined, 'понижения рефлексии нет даже при пустых заметках');
 });
 
 test('подстройка попадает в системный промпт', () => {
