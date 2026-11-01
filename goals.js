@@ -43,6 +43,69 @@ let goalsState = {
     errors: []
 };
 
+// ==================== ЧЕРНОВИК ШАГА ИЗ ЧАТА ====================
+// Бот предлагает формулировку отдельной строкой «➡️ Шаг: …». Это только черновик:
+// строка убирается из видимого текста, а поставить шаг можно кнопкой и только к цели.
+
+// Модели любят markdown, поэтому допускаем ** вокруг эмодзи и заголовка.
+// Без стрелки/эмодзи строка черновиком не считается: иначе можно случайно
+// съесть из ответа обычный текст вроде «Шаг: подумать».
+const GOAL_DRAFT_LINE = /^\s*(?:\*\*|__)?\s*(?:➡️|→)\s*(?:\*\*|__)?\s*Шаг\s*[:：]\s*(?:\*\*|__)?\s*(.+?)\s*(?:\*\*|__)?\s*$/u;
+
+function extractGoalStepDraft(content) {
+    const raw = String(content == null ? '' : content);
+    const lines = raw.split('\n');
+
+    for (let index = lines.length - 1; index >= 0; index--) {
+        const match = lines[index].match(GOAL_DRAFT_LINE);
+        if (!match) continue;
+        const text = match[1].trim().slice(0, GOALS_CONFIG.draftLimit);
+        if (!text) continue;
+        const cleaned = lines
+            .filter((_, lineIndex) => lineIndex !== index)
+            .join('\n')
+            .replace(/\n{3,}/g, '\n\n')
+            .trim();
+        return { text, cleaned };
+    }
+
+    return { text: '', cleaned: raw };
+}
+
+// Черновики живут в памяти страницы: кнопка в чате ссылается на номер, а не на текст.
+let goalDraftSequence = 0;
+const goalStepDrafts = new Map();
+
+function registerGoalStepDraft(text) {
+    const value = String(text == null ? '' : text).trim().slice(0, GOALS_CONFIG.draftLimit);
+    if (!value) return -1;
+    goalDraftSequence += 1;
+    goalStepDrafts.set(goalDraftSequence, value);
+    if (goalStepDrafts.size > 50) goalStepDrafts.delete(goalStepDrafts.keys().next().value);
+    return goalDraftSequence;
+}
+
+function getGoalStepDraft(id) {
+    return goalStepDrafts.get(Number(id)) || '';
+}
+
+// Кнопка под ответом бота. Рисуется из ui.js, но живёт в модуле целей.
+window.renderGoalStepDraftButton = function (element, text) {
+    if (!element || typeof document === 'undefined' || !document.createElement) return;
+
+    const id = registerGoalStepDraft(text);
+    if (id < 0) return;
+
+    const box = document.createElement('div');
+    box.className = 'goal-draft';
+    box.innerHTML = `
+        <span class="goal-draft-label">Черновик шага</span>
+        <span class="goal-draft-text">${escapeHtml(getGoalStepDraft(id))}</span>
+        <button type="button" class="goal-draft-btn" onclick="goalsStartStepDraft(${id})">Поставить как шаг</button>
+    `;
+    element.appendChild(box);
+};
+
 // ==================== ОКНО ====================
 function openGoalsModal() {
     const modal = document.getElementById('goalsModal');
@@ -83,6 +146,7 @@ function goalsGoList() {
     goalsState.view = 'list';
     goalsState.selectedId = null;
     goalsState.errors = [];
+    goalsState.draft = '';
     renderGoalsInterface();
 }
 
@@ -91,6 +155,58 @@ function goalsOpenGoal(id) {
     goalsState.view = 'goal';
     goalsState.selectedId = id;
     goalsState.errors = [];
+    renderGoalsInterface();
+}
+
+function goalsStartStepDraft(id) {
+    const text = getGoalStepDraft(id);
+    if (!text) {
+        goalsNotify('Черновик потерялся — попросите бота предложить шаг ещё раз', 'warning');
+        return;
+    }
+
+    if (getActiveGoals().length === 0) {
+        goalsNotify(getGoals().length > 0
+            ? 'Шаг ставится к цели в работе. Верните цель в работу или заведите новую'
+            : 'Шаг ставится к цели. Сначала заведите цель', 'warning');
+        openGoalsModal();
+        return;
+    }
+
+    const modal = document.getElementById('goalsModal');
+    if (modal) {
+        modal.classList.add('active');
+        document.body.classList.add('modal-open');
+    }
+    goalsState = { view: 'draft', selectedId: null, errors: [], draft: text };
+    renderGoalsInterface();
+}
+
+function goalsApplyStepDraft(goalId) {
+    const text = goalsState.draft || '';
+    if (!text) {
+        goalsNotify('Черновик потерялся — попросите бота предложить шаг ещё раз', 'warning');
+        return;
+    }
+
+    const goal = typeof getGoalById === 'function' ? getGoalById(goalId) : null;
+    if (!goal) {
+        goalsNotify('Цель не найдена', 'warning');
+        return;
+    }
+    if (goal.status !== 'active') {
+        goalsNotify('Цель не в работе — сначала верните её в работу', 'warning');
+        return;
+    }
+
+    const result = setGoalNextStep(goal.id, text, 'coach');
+    if (!result.ok) {
+        goalsNotify('Не удалось поставить шаг', 'warning');
+        return;
+    }
+
+    goalsNotify('Шаг поставлен. Это ваше решение, а не бота');
+    goalsState = { view: 'goal', selectedId: goal.id, errors: [], draft: '' };
     renderGoalsInterface();
 }
 
@@ -164,6 +280,11 @@ function renderGoalsInterface() {
 
     if (goalsState.view === 'create') {
         body.innerHTML = renderGoalsCreate();
+        return;
+    }
+
+    if (goalsState.view === 'draft') {
+        body.innerHTML = renderGoalsDraft();
         return;
     }
 
@@ -323,6 +444,9 @@ function renderGoalDetails(goal) {
                 <input id="goalStepInput" class="goal-input" type="text" maxlength="${GOALS_CONFIG.stepLimit}"
                     placeholder="Например: написать первое письмо"
                     value="${goal.nextStep ? escapeHtml(goal.nextStep.text) : ''}">
+                ${goal.nextStep && goal.nextStep.source === 'coach'
+                    ? '<p class="goal-block-hint">Формулировку предложил бот, а поставили её вы. Можно переписать.</p>'
+                    : ''}
                 <div class="goal-step-actions">
                     <button type="button" class="goals-btn" onclick="goalsSaveStep('${escapeHtml(goal.id)}')">Сохранить шаг</button>
                     ${goal.nextStep ? `<button type="button" class="goals-btn goals-btn-primary" onclick="goalsCompleteStep('${escapeHtml(goal.id)}')">Сделал</button>` : ''}
@@ -464,6 +588,43 @@ function renderGoalError(code) {
         bad_shape: 'В файле нет списка целей.'
     };
     return `<div class="goals-error">${escapeHtml(messages[code] || 'Не получилось сохранить цель.')}</div>`;
+}
+
+// ---------- Черновик шага ----------
+function renderGoalsDraft() {
+    const draft = goalsState.draft || '';
+    const active = getActiveGoals();
+
+    const cards = active.map(goal => {
+        const current = goal.nextStep && goal.nextStep.text
+            ? escapeHtml(goal.nextStep.text)
+            : 'шаг пока не выбран';
+        return `
+            <article class="goal-card" data-status="active">
+                <div class="goal-card-top">
+                    <h3 class="goal-card-title">${escapeHtml(goal.title)}</h3>
+                    <span class="goal-status">${GOALS_UI.statusLabels[goal.status] || goal.status}</span>
+                </div>
+                <p class="goal-card-meta"><span>Сейчас: ${current}</span></p>
+                <div class="goal-card-actions">
+                    <button type="button" class="goals-btn goals-btn-primary"
+                        onclick="goalsApplyStepDraft('${escapeHtml(goal.id)}')">Поставить сюда</button>
+                </div>
+            </article>
+        `;
+    }).join('');
+
+    return `
+        <div class="goals-detail-head">
+            <h3 class="goals-detail-title">Поставить шаг</h3>
+            <button type="button" class="goals-btn goals-btn-ghost" onclick="goalsGoList()">← К целям</button>
+        </div>
+        <div class="goals-note">
+            Формулировку предложил бот — ставите её вы. Выберите цель: текущий шаг заменится предложенным.
+        </div>
+        <div class="goal-draft-preview">${escapeHtml(draft)}</div>
+        <div class="goals-grid">${cards}</div>
+    `;
 }
 
 // ---------- Профиль подстройки ----------

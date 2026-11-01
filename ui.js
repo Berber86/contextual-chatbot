@@ -2563,7 +2563,8 @@ function buildCoachingBlock(message, history) {
             `8. Психологические наблюдения — только как догадка («мне кажется», «похоже»), с приглашением поправить. Никаких ярлыков, диагнозов и запретов по «типу личности».\n` +
             `9. Поправка пользователя важнее любых твоих выводов и любых данных памяти.\n` +
             `10. Коучинг важнее образа: если роль мешает помочь, помогает коучинг — манера роли при этом остаётся.\n` +
-            `11. Если разговор не про цели, не вытаскивай их каждый ответ: один уместный намёк — да, навязчивость — нет.\n`;
+            `11. Если разговор не про цели, не вытаскивай их каждый ответ: один уместный намёк — да, навязчивость — нет.\n` +
+            `12. Если предлагаешь конкретный следующий шаг, добавь его ПОСЛЕДНЕЙ отдельной строкой строго в формате: ➡️ Шаг: <формулировка от лица пользователя, до 120 символов>. Это черновик: ставит его пользователь сам, ты ничего не меняешь.\n`;
     } catch (error) {
         console.error('[Coaching] Failed to build block:', error.message);
         return '';
@@ -3354,6 +3355,11 @@ function loadChatHistory() {
 function appendMessage(role, content, save = true, timestamp = Date.now(), audio = false) {
     const chatArea = document.getElementById('chatArea');
     if (!chatArea) return;
+
+    // 🎯 История хранит ответ вместе со строкой-черновиком, поэтому разбираем её снова.
+    const goalDraft = role === 'assistant' && typeof extractGoalStepDraft === 'function'
+        ? extractGoalStepDraft(content)
+        : { text: '', cleaned: content };
     
     const msgDiv = document.createElement('div');
     msgDiv.className = `message ${role}`;
@@ -3374,7 +3380,7 @@ function appendMessage(role, content, save = true, timestamp = Date.now(), audio
         transcript.textContent = content;
         msgDiv.appendChild(transcript);
     } else if (role === 'assistant') {
-        msgDiv.innerHTML = formatMessageMarkdown(content);
+        msgDiv.innerHTML = formatMessageMarkdown(goalDraft.cleaned);
     } else {
         msgDiv.textContent = content;
     }
@@ -3387,7 +3393,11 @@ function appendMessage(role, content, save = true, timestamp = Date.now(), audio
 
     // Кнопка «Озвучить» для ответов бота (HeyGen Voice Turbo через /api/tts)
     if (role === 'assistant' && typeof window.addTTSButton === 'function') {
-        window.addTTSButton(msgDiv, content);
+        window.addTTSButton(msgDiv, goalDraft.cleaned);
+    }
+
+    if (role === 'assistant' && goalDraft.text && typeof window.renderGoalStepDraftButton === 'function') {
+        window.renderGoalStepDraftButton(msgDiv, goalDraft.text);
     }
 
     chatArea.appendChild(msgDiv);
@@ -3414,10 +3424,16 @@ window.toggleAudioTranscript = function (bubble) {
 // 4. Обновляем финализацию стриминга, чтобы там тоже появлялось время
 function finalizeStreamingMessage(element, content) {
     if (!element) return;
-    
+
+    // 🎯 Черновик шага из чата: строка «➡️ Шаг: …» не показывается текстом,
+    // вместо неё под ответом появляется кнопка. Ставит шаг только пользователь.
+    const goalDraft = typeof extractGoalStepDraft === 'function'
+        ? extractGoalStepDraft(content)
+        : { text: '', cleaned: content };
+
     element.classList.remove('streaming');
     element.removeAttribute('id');
-    element.innerHTML = formatMessageMarkdown(content);
+    element.innerHTML = formatMessageMarkdown(goalDraft.cleaned);
     
     const timestamp = Date.now();
     const timeDiv = document.createElement('div');
@@ -3427,7 +3443,11 @@ function finalizeStreamingMessage(element, content) {
 
     // Кнопка «Озвучить» для ответа бота (HeyGen Voice Turbo через /api/tts)
     if (typeof window.addTTSButton === 'function') {
-        window.addTTSButton(element, content);
+        window.addTTSButton(element, goalDraft.cleaned);
+    }
+
+    if (goalDraft.text && typeof window.renderGoalStepDraftButton === 'function') {
+        window.renderGoalStepDraftButton(element, goalDraft.text);
     }
     
     addToHistory('assistant', content, timestamp);
