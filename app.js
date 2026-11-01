@@ -1199,6 +1199,10 @@ const GOALS_CONFIG = {
     successLimit: 600,
     stepLimit: 300,
     draftLimit: 200,       // максимальная длина шага, предложенного ботом
+    whyAnswerLimit: 400,   // один ответ на вопрос «зачем»
+    whyQuestionLimit: 120,
+    whyQuestionsMax: 3,
+    whySources: ['coach', 'ladder', 'manual'],
     noteLimit: 400,
     statuses: ['active', 'paused', 'done', 'dropped'],
     horizons: ['week', 'month', 'quarter', 'open'],
@@ -1300,10 +1304,37 @@ function writeGoal(id, mutator) {
     return { ok: true, goal: draft };
 }
 
+// Ответы на вопросы «зачем»: сохраняем и слова человека, и вопрос, на который он отвечал.
+// Вопросы нужны только как происхождение формулировки — в промпт идёт текст ответов.
+function normalizeGoalWhyAnswers(raw) {
+    if (!Array.isArray(raw)) return [];
+    const answers = [];
+    for (const item of raw) {
+        if (!item) continue;
+        const question = normalizeGoalText(item.question != null ? item.question : item.q, GOALS_CONFIG.whyQuestionLimit);
+        const answer = normalizeGoalText(item.answer != null ? item.answer : item.a, GOALS_CONFIG.whyAnswerLimit);
+        if (!answer) continue;
+        answers.push({ question, answer });
+        if (answers.length >= GOALS_CONFIG.whyQuestionsMax) break;
+    }
+    return answers;
+}
+
+function composeGoalWhy(answers) {
+    const parts = (Array.isArray(answers) ? answers : [])
+        .map(item => normalizeGoalText(item && item.answer, GOALS_CONFIG.whyAnswerLimit))
+        .filter(Boolean);
+    return normalizeGoalText(parts.join('\n\n'), GOALS_CONFIG.whyLimit);
+}
+
 function createGoal(input) {
     const source = input || {};
     const title = normalizeGoalText(source.title, GOALS_CONFIG.titleLimit);
-    const why = normalizeGoalText(source.why, GOALS_CONFIG.whyLimit);
+    const whyAnswers = normalizeGoalWhyAnswers(source.whyAnswers);
+    const whySource = GOALS_CONFIG.whySources.includes(source.whySource)
+        ? source.whySource
+        : (whyAnswers.length ? 'coach' : 'manual');
+    const why = normalizeGoalText(source.why || composeGoalWhy(whyAnswers), GOALS_CONFIG.whyLimit);
     const success = normalizeGoalText(source.success, GOALS_CONFIG.successLimit);
 
     const errors = [];
@@ -1328,6 +1359,8 @@ function createGoal(input) {
         id: generateId('goal'),
         title,
         why,
+        whyAnswers,
+        whySource,
         success,
         horizon: GOALS_CONFIG.horizons.includes(source.horizon) ? source.horizon : 'open',
         status: 'active',

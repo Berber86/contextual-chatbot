@@ -31,6 +31,13 @@ const GOALS_UI = {
         'Если этого не будет, то…',
         'Я хочу этого для себя, а не для кого-то, потому что…'
     ],
+    // Запасные вопросы: если модель недоступна, шаг «зачем» не должен превращаться в тупик.
+    whyFallbackQuestions: [
+        'Почему это важно именно сейчас?',
+        'Что изменится, если через полгода этого не будет?',
+        'Это для себя или для кого-то ещё?'
+    ],
+    createSteps: ['Чего хочу', 'Зачем', 'Готовность'],
     successStarts: [
         'Я пойму, что получилось, когда…',
         'Признак готовности для меня —…'
@@ -40,7 +47,8 @@ const GOALS_UI = {
 let goalsState = {
     view: 'list',
     selectedId: null,
-    errors: []
+    errors: [],
+    create: null      // черновик визарда создания цели, живёт до сохранения или отмены
 };
 
 // ==================== ЧЕРНОВИК ШАГА ИЗ ЧАТА ====================
@@ -147,6 +155,7 @@ function goalsGoList() {
     goalsState.selectedId = null;
     goalsState.errors = [];
     goalsState.draft = '';
+    goalsState.create = null;
     renderGoalsInterface();
 }
 
@@ -260,6 +269,7 @@ function goalsSetParam(param, value) {
 }
 
 function goalsStartCreate() {
+    goalsState.create = null;
     goalsState.view = 'create';
     goalsState.errors = [];
     renderGoalsInterface();
@@ -515,6 +525,19 @@ function renderGoalDetails(goal) {
         <section class="goal-block">
             <div class="goal-block-title">Зачем</div>
             <p class="goal-block-text">${escapeHtml(goal.why)}</p>
+            ${Array.isArray(goal.whyAnswers) && goal.whyAnswers.length ? `
+                <details class="goal-why-details">
+                    <summary>Откуда эта формулировка</summary>
+                    <ul class="goal-why-list">
+                        ${goal.whyAnswers.map(item => `
+                            <li class="goal-why-item">
+                                <span class="goal-why-question">${escapeHtml(item.question || '')}</span>
+                                <span class="goal-why-answer">${escapeHtml(item.answer || '')}</span>
+                            </li>
+                        `).join('')}
+                    </ul>
+                </details>
+            ` : ''}
         </section>
         <section class="goal-block">
             <div class="goal-block-title">Как пойму, что получилось</div>
@@ -528,52 +551,353 @@ function renderGoalDetails(goal) {
     `;
 }
 
-function renderGoalsCreate() {
-    const errors = goalsState.errors.map(renderGoalError).join('');
+// ==================== СОЗДАНИЕ ЦЕЛИ: ВИЗАРД ====================
+// «Зачем» — всегда слова человека. Помощник только задаёт вопросы: модель подбирает
+// их под конкретную цель, а если она молчит — срабатывают простые вопросы из GOALS_UI.
 
+function goalsCreateInitial() {
+    return {
+        step: 1,
+        title: '',
+        why: '',
+        success: '',
+        horizon: 'open',
+        answers: ['', '', ''],
+        manual: false,          // человек пишет «зачем» сам, без вопросов
+        questions: [],
+        questionsState: 'idle', // idle | loading | coach | fallback
+        questionsFor: ''        // для какой формулировки уже спросили модель
+    };
+}
+
+function goalsEnsureCreateState() {
+    if (!goalsState.create) goalsState.create = goalsCreateInitial();
+    return goalsState.create;
+}
+
+function goalValueOf(id) {
+    const element = document.getElementById(id);
+    return element && typeof element.value === 'string' ? element.value : null;
+}
+
+// Собираем введённое перед каждой перерисовкой: визард не должен терять текст.
+function goalsReadCreateInputs() {
+    const create = goalsEnsureCreateState();
+    const title = goalValueOf('goalTitleInput');
+    if (title !== null) create.title = title;
+    const why = goalValueOf('goalWhyInput');
+    if (why !== null) create.why = why;
+    const success = goalValueOf('goalSuccessInput');
+    if (success !== null) create.success = success;
+    const horizon = goalValueOf('goalHorizonInput');
+    if (horizon !== null) create.horizon = horizon;
+    for (let index = 0; index < GOALS_CONFIG.whyQuestionsMax; index++) {
+        const answer = goalValueOf('goalWhyAnswer' + index);
+        if (answer !== null) create.answers[index] = answer;
+    }
+    return create;
+}
+
+// ==================== ВОПРОСЫ О «ЗАЧЕМ» ====================
+// Один запрос к модели на одну создаваемую цель. Модель пишет только вопросы:
+// отвечать за человека и придумывать формулировку ей запрещено промптом.
+
+function goalWhyQuestionsPrompt(title, draftWhy) {
+    const cleanTitle = String(title || '').trim().slice(0, GOALS_CONFIG.titleLimit);
+    const cleanDraft = String(draftWhy || '').trim().slice(0, GOALS_CONFIG.whyAnswerLimit);
+    return [
+        'Ты помогаешь человеку самому сформулировать, зачем ему цель.',
+        'Ты не отвечаешь за него, не даёшь советов, не оцениваешь цель и не упоминаешь психологию, здоровье или деньги.',
+        'Цель: «' + cleanTitle + '».',
+        cleanDraft ? 'Что он уже написал: «' + cleanDraft + '».' : '',
+        'Задай ровно 3 коротких вопроса, которые помогут ему найти свои слова:',
+        'один — про смысл и момент «сейчас», один — про цену бездействия, один — про то, для кого это.',
+        'Каждый вопрос — одно предложение до 90 символов, по-русски, без нумерации,',
+        'без обращения по имени, без конструкций «почему бы тебе не…» и без готовых ответов.',
+        'Верни только JSON-массив из трёх строк.'
+    ].filter(Boolean).join('\n');
+}
+
+function parseGoalWhyQuestions(raw) {
+    const text = String(raw == null ? '' : raw);
+    const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+    const body = fenced ? fenced[1] : text;
+
+    let payload = null;
+    const arrayMatch = body.match(/\[[\s\S]*\]/);
+    if (arrayMatch) {
+        try { payload = JSON.parse(arrayMatch[0]); } catch (e) { payload = null; }
+    }
+
+    // Модель иногда игнорирует JSON и отвечает списком строк — это тоже годится.
+    let list = Array.isArray(payload) ? payload : [];
+    if (!list.length) {
+        list = body.split('\n')
+            .map(line => line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').trim())
+            // Вступление вроде «Вот вопросы, которые помогут:» — не вопрос.
+            .filter(line => line && !/[:：]\s*$/.test(line));
+        // Одна строка без вопросительного знака — это не список вопросов, а скорее отказ
+        // или извинение модели. Лучше честно уйти на запасные вопросы.
+        if (list.length < 2 && !/[?？]/.test(body)) list = [];
+    }
+
+    const questions = [];
+    for (const item of list) {
+        const value = typeof item === 'string'
+            ? item
+            : (item && typeof item.question === 'string' ? item.question : '');
+        let question = value
+            .replace(/^[\s"'«»]+|[\s"'«»]+$/g, '')
+            .replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '')
+            .replace(/\s+/g, ' ')
+            .replace(/[?？]+$/, '')
+            .trim();
+        if (!question) continue;
+        question = question.slice(0, GOALS_CONFIG.whyQuestionLimit - 1) + '?';
+        if (questions.includes(question)) continue;
+        questions.push(question);
+        if (questions.length >= GOALS_CONFIG.whyQuestionsMax) break;
+    }
+    return questions;
+}
+
+let goalsQuestionsSeq = 0;
+
+async function goalsLoadWhyQuestions(force) {
+    const create = goalsEnsureCreateState();
+    const title = String(create.title || '').trim();
+    if (!title) return;
+    if (!force) {
+        if (create.questionsState === 'loading') return;
+        // Повторный вход на шаг не должен оплачивать второй запрос.
+        if (create.questionsFor === title && create.questions.length) return;
+    }
+
+    const seq = ++goalsQuestionsSeq;
+    create.questionsState = 'loading';
+    create.questionsFor = title;
+    renderGoalsInterface();
+
+    let questions = [];
+    try {
+        if (typeof callMemoryAPIWithRetry !== 'function') throw new Error('model_unavailable');
+        const answer = await callMemoryAPIWithRetry(goalWhyQuestionsPrompt(title, create.why), 1);
+        questions = parseGoalWhyQuestions(answer);
+    } catch (error) {
+        questions = [];
+    }
+
+    // Пока ждали, человек мог уйти со шага или начать новый черновик.
+    if (seq !== goalsQuestionsSeq) return;
+    if (!create.title || create.step !== 2) return;
+
+    if (questions.length) {
+        create.questions = questions;
+        create.questionsState = 'coach';
+    } else {
+        create.questions = GOALS_UI.whyFallbackQuestions.slice();
+        create.questionsState = 'fallback';
+    }
+    renderGoalsInterface();
+}
+
+// ==================== НАВИГАЦИЯ ВИЗАРДА ====================
+
+function goalsCreateNext() {
+    const create = goalsReadCreateInputs();
+
+    if (create.step === 1) {
+        if (!String(create.title || '').trim()) {
+            goalsState.errors = ['title_required'];
+            renderGoalsInterface();
+            return;
+        }
+        goalsState.errors = [];
+        create.step = 2;
+        renderGoalsInterface();
+        goalsLoadWhyQuestions();
+        return;
+    }
+
+    if (create.step === 2) {
+        const hasAnswers = create.answers.some(answer => String(answer || '').trim());
+        const hasManualWhy = Boolean(String(create.why || '').trim());
+        if (!hasAnswers && !hasManualWhy) {
+            goalsState.errors = ['why_required'];
+            renderGoalsInterface();
+            return;
+        }
+        goalsState.errors = [];
+        create.step = 3;
+        renderGoalsInterface();
+    }
+}
+
+function goalsCreateBack() {
+    const create = goalsReadCreateInputs();
+    if (create.step > 1) create.step -= 1;
+    goalsState.errors = [];
+    renderGoalsInterface();
+}
+
+function goalsCreateManual() {
+    const create = goalsReadCreateInputs();
+    create.manual = true;
+    if (!String(create.why || '').trim()) {
+        const answers = create.answers.map(answer => String(answer || '').trim()).filter(Boolean);
+        if (answers.length) create.why = answers.join('\n\n').slice(0, GOALS_CONFIG.whyLimit);
+    }
+    goalsState.errors = [];
+    renderGoalsInterface();
+}
+
+function goalsCreateBackToQuestions() {
+    const create = goalsReadCreateInputs();
+    create.manual = false;
+    renderGoalsInterface();
+}
+
+function goalsCreateRetryQuestions() {
+    const create = goalsEnsureCreateState();
+    if (String(create.why || '').trim()) create.why = '';
+    create.questionsFor = '';
+    create.questions = [];
+    create.questionsState = 'idle';
+    goalsLoadWhyQuestions(true);
+}
+
+// ==================== РЕНДЕР ВИЗАРДА ====================
+
+function renderGoalsCreateSteps(step) {
     return `
-        <div class="goals-detail-head">
-            <button type="button" class="goals-btn goals-btn-ghost" onclick="goalsGoList()">← Все цели</button>
-        </div>
-        <h2 class="goals-detail-title">Новая цель</h2>
-        ${errors}
+        <ol class="goal-steps">
+            ${GOALS_UI.createSteps.map((label, index) => `
+                <li class="goal-step${index + 1 === step ? ' is-current' : ''}${index + 1 < step ? ' is-done' : ''}">
+                    <span class="goal-step-num">${index + 1}</span>
+                    <span class="goal-step-label">${label}</span>
+                </li>
+            `).join('')}
+        </ol>
+    `;
+}
+
+function renderCreateTitleStep(create) {
+    return `
         <section class="goal-block">
             <label class="goal-block-title" for="goalTitleInput">Чего вы хотите</label>
+            <p class="goal-block-hint">Одной фразой, своими словами. Уточнить можно потом.</p>
             <input id="goalTitleInput" class="goal-input" type="text" maxlength="${GOALS_CONFIG.titleLimit}"
+                value="${escapeHtml(create.title)}"
                 placeholder="Например: выучить испанский до разговорного уровня">
         </section>
-        <section class="goal-block">
-            <label class="goal-block-title" for="goalWhyInput">Зачем это вам</label>
-            <p class="goal-block-hint">Честный ответ здесь важнее красивого. Начните с подсказки, если сложно.</p>
-            <div class="goal-chips">
-                ${GOALS_UI.whyStarts.map(start => `
-                    <button type="button" class="goal-chip" onclick="goalsInsertPhrase('goalWhyInput', ${JSON.stringify(start).replace(/"/g, '&quot;')})">${escapeHtml(start)}</button>
-                `).join('')}
+        <div class="goal-block-actions">
+            <button type="button" class="goals-btn goals-btn-ghost" onclick="goalsGoList()">Отмена</button>
+            <button type="button" class="goals-btn goals-btn-primary" onclick="goalsCreateNext()">Дальше</button>
+        </div>
+    `;
+}
+
+function renderCreateWhyStep(create) {
+    if (create.manual) {
+        return `
+            <section class="goal-block">
+                <div class="goal-block-title">Зачем это вам</div>
+                <p class="goal-block-hint">Своими словами, как есть. Вопросы вы пропустили — это нормально.</p>
+                <div class="goal-chips">
+                    ${GOALS_UI.whyStarts.map(start => `
+                        <button type="button" class="goal-chip" onclick="goalsInsertPhrase('goalWhyInput', ${JSON.stringify(start).replace(/"/g, '&quot;')})">${escapeHtml(start)}</button>
+                    `).join('')}
+                </div>
+                <textarea id="goalWhyInput" class="goal-input goal-textarea" maxlength="${GOALS_CONFIG.whyLimit}">${escapeHtml(create.why)}</textarea>
+                <button type="button" class="goal-link" onclick="goalsCreateBackToQuestions()">Вернуться к вопросам</button>
+            </section>
+            <div class="goal-block-actions">
+                <button type="button" class="goals-btn" onclick="goalsCreateBack()">← Назад</button>
+                <button type="button" class="goals-btn goals-btn-primary" onclick="goalsCreateNext()">Дальше</button>
             </div>
-            <textarea id="goalWhyInput" class="goal-input goal-textarea" maxlength="${GOALS_CONFIG.whyLimit}"></textarea>
-        </section>
+        `;
+    }
+
+    const loading = create.questionsState === 'loading' || create.questionsState === 'idle';
+    const questions = loading ? [] : create.questions;
+
+    const questionsHtml = loading
+        ? `<p class="goal-block-hint goal-questions-loading">Подбираю вопросы под вашу цель — это один запрос к модели.</p>`
+        : questions.length
+            ? questions.map((question, index) => `
+                <div class="goal-question">
+                    <label class="goal-question-text" for="goalWhyAnswer${index}">${escapeHtml(question)}</label>
+                    <textarea id="goalWhyAnswer${index}" class="goal-input goal-textarea goal-answer"
+                        maxlength="${GOALS_CONFIG.whyAnswerLimit}"
+                        placeholder="${escapeHtml(GOALS_UI.whyStarts[index] || '')}">${escapeHtml(create.answers[index] || '')}</textarea>
+                </div>
+            `).join('')
+            : `<p class="goal-block-hint">Вопросы не пришли. Напишите «зачем» своими словами — это ничуть не хуже.</p>
+               <button type="button" class="goal-link" onclick="goalsCreateRetryQuestions()">Попробовать спросить ещё раз</button>`;
+
+    const fallbackNote = create.questionsState === 'fallback'
+        ? `<p class="goal-block-hint">Модель сейчас не ответила — вопросы простые, но рабочие. Можно написать и своими словами.</p>`
+        : '';
+
+    return `
         <section class="goal-block">
-            <label class="goal-block-title" for="goalSuccessInput">Как поймёте, что получилось</label>
+            <div class="goal-block-title">Зачем это вам</div>
+            <p class="goal-block-hint">Вопросы помогают найти ваши слова. Отвечайте как есть — это останется только у вас.</p>
+            ${questionsHtml}
+            ${fallbackNote}
+            <button type="button" class="goal-link" onclick="goalsCreateManual()">Написать самому, без вопросов</button>
+        </section>
+        <div class="goal-block-actions">
+            <button type="button" class="goals-btn" onclick="goalsCreateBack()">← Назад</button>
+            <button type="button" class="goals-btn goals-btn-primary" onclick="goalsCreateNext()">Дальше</button>
+        </div>
+    `;
+}
+
+function renderCreateSuccessStep(create) {
+    return `
+        <section class="goal-block">
+            <div class="goal-block-title">Как поймёте, что получилось</div>
             <p class="goal-block-hint">Качественный признак, без процентов и дедлайнов.</p>
             <div class="goal-chips">
                 ${GOALS_UI.successStarts.map(start => `
                     <button type="button" class="goal-chip" onclick="goalsInsertPhrase('goalSuccessInput', ${JSON.stringify(start).replace(/"/g, '&quot;')})">${escapeHtml(start)}</button>
                 `).join('')}
             </div>
-            <textarea id="goalSuccessInput" class="goal-input goal-textarea" maxlength="${GOALS_CONFIG.successLimit}"></textarea>
+            <textarea id="goalSuccessInput" class="goal-input goal-textarea" maxlength="${GOALS_CONFIG.successLimit}">${escapeHtml(create.success)}</textarea>
         </section>
         <section class="goal-block">
             <label class="goal-block-title" for="goalHorizonInput">Горизонт</label>
             <select id="goalHorizonInput" class="goal-input">
                 ${GOALS_CONFIG.horizons.map(horizon => `
-                    <option value="${horizon}">${GOALS_UI.horizonLabels[horizon]}</option>
+                    <option value="${horizon}"${horizon === create.horizon ? ' selected' : ''}>${GOALS_UI.horizonLabels[horizon]}</option>
                 `).join('')}
             </select>
         </section>
         <div class="goal-block-actions">
+            <button type="button" class="goals-btn" onclick="goalsCreateBack()">← Назад</button>
             <button type="button" class="goals-btn goals-btn-primary" onclick="goalsCreateFromForm()">Создать цель</button>
-            <button type="button" class="goals-btn goals-btn-ghost" onclick="goalsGoList()">Отмена</button>
         </div>
+    `;
+}
+
+function renderGoalsCreate() {
+    const create = goalsEnsureCreateState();
+    const errors = goalsState.errors.map(renderGoalError).join('');
+    const stepBody = create.step === 1
+        ? renderCreateTitleStep(create)
+        : create.step === 2
+            ? renderCreateWhyStep(create)
+            : renderCreateSuccessStep(create);
+
+    return `
+        <div class="goals-detail-head">
+            <button type="button" class="goals-btn goals-btn-ghost" onclick="goalsGoList()">← Все цели</button>
+        </div>
+        <h2 class="goals-detail-title">Новая цель</h2>
+        ${renderGoalsCreateSteps(create.step)}
+        ${errors}
+        ${stepBody}
     `;
 }
 
@@ -805,31 +1129,44 @@ function goalsInsertPhrase(fieldId, phrase) {
 }
 
 function goalsCreateFromForm() {
-    const title = document.getElementById('goalTitleInput');
-    const why = document.getElementById('goalWhyInput');
-    const success = document.getElementById('goalSuccessInput');
-    const horizon = document.getElementById('goalHorizonInput');
+    const create = goalsReadCreateInputs();
+
+    const answers = create.answers
+        .map((answer, index) => ({
+            question: create.questions[index] || '',
+            answer: String(answer || '').trim()
+        }))
+        .filter(item => item.answer);
+
+    const manualWhy = String(create.why || '').trim();
+    const why = create.manual ? manualWhy : (manualWhy || composeGoalWhy(answers));
+    const whySource = create.manual
+        ? 'manual'
+        : (create.questionsState === 'coach' ? 'coach' : create.questionsState === 'fallback' ? 'ladder' : 'manual');
 
     const result = createGoal({
-        title: title ? title.value : '',
-        why: why ? why.value : '',
-        success: success ? success.value : '',
-        horizon: horizon ? horizon.value : 'open'
+        title: create.title,
+        why,
+        success: create.success,
+        horizon: create.horizon,
+        whyAnswers: create.manual ? [] : answers,
+        whySource
     });
 
     if (!result.ok) {
-        goalsState.errors = result.errors || ['unknown'];
-        goalsState.view = 'create';
+        const errors = Array.from(result.errors || ['unknown']).map(String);
+        goalsState.errors = errors;
+        // Возвращаем на тот шаг, где это можно исправить.
+        if (errors.includes('title_required')) create.step = 1;
+        else if (errors.includes('why_required')) create.step = 2;
+        else create.step = 3;
         renderGoalsInterface();
-        // Возвращаем введённое, чтобы человек не набирал заново.
-        if (title) document.getElementById('goalTitleInput').value = title.value;
-        if (why) document.getElementById('goalWhyInput').value = why.value;
-        if (success) document.getElementById('goalSuccessInput').value = success.value;
         return;
     }
 
     goalsNotify('Цель создана. Осталось выбрать следующий шаг.');
     goalsState.errors = [];
+    goalsState.create = null;
     goalsOpenGoal(result.goal.id);
 }
 
