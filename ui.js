@@ -206,6 +206,9 @@ async function runMigration() {
     if (typeof migrateGoalsData === 'function' && migrateGoalsData()) {
         console.log('[System] Goals storage migrated');
     }
+    if (typeof migrateGoalReviewsData === 'function' && migrateGoalReviewsData()) {
+        console.log('[System] Goal reviews storage migrated');
+    }
 
     console.log('[System] Memory migration complete.');
 }
@@ -2528,13 +2531,27 @@ function buildCoachingBlock(message, history) {
             ? '\nУ одной из целей нет следующего шага. Один раз уместно предложить его сформулировать — маленьким и конкретным.\n'
             : '';
 
+        // Профиль подстройки: виден пользователю и определяет форму речи.
+        const profileText = typeof getCoachProfileForPrompt === 'function' ? getCoachProfileForPrompt() : '';
+
+        // Обзор недели: повод упомянуть его ровно один раз.
+        let reviewText = '';
+        if (typeof getUnopenedGoalReview === 'function') {
+            const review = getUnopenedGoalReview();
+            if (review) {
+                reviewText = `\nОБЗОР НЕДЕЛИ: он готов и ещё не открыт («${review.title}»: ${review.movement}). ` +
+                    `Можно ОДИН раз коротко предложить посмотреть его в окне «Цели» — и только если это уместно в разговоре.\n`;
+                if (typeof markGoalReviewMentioned === 'function') markGoalReviewMentioned(review.id);
+            }
+        }
+
         const questionRule = allowQuestion
             ? '3. Про цель можно задать не больше ОДНОГО вопроса — и только если он уместен сейчас.'
             : '3. В последних ответах уже был вопрос о цели, поэтому в этом ответе про цель и следующий шаг НЕ спрашивай.';
 
         return `\n=== 🎯 КОУЧИНГ ЦЕЛЕЙ ПОЛЬЗОВАТЕЛЯ ===\n` +
             `Это цели, которые пользователь поставил себе сам. Ты помогаешь ему двигаться, но не управляешь целью.\n\n` +
-            `${goalsText}\n${stepHint}${triageHint}\n` +
+            `${goalsText}\n${profileText}${stepHint}${triageHint}${reviewText}\n` +
             `ПРАВИЛА КОУЧИНГА (нарушение — дефект, а не стиль):\n` +
             `1. Цель принадлежит пользователю: не придумывай цели, не переформулируй его цель, не закрывай её и не объявляй провал.\n` +
             `2. За один ответ — не больше ОДНОЙ коучинговой реплики. Это не отчёт, не чек-лист и не разбор на несколько пунктов.\n` +
@@ -3178,6 +3195,15 @@ async function sendMessage(event) {
         
         // Background analysis
         runBackgroundAnalysis();
+
+        // Обзор недели по целям: локально, не чаще раза в 7 дней.
+        if (typeof runGoalWeeklyReview === 'function') {
+            try {
+                runGoalWeeklyReview();
+            } catch (error) {
+                console.error('[Reviews] Weekly review failed:', error.message);
+            }
+        }
 
         // Эмуляция личности: каждые N сообщений бот пишет заметку об образе
         if (trackPersonaProgress()) {

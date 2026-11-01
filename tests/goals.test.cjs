@@ -79,6 +79,7 @@ function uiHarness() {
       dispatchEvent() {},
       addEventListener() {},
       prompt: () => '',
+      confirm: () => true,
     },
     document: {
       getElementById: getElement,
@@ -688,4 +689,270 @@ test('реальный запрос в чат уносит цель в сист�
   const hard = await runTurn('Я выгорел и нет сил, ничего не могу больше');
   assert.match(hard.system, /ПОДДЕРЖКА ВАЖНЕЕ КОУЧИНГА/, 'в тяжёлом состоянии включается поддержка');
   assert.doesNotMatch(hard.system, /Записаться на первый урок/, 'шаг цели не показывается модели');
+});
+
+// ==================== ИНКРЕМЕНТ 3: ПРОФИЛЬ И ОБЗОР ====================
+
+test('профиль по умолчанию нейтрален и объясним по каждому параметру', () => {
+  const { context } = coachHarness();
+  const profile = context.getCoachProfileData();
+
+  assert.equal(profile.enabled, true);
+  assert.equal(profile.params.directness, 'neutral', 'прямота не меняется сама');
+  assert.equal(profile.changelog.length, 0);
+
+  const text = context.getCoachProfileForPrompt();
+  ['Прямота', 'Структура', 'Размер шага', 'Глубина рефлексии', 'Ритм касаний', 'Обратная связь']
+    .forEach(label => assert.match(text, new RegExp(label), `в профиле есть ${label}`));
+
+  const evidence = context.getCoachParamEvidence('directness');
+  assert.equal(evidence.source, 'manual', 'прямота описана как ручная настройка');
+  assert.match(evidence.text, /не меняет/, 'видно, что авто-подстройка её не трогает');
+});
+
+test('ручное изменение параметра пишется в журнал с причиной', () => {
+  const { context } = coachHarness();
+
+  assert.equal(context.setCoachParam('directness', 'очень прямо', 'x').errors.join(','), 'bad_param');
+  assert.equal(context.setCoachParam('unknown', 'x').errors.join(','), 'bad_param');
+
+  const result = context.setCoachParam('directness', 'direct', 'хочу без обёрток');
+  assert.equal(result.ok, true);
+  assert.equal(result.changed, true);
+  assert.equal(context.getCoachProfileData().params.directness, 'direct');
+
+  const entry = context.getCoachProfileData().changelog[0];
+  assert.equal(entry.source, 'user');
+  assert.equal(entry.reason, 'хочу без обёрток');
+  assert.equal(entry.from, 'neutral');
+  assert.equal(entry.to, 'direct');
+  assert.ok(entry.at > 0, 'у записи есть дата');
+
+  assert.equal(context.setCoachParam('directness', 'direct').changed, false, 'то же значение не пишется');
+  assert.equal(context.getCoachProfileData().changelog.length, 1);
+});
+
+test('тихий дрейф идёт только на одну ступень и никогда не трогает прямоту', () => {
+  const { context } = coachHarness();
+
+  assert.equal(context.applyCoachDrift([{ param: 'directness', from: 'neutral', to: 'direct' }], 'тест').length, 0,
+    'прямота дрейфом не меняется');
+  assert.equal(context.getCoachProfileData().params.directness, 'neutral');
+
+  assert.equal(context.applyCoachDrift([{ param: 'stepSize', from: 'normal', to: 'large' }], 'шаг вверх').length, 1);
+  assert.equal(context.applyCoachProfileData === undefined, true);
+  assert.equal(context.getCoachProfileData().params.stepSize, 'large');
+
+  assert.equal(context.applyCoachDrift([{ param: 'stepSize', from: 'large', to: 'micro' }], 'через две ступени').length, 0,
+    'прыжок через ступень запрещён');
+  assert.equal(context.getCoachProfileData().params.stepSize, 'large');
+
+  assert.equal(context.applyCoachDrift([{ param: 'stepSize', from: 'normal', to: 'large' }], 'устаревшие данные').length, 0,
+    'from должен совпадать с текущим значением');
+});
+
+test('дрейф случается не чаще раза в неделю и опирается на чек-ины', () => {
+  const { context } = coachHarness();
+  const { goal } = context.createGoal({ title: 'Бегать', why: 'Здоровье', success: '5 км' });
+  context.addGoalCheckin(goal.id, 'stuck', 'Не хватило времени');
+  context.addGoalCheckin(goal.id, 'no_time', 'Завал');
+
+  const applied = context.maybeApplyCoachDrift();
+  assert.equal(applied.length >= 1, true, 'после двух чек-инов без движения шаг уменьшается');
+  assert.equal(context.getCoachProfileData().params.stepSize, 'micro');
+
+  const entry = context.getCoachProfileData().changelog.find(item => item.param === 'stepSize');
+  assert.equal(entry.source, 'auto');
+  assert.match(entry.reason, /без движения/);
+
+  assert.equal(context.maybeApplyCoachDrift().length, 0, 'в тот же день второй раз не подстраивается');
+  assert.equal(context.maybeApplyCoachDrift(Date.now() + 8 * 86400000).length, 0,
+    'через неделю менять уже нечего — микро это минимум');
+});
+
+test('дрейф идёт по одной ступени, даже если данные говорят «до упора»', () => {
+  const { context } = coachHarness();
+  context.setCoachParam('reflection', 'deep', 'вручную');
+  context.createGoal({ title: 'Бегать', why: 'Здоровье', success: '5 км' });
+
+  const reflection = context.suggestCoachDrift().suggestions.find(item => item.param === 'reflection');
+  assert.equal(reflection.to, 'medium', 'deep → medium, а не deep → action');
+
+  context.setCoachParam('structure', 'stepwise', 'вручную');
+  for (let i = 0; i < 3; i++) {
+    context.createGoal({ title: `Цель ${i}`, why: 'Зачем', success: 'Признак' });
+  }
+  const structure = context.suggestCoachDrift().suggestions.find(item => item.param === 'structure');
+  assert.equal(structure.to, 'medium', 'stepwise → medium, а не stepwise → free');
+});
+
+test('подстройка попадает в системный промпт', () => {
+  const { context } = coachHarness();
+  context.createGoal({ title: 'Бегать', why: 'Здоровье', success: '5 км' });
+  context.setCoachParam('stepSize', 'micro', 'маленькие шаги');
+
+  const block = context.buildCoachingBlock('привет', []);
+  assert.match(block, /ПОДСТРОЙКА ПОД ЧЕЛОВЕКА/);
+  assert.match(block, /Размер шага: микро/);
+  assert.match(block, /10 минут/, 'значение объяснено модели на практике');
+
+  context.setCoachParam('directness', 'direct', 'хочу прямо');
+  assert.match(context.buildCoachingBlock('привет', []), /говори прямо и коротко/);
+});
+
+test('обзор недели собирается из самоотчётов, без процентов', () => {
+  const { context } = coachHarness();
+  const { goal } = context.createGoal({ title: 'Писать книгу', why: 'Хочу высказаться', success: 'Глава' });
+  context.setGoalNextStep(goal.id, 'Написать 500 слов');
+  context.addGoalCheckin(goal.id, 'moved', 'Написал 300 слов');
+  context.addGoalCheckin(goal.id, 'stuck', 'Отвлёкся');
+
+  const result = context.runGoalWeeklyReview();
+  assert.equal(result.created, 1);
+
+  const review = context.getGoalReviews()[0];
+  assert.equal(review.title, 'Писать книгу');
+  assert.match(review.movement, /Сдвинулось 1/);
+  assert.match(review.obstacle, /причина|внешнее|сомнение/i);
+  assert.match(review.nextStep, /Написать 500 слов/);
+  assert.equal(review.openedAt, 0);
+  assert.doesNotMatch(JSON.stringify(review), /%/, 'в обзоре нет процентов');
+});
+
+test('обзор появляется не чаще раза в семь дней', () => {
+  const { context } = coachHarness();
+  const { goal } = context.createGoal({ title: 'Учить слова', why: 'Для поездки', success: '500 слов' });
+  const now = Date.now();
+  context.addGoalCheckin(goal.id, 'moved', '');
+
+  assert.equal(context.runGoalWeeklyReview(now).created, 1);
+  assert.equal(context.runGoalWeeklyReview(now + 86400000).created, 0, 'на следующий день обзор не повторяется');
+  assert.equal(context.runGoalWeeklyReview(now + 8 * 86400000).created, 0,
+    'без новых чек-инов обзор пустой');
+  assert.equal(context.runGoalWeeklyReview(now + 8 * 86400000).created, 0);
+});
+
+test('обзоры ограничены по количеству, а прочитанный больше не всплывает', () => {
+  const { context, values } = coachHarness();
+  const { goal } = context.createGoal({ title: 'Цель', why: 'Зачем', success: 'Признак' });
+  context.addGoalCheckin(goal.id, 'moved', '');
+
+  const many = { version: 1, reviews: Array.from({ length: 60 }, (_, i) => ({
+    id: `review_${i}`, weekKey: '2026-W01', goalId: goal.id, title: 'Цель',
+    movement: 'Сдвинулось', obstacle: '', nextStep: 'Шаг', createdAt: Date.now(),
+    // старые обзоры пользователь уже читал — непрочитанным остаётся только последний
+    openedAt: i === 59 ? 0 : Date.now(), mentionedAt: 0
+  })) };
+  values.set(read(context, 'STORAGE_KEYS').goalReviews, JSON.stringify(many));
+  assert.equal(context.getGoalReviews().length, 52, 'история обзоров ограничена');
+
+  const latest = context.getLatestGoalReview();
+  assert.equal(context.getUnopenedGoalReview().id, latest.id);
+  context.markGoalReviewOpened(latest.id);
+  assert.equal(context.getUnopenedGoalReview(), null, 'прочитанный обзор бот не поднимает');
+});
+
+test('неоткрытый обзор бот упоминает один раз', () => {
+  const { context } = coachHarness();
+  const { goal } = context.createGoal({ title: 'Учить слова', why: 'Для поездки', success: '500 слов' });
+  context.addGoalCheckin(goal.id, 'moved', '');
+  context.runGoalWeeklyReview();
+
+  const first = context.buildCoachingBlock('привет', []);
+  assert.match(first, /ОБЗОР НЕДЕЛИ/);
+  assert.match(first, /один раз|ОДИН раз/);
+
+  const second = context.buildCoachingBlock('привет', []);
+  assert.doesNotMatch(second, /ОБЗОР НЕДЕЛИ/, 'повторно бот про обзор не напоминает');
+});
+
+test('в окне целей есть профиль с шестью параметрами и «почему так»', () => {
+  const { context, getElement } = uiHarness();
+  context.createGoal({ title: 'Бегать', why: 'Здоровье', success: '5 км' });
+  context.openGoalsModal();
+  context.goalsStartProfile();
+
+  const markup = getElement('goalsBody').innerHTML;
+  ['Прямота', 'Структура', 'Размер шага', 'Глубина рефлексии', 'Ритм касаний', 'Обратная связь']
+    .forEach(label => assert.match(markup, new RegExp(label)));
+  assert.match(markup, /Почему так/);
+  assert.match(markup, /Журнал изменений/);
+  assert.match(markup, /Влияет на:/);
+});
+
+test('прямота меняется только после подтверждения, остальные параметры — сразу', () => {
+  const { context, toasts, getElement } = uiHarness();
+  context.openGoalsModal();
+  context.goalsStartProfile();
+
+  context.window.confirm = () => false;
+  context.goalsSetParam('directness', 'direct');
+  assert.equal(context.getCoachProfileData().params.directness, 'neutral', 'без согласия прямота не меняется');
+
+  context.window.confirm = () => true;
+  context.goalsSetParam('directness', 'direct');
+  assert.equal(context.getCoachProfileData().params.directness, 'direct');
+  assert.match(getElement('goalsBody').innerHTML, /вручную/, 'в журнале видно, что это ручное изменение');
+
+  context.goalsSetParam('stepSize', 'micro');
+  assert.equal(context.getCoachProfileData().params.stepSize, 'micro');
+  assert.equal(toasts.length >= 2, true);
+});
+
+test('обзор недели виден в списке и открывается', () => {
+  const { context, getElement } = uiHarness();
+  const { goal } = context.createGoal({ title: 'Писать книгу', why: 'Хочу высказаться', success: 'Глава' });
+  context.setGoalNextStep(goal.id, 'Написать 500 слов');
+  context.addGoalCheckin(goal.id, 'moved', 'Начал');
+  context.runGoalWeeklyReview();
+
+  context.openGoalsModal();
+  assert.match(getElement('goalsBody').innerHTML, /Обзор недели/);
+  assert.match(getElement('goalsBody').innerHTML, /новое/);
+
+  context.goalsOpenReview();
+  const reviewMarkup = getElement('goalsBody').innerHTML;
+  assert.match(reviewMarkup, /Писать книгу/);
+  assert.match(reviewMarkup, /Написать 500 слов/);
+  assert.match(reviewMarkup, /не оценка/i);
+  assert.match(reviewMarkup, /Что бот подстроил за неделю/);
+  assert.equal(context.getUnopenedGoalReview(), null, 'после открытия обзор прочитан');
+});
+
+test('чек-ин сам запускает тихую подстройку и обзор', () => {
+  const { context, values } = uiHarness();
+  const { goal } = context.createGoal({ title: 'Бегать', why: 'Здоровье', success: '5 км' });
+
+  context.goalsQuickCheckin(goal.id, 'stuck');
+  context.goalsQuickCheckin(goal.id, 'no_time');
+
+  assert.equal(context.getCoachProfileData().params.stepSize, 'micro', 'профиль подстроился');
+  assert.equal(context.getGoalReviews().length, 1, 'обзор недели появился сам');
+  assert.ok(values.get(read(context, 'STORAGE_KEYS').coachProfile), 'профиль сохранён');
+});
+
+test('экспорт везёт с собой обзоры и профиль, импорт не перетирает настроенный профиль', () => {
+  const source = coachHarness();
+  const { goal } = source.context.createGoal({ title: 'Бегать', why: 'Здоровье', success: '5 км' });
+  source.context.addGoalCheckin(goal.id, 'moved', 'Вышел на пробежку');
+  source.context.runGoalWeeklyReview();
+  source.context.setCoachParam('directness', 'direct', 'хочу прямо');
+
+  const payload = source.context.exportGoalsPackage();
+  const parsed = JSON.parse(payload);
+  assert.equal(Array.isArray(parsed.reviews), true, 'обзоры в пакете');
+  assert.equal(parsed.profile.params.directness, 'direct', 'профиль в пакете');
+
+  const fresh = coachHarness();
+  const first = fresh.context.importGoalsPackage(payload);
+  assert.equal(first.ok, true);
+  assert.equal(first.profile, true, 'на чистой установке профиль восстанавливается');
+  assert.equal(fresh.context.getCoachProfileData().params.directness, 'direct');
+  assert.equal(fresh.context.getGoalReviews().length, 1, 'обзор тоже приехал');
+
+  const tuned = coachHarness();
+  tuned.context.setCoachParam('directness', 'soft', 'мне так спокойнее');
+  const second = tuned.context.importGoalsPackage(payload);
+  assert.equal(second.profile, false, 'настроенный профиль не перетирается');
+  assert.equal(tuned.context.getCoachProfileData().params.directness, 'soft');
 });

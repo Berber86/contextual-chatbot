@@ -280,6 +280,7 @@ const STORAGE_KEYS = {
     // Цели (🎯): цели пользователя, самоотчёты по ним и настройки коучинга
     goals: 'chatbot_goals',
     goalCheckins: 'chatbot_goal_checkins',
+    goalReviews: 'chatbot_goal_reviews',
     coachProfile: 'chatbot_coaching_profile'
 };
 
@@ -1478,7 +1479,9 @@ function exportGoalsPackage() {
         version: GOALS_CONFIG.version,
         exportedAt: new Date().toISOString(),
         goals: getGoals(),
-        checkins: getGoalCheckinsData().checkins
+        checkins: getGoalCheckinsData().checkins,
+        reviews: getGoalReviews(),
+        profile: getCoachProfileData()
     }, null, 2);
 }
 
@@ -1517,19 +1520,50 @@ function importGoalsPackage(raw) {
         newCheckins.push(checkin);
     });
 
-    if (newGoals.length === 0 && newCheckins.length === 0) {
-        return { ok: true, imported: 0, checkins: 0, skipped: parsed.goals.length };
+    // Обзоры переносим как есть: они не меняют цели, только историю недель.
+    const reviews = getGoalReviews();
+    const reviewIds = new Set(reviews.map(review => review.id));
+    const newReviews = [];
+    (Array.isArray(parsed.reviews) ? parsed.reviews : []).forEach(review => {
+        if (!review || typeof review.id !== 'string' || reviewIds.has(review.id)) return;
+        if (review.goalId && !goalIds.has(review.goalId) && !getGoalById(review.goalId)) return;
+        reviewIds.add(review.id);
+        newReviews.push(review);
+    });
+
+    // Профиль восстанавливаем только на чистой установке: чужие настройки
+    // не должны перетирать уже настроенный профиль.
+    let profileRestored = false;
+    if (parsed.profile && typeof parsed.profile === 'object') {
+        const current = getCoachProfileData();
+        if (current.changelog.length === 0) {
+            setCoachProfileData(parsed.profile);
+            profileRestored = true;
+        }
+    }
+
+    const changed = newGoals.length > 0 || newCheckins.length > 0 || newReviews.length > 0;
+    if (!changed) {
+        return {
+            ok: true, imported: 0, checkins: 0, reviews: 0,
+            profile: profileRestored, skipped: parsed.goals.length
+        };
     }
 
     setGoalsData({ goals: goals.concat(newGoals) });
     if (newCheckins.length > 0) {
         setGoalCheckinsData({ checkins: checkins.concat(newCheckins) });
     }
+    if (newReviews.length > 0) {
+        setGoalReviewsData({ reviews: reviews.concat(newReviews) });
+    }
 
     return {
         ok: true,
         imported: newGoals.length,
         checkins: newCheckins.length,
+        reviews: newReviews.length,
+        profile: profileRestored,
         skipped: parsed.goals.length - newGoals.length
     };
 }
@@ -1598,7 +1632,8 @@ function getCoachProfileData() {
             version: COACH_CONFIG.version,
             enabled: parsed.enabled !== false,
             params: { ...base.params, ...(parsed.params || {}) },
-            changelog: Array.isArray(parsed.changelog) ? parsed.changelog.slice(-60) : []
+            changelog: Array.isArray(parsed.changelog) ? parsed.changelog.slice(-COACH_PROFILE_CONFIG.changelogCap) : [],
+            lastDriftAt: Number(parsed.lastDriftAt) || 0
         };
     } catch (e) {
         console.error('[Coach] Profile parse error:', e);
@@ -1612,7 +1647,10 @@ function setCoachProfileData(data) {
         version: COACH_CONFIG.version,
         enabled: !data || data.enabled !== false,
         params: { ...base.params, ...((data && data.params) || {}) },
-        changelog: Array.isArray(data && data.changelog) ? data.changelog.slice(-60) : []
+        changelog: Array.isArray(data && data.changelog)
+            ? data.changelog.slice(-COACH_PROFILE_CONFIG.changelogCap)
+            : [],
+        lastDriftAt: Number(data && data.lastDriftAt) || 0
     };
     localStorage.setItem(STORAGE_KEYS.coachProfile, JSON.stringify(next));
     dispatchGoalsUpdated();
@@ -1774,6 +1812,471 @@ function detectUserDistress(text) {
     if (crisis.test(value)) return { level: 'crisis', matched: value.match(crisis)[0] };
     if (distress.test(value)) return { level: 'distress', matched: value.match(distress)[0] };
     return { level: 'none', matched: '' };
+}
+
+// ==================== COACH PROFILE (профиль подстройки) ====================
+// Шесть параметров, все видимые пользователю. Меняются двумя путями:
+// вручную (тогда это решение человека) и тихим дрейфом ±1 (тогда в журнале
+// остаётся запись с датой и причиной). Прямота дрейфом не меняется никогда.
+const COACH_PROFILE_CONFIG = {
+    version: 1,
+    driftEveryDays: 7,
+    recentCheckins: 4,
+    changelogCap: 60,
+    evidenceLimit: 220,
+    params: {
+        directness: {
+            label: 'Прямота',
+            values: ['soft', 'neutral', 'direct'],
+            valueLabels: { soft: 'мягко', neutral: 'нейтрально', direct: 'прямо' },
+            valueHints: {
+                soft: 'смягчай форму, но не сам факт застоя',
+                neutral: 'говори о застое спокойно и по делу',
+                direct: 'говори прямо и коротко, без утешительных обёрток'
+            },
+            affects: 'как говорить о застое',
+            autoAdjust: false
+        },
+        structure: {
+            label: 'Структура',
+            values: ['free', 'medium', 'stepwise'],
+            valueLabels: { free: 'свободно', medium: 'средне', stepwise: 'пошагово' },
+            valueHints: {
+                free: 'держи разговор свободным, шаг предлагай редко',
+                medium: 'чередуй разговор и конкретный шаг',
+                stepwise: 'давай один конкретный шаг и не растекайся'
+            },
+            affects: 'шаг или вопрос-исследование',
+            autoAdjust: true
+        },
+        stepSize: {
+            label: 'Размер шага',
+            values: ['micro', 'normal', 'large'],
+            valueLabels: { micro: 'микро', normal: 'обычный', large: 'крупный' },
+            valueHints: {
+                micro: 'предлагай шаг на 10 минут или меньше',
+                normal: 'предлагай шаг на полчаса-час',
+                large: 'предлагай ощутимый блок работы'
+            },
+            affects: '«10 минут» против «выдели блок»',
+            autoAdjust: true
+        },
+        reflection: {
+            label: 'Глубина рефлексии',
+            values: ['action', 'medium', 'deep'],
+            valueLabels: { action: 'к действию', medium: 'средне', deep: 'сначала разобраться' },
+            valueHints: {
+                action: 'меньше рефлексии, больше конкретного действия',
+                medium: 'короткая рефлексия, потом шаг',
+                deep: 'перед шагом уместно разобраться, что мешает и почему'
+            },
+            affects: 'задавать ли «почему» перед шагом',
+            autoAdjust: true
+        },
+        contactRhythm: {
+            label: 'Ритм касаний',
+            values: ['rare', 'regular'],
+            valueLabels: { rare: 'редкие глубокие', regular: 'регулярные короткие' },
+            valueHints: {
+                rare: 'упоминай цель редко, но содержательно',
+                regular: 'короткие регулярные касания цели уместны'
+            },
+            affects: 'как часто вспоминать цель',
+            autoAdjust: true
+        },
+        feedback: {
+            label: 'Обратная связь',
+            values: ['process', 'result'],
+            valueLabels: { process: 'за процесс', result: 'за результат' },
+            valueHints: {
+                process: 'отмечай сам шаг и усилие, а не только итог',
+                result: 'отмечай результат, когда он есть'
+            },
+            affects: 'хвалить за шаг или за итог',
+            autoAdjust: true
+        }
+    }
+};
+
+function getCoachParamInfo(param) {
+    return COACH_PROFILE_CONFIG.params[param] || null;
+}
+
+function getCoachParamLabel(param, value) {
+    const info = getCoachParamInfo(param);
+    if (!info) return String(value);
+    return info.valueLabels[value] || String(value);
+}
+
+// Ручное изменение пользователем: разрешено для любого параметра, включая прямоту.
+function setCoachParam(param, value, reason) {
+    const info = getCoachParamInfo(param);
+    if (!info || !info.values.includes(value)) return { ok: false, errors: ['bad_param'] };
+
+    const data = getCoachProfileData();
+    const from = data.params[param];
+    if (from === value) return { ok: true, changed: false };
+
+    data.params[param] = value;
+    data.changelog.push({
+        at: Date.now(),
+        param,
+        from,
+        to: value,
+        reason: normalizeGoalText(reason, 200) || 'изменено пользователем',
+        source: 'user'
+    });
+    setCoachProfileData(data);
+    return { ok: true, changed: true };
+}
+
+// Тихий дрейф: только на одну ступень, только к соседнему значению,
+// только для параметров с autoAdjust. Причина обязательна.
+function applyCoachDrift(changes, reason) {
+    const data = getCoachProfileData();
+    const applied = [];
+
+    (Array.isArray(changes) ? changes : []).forEach(change => {
+        if (!change || !change.param) return;
+        const info = getCoachParamInfo(change.param);
+        if (!info || !info.autoAdjust) return;           // прямота — только вручную
+        if (!info.values.includes(change.to)) return;
+
+        const from = data.params[change.param];
+        if (change.from && change.from !== from) return;  // данные устарели
+        const fromIndex = info.values.indexOf(from);
+        const toIndex = info.values.indexOf(change.to);
+        if (fromIndex === -1 || Math.abs(toIndex - fromIndex) !== 1) return;  // только ±1
+
+        data.params[change.param] = change.to;
+        data.changelog.push({
+            at: Date.now(),
+            param: change.param,
+            from,
+            to: change.to,
+            reason: normalizeGoalText(change.reason || reason, 200) || 'подстройка по чек-инам',
+            source: 'auto'
+        });
+        applied.push({ param: change.param, from, to: change.to });
+    });
+
+    if (applied.length > 0) {
+        data.lastDriftAt = Date.now();
+        data.changelog = data.changelog.slice(-COACH_PROFILE_CONFIG.changelogCap);
+        setCoachProfileData(data);
+    }
+    return applied;
+}
+
+function getRecentCheckins(limit) {
+    return getGoalCheckins(null, limit).slice().reverse();
+}
+
+// Что данные говорят о подстройке. Возвращает предложения с причиной —
+// применяет их applyCoachDrift, а пользователь видит и то, и другое.
+function suggestCoachDrift() {
+    const profile = getCoachProfileData();
+    const suggestions = [];
+    const recent = getRecentCheckins(COACH_PROFILE_CONFIG.recentCheckins);
+    const goals = getGoals();
+
+    if (recent.length >= 2) {
+        const moved = recent.filter(checkin => checkin.state === 'moved').length;
+        const noMove = recent.length - moved;
+
+        const stepValues = ['micro', 'normal', 'large'];
+        const stepIndex = stepValues.indexOf(profile.params.stepSize);
+        if (noMove >= 2 && stepIndex > 0) {
+            suggestions.push({
+                param: 'stepSize',
+                from: profile.params.stepSize,
+                to: stepValues[stepIndex - 1],
+                reason: `за последние ${recent.length} чек-инов ${noMove} без движения — шаг меньше`
+            });
+        } else if (moved >= 3 && stepIndex >= 0 && stepIndex < stepValues.length - 1) {
+            suggestions.push({
+                param: 'stepSize',
+                from: profile.params.stepSize,
+                to: stepValues[stepIndex + 1],
+                reason: `${moved} чек-ина подряд со сдвигом — шаг можно больше`
+            });
+        }
+
+        const sorted = recent.slice().sort((a, b) => (a.at || 0) - (b.at || 0));
+        const gaps = [];
+        for (let i = 1; i < sorted.length; i++) {
+            const gap = ((sorted[i].at || 0) - (sorted[i - 1].at || 0)) / 86400000;
+            if (gap > 0) gaps.push(gap);
+        }
+        if (gaps.length > 0) {
+            const averageGap = gaps.reduce((sum, gap) => sum + gap, 0) / gaps.length;
+            const suggestedRhythm = averageGap >= 10 ? 'rare' : (averageGap <= 4 ? 'regular' : null);
+            if (suggestedRhythm && suggestedRhythm !== profile.params.contactRhythm) {
+                suggestions.push({
+                    param: 'contactRhythm',
+                    from: profile.params.contactRhythm,
+                    to: suggestedRhythm,
+                    reason: `между чек-инами в среднем ${Math.round(averageGap)} дн.`
+                });
+            }
+        }
+    }
+
+    // Соседнее значение: дрейф всегда на одну ступень, а не через две.
+    const neighbour = (param, direction) => {
+        const info = getCoachParamInfo(param);
+        const index = info.values.indexOf(profile.params[param]);
+        const next = index + direction;
+        return index === -1 || next < 0 || next >= info.values.length ? null : info.values[next];
+    };
+
+    const activeGoals = getActiveGoals();
+    if (activeGoals.length > 0) {
+        const withStep = activeGoals.filter(goal => goal.nextStep && goal.nextStep.text).length;
+        const share = withStep / activeGoals.length;
+        if (share >= 0.6) {
+            const to = neighbour('structure', 1);
+            if (to) suggestions.push({ param: 'structure', from: profile.params.structure, to, reason: `у ${withStep} из ${activeGoals.length} целей есть конкретный шаг` });
+        } else if (share <= 0.3) {
+            const to = neighbour('structure', -1);
+            if (to) suggestions.push({ param: 'structure', from: profile.params.structure, to, reason: 'у целей почти нет шагов — сначала исследование, потом шаг' });
+        }
+
+        const whyLengths = activeGoals.map(goal => String(goal.why || '').length).filter(length => length > 0);
+        if (whyLengths.length > 0) {
+            const averageWhy = whyLengths.reduce((sum, length) => sum + length, 0) / whyLengths.length;
+            if (averageWhy >= 160) {
+                const to = neighbour('reflection', 1);
+                if (to) suggestions.push({ param: 'reflection', from: profile.params.reflection, to, reason: `«зачем» у целей в среднем ${Math.round(averageWhy)} символов` });
+            } else if (averageWhy <= 60) {
+                const to = neighbour('reflection', -1);
+                if (to) suggestions.push({ param: 'reflection', from: profile.params.reflection, to, reason: `«зачем» у целей короткое (${Math.round(averageWhy)} символов)` });
+            }
+        }
+
+        const doneSteps = activeGoals.reduce((sum, goal) =>
+            sum + (Array.isArray(goal.doneSteps) ? goal.doneSteps.length : 0), 0);
+        if (doneSteps >= 2 && profile.params.feedback !== 'result') {
+            suggestions.push({ param: 'feedback', from: profile.params.feedback, to: 'result', reason: `вы отметили ${doneSteps} сделанных шагов — хвалить за итог` });
+        }
+    }
+
+    return { suggestions, applied: [] };
+}
+
+// Тихий дрейф делается не чаще раза в неделю и никогда не трогает прямоту.
+function maybeApplyCoachDrift(now) {
+    if (!isCoachingEnabled()) return [];
+    const profile = getCoachProfileData();
+    const at = now || Date.now();
+    const lastDrift = profile.lastDriftAt || 0;
+    if (lastDrift && at - lastDrift < COACH_PROFILE_CONFIG.driftEveryDays * 86400000) return [];
+    if (getGoalCheckins(null).length < 2) return [];
+
+    const { suggestions } = suggestCoachDrift();
+    if (suggestions.length === 0) return [];
+
+    return applyCoachDrift(suggestions, 'подстройка по чек-инам');
+}
+
+// Профиль в промпт: коротко и только то, что реально меняет форму речи.
+function getCoachProfileForPrompt() {
+    const params = getCoachProfileData().params;
+    const lines = Object.keys(COACH_PROFILE_CONFIG.params).map(param => {
+        const info = getCoachParamInfo(param);
+        const value = params[param];
+        const hint = (info.valueHints && info.valueHints[value]) || info.affects;
+        return `- ${info.label}: ${getCoachParamLabel(param, value)} — ${hint}`;
+    });
+    return `ПОДСТРОЙКА ПОД ЧЕЛОВЕКА (видна ему в профиле):\n${lines.join('\n')}\n`;
+}
+
+// «Почему так» для каждого параметра: что уже подстроено, а что данные предлагают.
+function getCoachParamEvidence(param) {
+    const info = getCoachParamInfo(param);
+    if (!info) return { text: '' };
+
+    const profile = getCoachProfileData();
+    const entries = profile.changelog
+        .filter(entry => entry.param === param)
+        .sort((a, b) => (b.at || 0) - (a.at || 0));
+    const last = entries[0];
+
+    if (last) {
+        return {
+            text: last.reason,
+            source: last.source,
+            at: last.at,
+            from: last.from,
+            to: last.to
+        };
+    }
+
+    const { suggestions } = suggestCoachDrift();
+    const suggestion = suggestions.find(item => item.param === param);
+    if (suggestion) {
+        return { text: suggestion.reason, source: 'suggested', to: suggestion.to };
+    }
+
+    if (!info.autoAdjust) {
+        return { text: 'значение по умолчанию: авто-подстройка этот параметр не меняет', source: 'manual' };
+    }
+    return { text: 'пока данных мало: значение по умолчанию, подстроится по чек-инам', source: 'default' };
+}
+
+// ==================== GOAL WEEKLY REVIEW (обзор недели) ====================
+const GOAL_REVIEW_CONFIG = {
+    version: 1,
+    everyDays: 7,
+    cap: 52
+};
+
+function emptyGoalReviewsData() {
+    return { version: GOAL_REVIEW_CONFIG.version, reviews: [] };
+}
+
+function getGoalReviewsData() {
+    const raw = localStorage.getItem(STORAGE_KEYS.goalReviews);
+    if (!raw) return emptyGoalReviewsData();
+
+    try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+            return { version: GOAL_REVIEW_CONFIG.version, reviews: parsed.slice(-GOAL_REVIEW_CONFIG.cap) };
+        }
+        if (parsed && Array.isArray(parsed.reviews)) {
+            return { version: GOAL_REVIEW_CONFIG.version, reviews: parsed.reviews.slice(-GOAL_REVIEW_CONFIG.cap) };
+        }
+        return emptyGoalReviewsData();
+    } catch (e) {
+        console.error('[Reviews] Parse error:', e);
+        return emptyGoalReviewsData();
+    }
+}
+
+function setGoalReviewsData(data) {
+    const reviews = Array.isArray(data && data.reviews)
+        ? data.reviews.slice(-GOAL_REVIEW_CONFIG.cap)
+        : [];
+    localStorage.setItem(STORAGE_KEYS.goalReviews, JSON.stringify({
+        version: GOAL_REVIEW_CONFIG.version,
+        reviews
+    }));
+    dispatchGoalsUpdated();
+}
+
+function getGoalReviews() {
+    return getGoalReviewsData().reviews;
+}
+
+function getWeekKey(date) {
+    const value = date instanceof Date ? new Date(date.getTime()) : new Date(date || Date.now());
+    const target = new Date(Date.UTC(value.getFullYear(), value.getMonth(), value.getDate()));
+    const day = target.getUTCDay() || 7;
+    target.setUTCDate(target.getUTCDate() + 4 - day);
+    const yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1));
+    const week = Math.ceil((((target - yearStart) / 86400000) + 1) / 7);
+    return `${target.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+}
+
+function shouldGenerateGoalReview(now) {
+    const at = now || Date.now();
+    const reviews = getGoalReviews();
+    if (reviews.length === 0) return getGoalCheckins(null).length > 0;
+    const last = reviews[reviews.length - 1];
+    return at - (last.createdAt || 0) >= GOAL_REVIEW_CONFIG.everyDays * 86400000;
+}
+
+// Обзор собирается локально из самоотчётов: без модели и без процентов.
+function buildGoalWeeklyReviews(now) {
+    const at = now || Date.now();
+    const since = at - GOAL_REVIEW_CONFIG.everyDays * 86400000;
+    const weekKey = getWeekKey(new Date(at));
+    const reviews = [];
+
+    getActiveGoals().forEach(goal => {
+        const checkins = getGoalCheckins(goal.id).filter(checkin => (checkin.at || 0) >= since);
+        if (checkins.length === 0) return;
+
+        const moved = checkins.filter(checkin => checkin.state === 'moved').length;
+        const obstacle = classifyGoalObstacle(goal.id);
+        const obstacleText = obstacle === 'external'
+            ? 'Похоже, мешало внешнее — можно сделать шаг меньше.'
+            : obstacle === 'doubt'
+                ? 'В заметках звучит сомнение в самой цели — стоит вернуться к «зачем».'
+                : 'Причина застревания пока неясна — её лучше спросить, а не угадывать.';
+
+        reviews.push({
+            id: generateId('review'),
+            weekKey,
+            goalId: goal.id,
+            title: goal.title,
+            movement: moved > 0
+                ? `Сдвинулось ${moved} раз(а) из ${checkins.length} чек-инов.`
+                : `За неделю ${checkins.length} чек-ина, сдвига не было.`,
+            obstacle: moved === checkins.length ? '' : obstacleText,
+            nextStep: goal.nextStep && goal.nextStep.text ? goal.nextStep.text : 'Следующий шаг пока не выбран.',
+            createdAt: at,
+            openedAt: 0,
+            mentionedAt: 0
+        });
+    });
+
+    return reviews;
+}
+
+function runGoalWeeklyReview(now) {
+    const at = now || Date.now();
+    if (!shouldGenerateGoalReview(at)) return { created: 0 };
+    const reviews = buildGoalWeeklyReviews(at);
+    if (reviews.length === 0) return { created: 0 };
+
+    setGoalReviewsData({ reviews: getGoalReviews().concat(reviews) });
+    return { created: reviews.length, weekKey: getWeekKey(new Date(at)) };
+}
+
+function getLatestGoalReview() {
+    const reviews = getGoalReviews();
+    return reviews.length ? reviews[reviews.length - 1] : null;
+}
+
+function getUnopenedGoalReview() {
+    const reviews = getGoalReviews();
+    for (let i = reviews.length - 1; i >= 0; i--) {
+        if (!reviews[i].openedAt && !reviews[i].mentionedAt) return reviews[i];
+    }
+    return null;
+}
+
+function updateGoalReview(id, patch) {
+    const data = getGoalReviewsData();
+    const index = data.reviews.findIndex(review => review.id === id);
+    if (index === -1) return { ok: false, errors: ['not_found'] };
+    data.reviews[index] = { ...data.reviews[index], ...patch };
+    setGoalReviewsData(data);
+    return { ok: true, review: data.reviews[index] };
+}
+
+function markGoalReviewOpened(id) {
+    return updateGoalReview(id, { openedAt: Date.now() });
+}
+
+function markGoalReviewMentioned(id) {
+    return updateGoalReview(id, { mentionedAt: Date.now() });
+}
+
+function migrateGoalReviewsData() {
+    const raw = localStorage.getItem(STORAGE_KEYS.goalReviews);
+    if (!raw) return false;
+    try {
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed) && parsed && parsed.version === GOAL_REVIEW_CONFIG.version) return false;
+        setGoalReviewsData({ reviews: getGoalReviewsData().reviews });
+        return true;
+    } catch (e) {
+        console.error('[Reviews] Migration skipped:', e);
+        return false;
+    }
 }
 
 // ==================== TOOL DEFINITIONS (FULL VERSION) ====================

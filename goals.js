@@ -50,6 +50,14 @@ function openGoalsModal() {
     goalsState = { view: 'list', selectedId: null, errors: [] };
     modal.classList.add('active');
     document.body.classList.add('modal-open');
+
+    // Обзор недели собирается локально и не чаще раза в 7 дней.
+    try {
+        if (typeof runGoalWeeklyReview === 'function') runGoalWeeklyReview();
+    } catch (error) {
+        console.error('[Goals] weekly review failed:', error.message);
+    }
+
     renderGoalsInterface();
 }
 
@@ -86,6 +94,55 @@ function goalsOpenGoal(id) {
     renderGoalsInterface();
 }
 
+function goalsStartProfile() {
+    goalsState.view = 'profile';
+    goalsState.errors = [];
+    renderGoalsInterface();
+}
+
+function goalsOpenReview() {
+    // Открыли — значит прочитали: бот больше не будет про него напоминать.
+    try {
+        const reviews = typeof getGoalReviews === 'function' ? getGoalReviews() : [];
+        const latest = reviews.length ? reviews[reviews.length - 1] : null;
+        if (latest && typeof markGoalReviewOpened === 'function') {
+            reviews
+                .filter(review => review.weekKey === latest.weekKey && !review.openedAt)
+                .forEach(review => markGoalReviewOpened(review.id));
+        }
+    } catch (error) {
+        console.error('[Goals] review open failed:', error.message);
+    }
+
+    goalsState.view = 'review';
+    goalsState.errors = [];
+    renderGoalsInterface();
+}
+
+function goalsSetParam(param, value) {
+    if (typeof setCoachParam !== 'function') return;
+
+    // Прямота меняет то, как с человеком разговаривают — только с подтверждением.
+    if (param === 'directness') {
+        const label = typeof getCoachParamLabel === 'function' ? getCoachParamLabel(param, value) : value;
+        let agreed = false;
+        try {
+            agreed = window.confirm(`Прямота меняет то, как с вами говорят. Переключить на «${label}»?`);
+        } catch (error) {
+            agreed = false;
+        }
+        if (!agreed) return;
+    }
+
+    const result = setCoachParam(param, value, 'изменено пользователем');
+    if (!result.ok) {
+        goalsNotify('Не удалось изменить параметр', 'warning');
+        return;
+    }
+    if (result.changed) goalsNotify('Профиль обновлён');
+    renderGoalsInterface();
+}
+
 function goalsStartCreate() {
     goalsState.view = 'create';
     goalsState.errors = [];
@@ -107,6 +164,16 @@ function renderGoalsInterface() {
 
     if (goalsState.view === 'create') {
         body.innerHTML = renderGoalsCreate();
+        return;
+    }
+
+    if (goalsState.view === 'profile') {
+        body.innerHTML = renderGoalsProfile();
+        return;
+    }
+
+    if (goalsState.view === 'review') {
+        body.innerHTML = renderGoalsReview();
         return;
     }
 
@@ -146,6 +213,7 @@ function renderGoalsList() {
                 <button type="button" class="goals-btn ${coachingOn ? '' : 'goals-btn-ghost'}"
                     aria-pressed="${coachingOn ? 'true' : 'false'}"
                     onclick="goalsToggleCoaching()">${coachingOn ? '🎯 В разговоре: вкл' : '🎯 В разговоре: выкл'}</button>
+                <button type="button" class="goals-btn" onclick="goalsStartProfile()">⚙️ Профиль</button>
                 <button type="button" class="goals-btn" onclick="goalsExport()">Экспорт</button>
                 <label class="goals-btn goals-btn-file">
                     Импорт
@@ -172,7 +240,7 @@ function renderGoalsList() {
         ? `<div class="goals-note">${active.length} целей в работе одновременно — обычно это не помогает двигаться. Можно поставить часть на паузу, это не поражение.</div>`
         : '';
 
-    return toolbar + coachingOffNote + activeWarn + `
+    return toolbar + coachingOffNote + activeWarn + renderGoalReviewCard() + `
         ${active.length ? `
             <div class="goals-section">
                 <div class="goals-section-title">В работе</div>
@@ -398,6 +466,175 @@ function renderGoalError(code) {
     return `<div class="goals-error">${escapeHtml(messages[code] || 'Не получилось сохранить цель.')}</div>`;
 }
 
+// ---------- Профиль подстройки ----------
+function renderCoachParamCard(param) {
+    const info = COACH_PROFILE_CONFIG.params[param];
+    if (!info) return '';
+    const profile = getCoachProfileData();
+    const current = profile.params[param];
+    const evidence = typeof getCoachParamEvidence === 'function'
+        ? getCoachParamEvidence(param)
+        : { text: '' };
+
+    const chips = info.values.map(value => `
+        <button type="button" class="goal-chip ${value === current ? 'is-active' : ''}"
+            aria-pressed="${value === current ? 'true' : 'false'}"
+            onclick="goalsSetParam('${param}','${value}')">${escapeHtml(info.valueLabels[value] || value)}</button>
+    `).join('');
+
+    const lock = info.autoAdjust
+        ? ''
+        : '<span class="coach-param-lock">меняется только вручную</span>';
+
+    return `
+        <div class="coach-param" data-param="${param}">
+            <div class="coach-param-head">
+                <span class="coach-param-label">${escapeHtml(info.label)}</span>
+                <span class="coach-param-current">${escapeHtml(info.valueLabels[current] || current)}</span>
+            </div>
+            <div class="goal-chips">${chips}</div>
+            <p class="coach-param-why"><span class="coach-param-why-label">Почему так:</span> ${escapeHtml(evidence.text || 'данных пока нет')}${lock}</p>
+            <p class="coach-param-affects">Влияет на: ${escapeHtml(info.affects)}</p>
+        </div>
+    `;
+}
+
+function renderCoachChangelog() {
+    const profile = getCoachProfileData();
+    const entries = profile.changelog.slice().reverse().slice(0, 8);
+    if (entries.length === 0) {
+        return `<p class="goals-note">Журнал пуст: профиль ещё не менялся.</p>`;
+    }
+
+    const items = entries.map(entry => {
+        const info = COACH_PROFILE_CONFIG.params[entry.param] || { label: entry.param, valueLabels: {} };
+        const from = info.valueLabels[entry.from] || entry.from;
+        const to = info.valueLabels[entry.to] || entry.to;
+        return `<li>
+            <span class="goal-history-state">${entry.source === 'auto' ? 'тихо' : 'вручную'}</span>
+            ${escapeHtml(info.label)}: ${escapeHtml(from)} → ${escapeHtml(to)}
+            <span class="goal-history-date">${escapeHtml(formatTimestamp(entry.at))}</span>
+            <span class="coach-changelog-reason">${escapeHtml(entry.reason || '')}</span>
+        </li>`;
+    }).join('');
+
+    return `<ul class="goal-history coach-changelog">${items}</ul>`;
+}
+
+function renderGoalsProfile() {
+    const coachingOn = typeof isCoachingEnabled === 'function' ? isCoachingEnabled() : true;
+    const params = Object.keys(COACH_PROFILE_CONFIG.params).map(renderCoachParamCard).join('');
+
+    return `
+        <div class="goals-detail-head">
+            <h3 class="goals-detail-title">Профиль подстройки</h3>
+            <button type="button" class="goals-btn goals-btn-ghost" onclick="goalsGoList()">← К целям</button>
+        </div>
+
+        <div class="goals-note">
+            Профиль — про форму, а не про стандарты: он меняет тон, размер шага и тип обратной связи.
+            Цели, факты и ваши решения он не трогает. Всё, что подстроилось само, записано в журнал с причиной.
+        </div>
+
+        <div class="goals-toolbar">
+            <div class="goals-stats">${coachingOn ? 'Коучинг в разговоре включён' : 'Коучинг в разговоре выключен'}</div>
+            <div class="goals-toolbar-actions">
+                <button type="button" class="goals-btn" aria-pressed="${coachingOn ? 'true' : 'false'}"
+                    onclick="goalsToggleCoaching()">${coachingOn ? '🎯 В разговоре: вкл (выключить)' : '🎯 В разговоре: выкл (включить)'}</button>
+            </div>
+        </div>
+
+        <div class="coach-params">${params}</div>
+
+        <details class="goals-archive" open>
+            <summary>Журнал изменений</summary>
+            ${renderCoachChangelog()}
+        </details>
+    `;
+}
+
+// ---------- Обзор недели ----------
+// Сводка тихих изменений за неделю: тихая подстройка не должна быть бесследной.
+function renderCoachDriftSummary() {
+    const since = Date.now() - 7 * 86400000;
+    const entries = getCoachProfileData().changelog
+        .filter(entry => entry.source === 'auto' && (entry.at || 0) >= since)
+        .sort((a, b) => (b.at || 0) - (a.at || 0));
+
+    if (entries.length === 0) {
+        return `<p class="goals-note">За неделю профиль не менялся.</p>`;
+    }
+
+    const items = entries.map(entry => {
+        const info = COACH_PROFILE_CONFIG.params[entry.param] || { label: entry.param, valueLabels: {} };
+        return `<li>
+            ${escapeHtml(info.label)}: ${escapeHtml(info.valueLabels[entry.from] || entry.from)} → ${escapeHtml(info.valueLabels[entry.to] || entry.to)}
+            <span class="coach-changelog-reason">${escapeHtml(entry.reason || '')}</span>
+        </li>`;
+    }).join('');
+
+    return `<ul class="goal-history coach-changelog">${items}</ul>`;
+}
+
+function renderGoalsReview() {
+    const reviews = getGoalReviews();
+    const latest = reviews.length ? reviews[reviews.length - 1] : null;
+    const week = latest ? reviews.filter(review => review.weekKey === latest.weekKey) : [];
+
+    if (!latest) {
+        return `
+            <div class="goals-detail-head">
+                <h3 class="goals-detail-title">Обзор недели</h3>
+                <button type="button" class="goals-btn goals-btn-ghost" onclick="goalsGoList()">← К целям</button>
+            </div>
+            <div class="goals-empty">
+                <div class="goals-empty-icon">🗓</div>
+                <h3>Обзора пока нет</h3>
+                <p>Он собирается сам раз в неделю из ваших чек-инов — как только появится, вы увидите его здесь.</p>
+            </div>
+        `;
+    }
+
+    const cards = week.map(review => `
+        <article class="review-card">
+            <h4 class="review-card-title">${escapeHtml(review.title)}</h4>
+            <p class="review-card-movement">${escapeHtml(review.movement)}</p>
+            ${review.obstacle ? `<p class="review-card-obstacle">${escapeHtml(review.obstacle)}</p>` : ''}
+            <p class="review-card-step"><span>Следующий шаг:</span> ${escapeHtml(review.nextStep)}</p>
+        </article>
+    `).join('');
+
+    return `
+        <div class="goals-detail-head">
+            <h3 class="goals-detail-title">Обзор недели</h3>
+            <button type="button" class="goals-btn goals-btn-ghost" onclick="goalsGoList()">← К целям</button>
+        </div>
+        <p class="goals-note">Обзор собран из ваших чек-инов. Это не оценка и не отчёт: только то, что вы отметили сами.</p>
+        <div class="review-list">${cards}</div>
+        <details class="goals-archive">
+            <summary>Что бот подстроил за неделю</summary>
+            ${renderCoachDriftSummary()}
+        </details>
+    `;
+}
+
+function renderGoalReviewCard() {
+    if (typeof getLatestGoalReview !== 'function') return '';
+    const review = getLatestGoalReview();
+    if (!review) return '';
+
+    return `
+        <div class="goals-review-card ${review.openedAt ? '' : 'is-new'}">
+            <div class="goals-review-top">
+                <span class="goals-review-title">Обзор недели · ${escapeHtml(review.weekKey)}</span>
+                ${review.openedAt ? '' : '<span class="goals-review-badge">новое</span>'}
+            </div>
+            <p class="goals-review-text">${escapeHtml(review.movement)}</p>
+            <button type="button" class="goals-btn" onclick="goalsOpenReview()">Посмотреть обзор</button>
+        </div>
+    `;
+}
+
 // ==================== ДЕЙСТВИЯ ====================
 function goalsInsertPhrase(fieldId, phrase) {
     const field = document.getElementById(fieldId);
@@ -442,7 +679,19 @@ function goalsQuickCheckin(goalId, state) {
         return;
     }
     goalsNotify(`Отмечено: ${GOALS_UI.stateLabels[state].toLowerCase()}`);
+    goalsAfterCheckin();
     renderGoalsInterface();
+}
+
+// После чек-ина данные могли измениться: тихо подстраиваем профиль (в журнале
+// останется запись с причиной) и раз в неделю собираем обзор.
+function goalsAfterCheckin() {
+    try {
+        if (typeof maybeApplyCoachDrift === 'function') maybeApplyCoachDrift();
+        if (typeof runGoalWeeklyReview === 'function') runGoalWeeklyReview();
+    } catch (error) {
+        console.error('[Goals] after checkin failed:', error.message);
+    }
 }
 
 function goalsCheckinFromDetail(goalId, state) {
@@ -453,6 +702,7 @@ function goalsCheckinFromDetail(goalId, state) {
         return;
     }
     goalsNotify(`Отмечено: ${GOALS_UI.stateLabels[state].toLowerCase()}`);
+    goalsAfterCheckin();
     renderGoalsInterface();
 }
 
