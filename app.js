@@ -2031,7 +2031,8 @@ function suggestCoachDrift() {
     };
 
     const activeGoals = getActiveGoals();
-    if (activeGoals.length > 0) {
+    if (activeGoals.length >= 2) {
+        // Одна цель — ещё не повод менять структуру разговора.
         const withStep = activeGoals.filter(goal => goal.nextStep && goal.nextStep.text).length;
         const share = withStep / activeGoals.length;
         if (share >= 0.6) {
@@ -2041,19 +2042,20 @@ function suggestCoachDrift() {
             const to = neighbour('structure', -1);
             if (to) suggestions.push({ param: 'structure', from: profile.params.structure, to, reason: 'у целей почти нет шагов — сначала исследование, потом шаг' });
         }
+    }
 
-        const whyLengths = activeGoals.map(goal => String(goal.why || '').length).filter(length => length > 0);
-        if (whyLengths.length > 0) {
-            const averageWhy = whyLengths.reduce((sum, length) => sum + length, 0) / whyLengths.length;
-            if (averageWhy >= 160) {
-                const to = neighbour('reflection', 1);
-                if (to) suggestions.push({ param: 'reflection', from: profile.params.reflection, to, reason: `«зачем» у целей в среднем ${Math.round(averageWhy)} символов` });
-            } else if (averageWhy <= 60) {
-                const to = neighbour('reflection', -1);
-                if (to) suggestions.push({ param: 'reflection', from: profile.params.reflection, to, reason: `«зачем» у целей короткое (${Math.round(averageWhy)} символов)` });
-            }
-        }
+    // Рефлексия растёт только по заметкам, где человек сам разбирает причины.
+    // Уменьшать её за него мы не имеем права: «меньше рефлексии» — не наш вывод.
+    const reflectiveNotes = getGoalCheckins(null, 8)
+        .filter(checkin => checkin.note &&
+            /(почему|потому что|понял|поняла|разобра|осозна|причин)/.test(normalizeGoalKey(checkin.note)))
+        .length;
+    if (reflectiveNotes >= 2) {
+        const to = neighbour('reflection', 1);
+        if (to) suggestions.push({ param: 'reflection', from: profile.params.reflection, to, reason: `${reflectiveNotes} заметки с разбором причин — сначала понять, потом шаг` });
+    }
 
+    if (activeGoals.length > 0) {
         const doneSteps = activeGoals.reduce((sum, goal) =>
             sum + (Array.isArray(goal.doneSteps) ? goal.doneSteps.length : 0), 0);
         if (doneSteps >= 2 && profile.params.feedback !== 'result') {
