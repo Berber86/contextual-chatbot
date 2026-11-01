@@ -96,6 +96,27 @@ function uiHarness() {
   return { context, values, elements, toasts, getElement };
 }
 
+// uiHarness + стаб модели: считает обращения и умеет «молчать».
+function uiHarnessWithModel(payload) {
+  const harness = uiHarness();
+  vm.runInContext(`
+    globalThis.__goalAskCalls = [];
+    globalThis.__goalAskPayload = globalThis.__goalAskPayloadSeed;
+    globalThis.callMemoryAPIWithRetry = async function (prompt) {
+      globalThis.__goalAskCalls.push(prompt);
+      if (!globalThis.__goalAskPayload) throw new Error('model_offline');
+      return globalThis.__goalAskPayload;
+    };
+  `, harness.context);
+  harness.context.__goalAskPayloadSeed = payload;
+  vm.runInContext('globalThis.__goalAskPayload = globalThis.__goalAskPayloadSeed;', harness.context);
+  harness.asks = () => vm.runInContext('__goalAskCalls.length', harness.context);
+  harness.lastPrompt = () => vm.runInContext('__goalAskCalls[__goalAskCalls.length - 1] || ""', harness.context);
+  return harness;
+}
+
+const flush = () => new Promise(resolve => setImmediate(resolve));
+
 // app.js + коучинговый блок ui.js: проверяем, что именно увидит модель.
 function coachHarness() {
   const { values, storage } = createStorage();
@@ -398,21 +419,27 @@ test('чек-ин отмечается в один тап прямо из спи
   assert.match(getElement('goalsBody').innerHTML, /Сдвинулось/, 'список обновляется сразу');
 });
 
-test('пустой экран подсказывает поставить первую цель и создание доводит до карточки', () => {
+test('пустой экран подсказывает поставить первую цель и визард доводит до карточки', () => {
   const { context, getElement } = uiHarness();
 
   context.openGoalsModal();
   assert.match(getElement('goalsBody').innerHTML, /Пока ни одной цели/);
 
   context.goalsStartCreate();
-  const form = getElement('goalsBody').innerHTML;
-  assert.match(form, /id="goalTitleInput"/);
-  assert.match(form, /id="goalWhyInput"/);
-  assert.match(form, /id="goalSuccessInput"/);
-  assert.match(form, /Мне это важно, потому что/, 'подсказка для формулировки «зачем»');
+  const step1 = getElement('goalsBody').innerHTML;
+  assert.match(step1, /Чего вы хотите/);
+  assert.doesNotMatch(step1, /id="goalWhyInput"/, 'на первом шаге спрашиваем только название');
 
   getElement('goalTitleInput').value = 'Выучить испанский';
+  context.goalsCreateNext();
+  // Вопросы ещё грузятся — человек вправе сразу писать сам.
+  context.goalsCreateManual();
+  assert.match(getElement('goalsBody').innerHTML, /Мне это важно, потому что/, 'подсказка для формулировки «зачем»');
+
   getElement('goalWhyInput').value = 'Хочу говорить с семьёй';
+  context.goalsCreateNext();
+  assert.match(getElement('goalsBody').innerHTML, /Как поймёте, что получилось/);
+
   getElement('goalSuccessInput').value = 'Держу разговор 15 минут';
   getElement('goalHorizonInput').value = 'month';
   context.goalsCreateFromForm();
@@ -420,6 +447,7 @@ test('пустой экран подсказывает поставить пер
   const goal = context.getGoals()[0];
   assert.equal(goal.title, 'Выучить испанский');
   assert.equal(goal.horizon, 'month');
+  assert.equal(goal.why, 'Хочу говорить с семьёй');
   assert.equal(read(context, 'goalsState').view, 'goal', 'после создания открывается карточка цели');
   assert.match(getElement('goalsBody').innerHTML, /Следующий шаг/);
 });
@@ -1073,9 +1101,28 @@ test('промпт требует черновик в понятном форм�
   assert.match(block, /ты ничего не меняешь/);
 });
 
-test('черновик в чате не требует вызовов модели, а кнопка живёт в модуле целей', () => {
-  assert.doesNotMatch(goals, /callAPIWithRetry|callMemoryAPIWithRetry|callAPIOpenRouter|fetch\(/,
-    'постановка шага пишется локально');
+test('черновик шага не ходит в модель: сеть в goals.js только у вопросов о «зачем»', () => {
+  const askSites = goals.match(/callMemoryAPIWithRetry\(/g) || [];
+  assert.equal(askSites.length, 1, 'единственная точка вызова модели — подбор вопросов');
+  assert.match(goals, /async function goalsLoadWhyQuestions/, 'вызов живёт в загрузчике вопросов');
+
+  const fnBody = name => {
+    const patterns = [
+      'function ' + name + '\\([^)]*\\) \\{[\\s\\S]*?\\n\\}',
+      'window\\.' + name + ' = function[^{]*\\{[\\s\\S]*?\\n\\}'
+    ];
+    for (const pattern of patterns) {
+      const found = goals.match(new RegExp(pattern));
+      if (found) return found[0];
+    }
+    assert.fail('функция ' + name + ' должна существовать');
+  };
+  for (const name of ['goalsStartStepDraft', 'goalsApplyStepDraft', 'renderGoalStepDraftButton']) {
+    assert.doesNotMatch(fnBody(name), /callMemoryAPIWithRetry|callAPIWithRetry|callAPIOpenRouter|fetch\(/,
+      'постановка шага пишется локально: ' + name);
+  }
+  assert.match(fnBody('goalsApplyStepDraft'), /setGoalNextStep\(/, 'запись делает клик, а не модель');
+
   assert.match(ui, /extractGoalStepDraft\(content\)/, 'ответ разбирается на черновик');
   assert.match(ui, /window\.renderGoalStepDraftButton/, 'кнопка рисуется под ответом');
   assert.match(ui, /addTTSButton\(element, goalDraft\.cleaned\)/, 'озвучка не читает служебную строку');
@@ -1098,4 +1145,184 @@ test('кнопка под ответом действительно открыв
   context.goalsStartStepDraft(draftId);
   context.goalsApplyStepDraft(goal.id);
   assert.equal(context.getGoalById(goal.id).nextStep.text, 'Выйти на 10 минут');
+});
+
+// ==================== СОЗДАНИЕ ЦЕЛИ: ВОПРОСЫ О «ЗАЧЕМ» ====================
+
+test('вопросы о «зачем» подбирает модель — один запрос на создаваемую цель', async () => {
+  const { context, getElement, asks, lastPrompt } = uiHarnessWithModel(JSON.stringify([
+    'Почему это важно именно сейчас?',
+    'Что изменится, если не сделать?',
+    'Для кого это?'
+  ]));
+
+  context.goalsStartCreate();
+  getElement('goalTitleInput').value = 'Собрать портфолио';
+  context.goalsCreateNext();
+  await flush();
+
+  const html = getElement('goalsBody').innerHTML;
+  assert.match(html, /Почему это важно именно сейчас\?/);
+  assert.match(html, /Что изменится, если не сделать\?/);
+  assert.match(html, /id="goalWhyAnswer0"/);
+  assert.match(html, /id="goalWhyAnswer2"/);
+  assert.equal(asks(), 1, 'на одну цель — один запрос');
+  assert.match(lastPrompt(), /Собрать портфолио/, 'вопросы подбираются под конкретную цель');
+
+  context.goalsCreateBack();
+  context.goalsCreateNext();
+  await flush();
+  assert.equal(asks(), 1, 'возврат назад не оплачивает повторный запрос');
+});
+
+test('ответы на вопросы становятся «зачем», происхождение сохраняется', async () => {
+  const { context, getElement } = uiHarnessWithModel(JSON.stringify([
+    'Почему сейчас?',
+    'Что изменится?',
+    'Для кого?'
+  ]));
+
+  context.goalsStartCreate();
+  getElement('goalTitleInput').value = 'Собрать портфолио';
+  context.goalsCreateNext();
+  await flush();
+
+  getElement('goalWhyAnswer0').value = 'Хочу сменить работу';
+  getElement('goalWhyAnswer1').value = 'Иначе останусь на месте';
+  context.goalsCreateNext();
+  assert.match(getElement('goalsBody').innerHTML, /Как поймёте, что получилось/);
+
+  getElement('goalSuccessInput').value = 'Три кейса';
+  context.goalsCreateFromForm();
+
+  const goal = context.getGoals()[0];
+  assert.equal(goal.why, 'Хочу сменить работу\n\nИначе останусь на месте', '«зачем» — это слова человека');
+  assert.equal(goal.whySource, 'coach');
+  assert.equal(goal.whyAnswers.length, 2, 'пустые ответы не сохраняются');
+  assert.equal(goal.whyAnswers[0].question, 'Почему сейчас?');
+  assert.equal(goal.whyAnswers[0].answer, 'Хочу сменить работу');
+  assert.equal(goal.whyAnswers[1].answer, 'Иначе останусь на месте');
+});
+
+test('если модель молчит, вопросы простые, но цель создаётся', async () => {
+  const { context, getElement } = uiHarnessWithModel(null);
+
+  context.goalsStartCreate();
+  getElement('goalTitleInput').value = 'Бегать по утрам';
+  context.goalsCreateNext();
+  await flush();
+
+  const html = getElement('goalsBody').innerHTML;
+  assert.match(html, /Модель сейчас не ответила/);
+  assert.match(html, /Почему это важно именно сейчас\?/, 'запасные вопросы всё равно спрашивают');
+
+  getElement('goalWhyAnswer0').value = 'Стало тяжело подниматься по лестнице';
+  context.goalsCreateNext();
+  getElement('goalSuccessInput').value = '5 км без остановки';
+  context.goalsCreateFromForm();
+
+  const goal = context.getGoals()[0];
+  assert.equal(goal.whySource, 'ladder', 'честно помечаем, что вопросы были запасные');
+  assert.equal(goal.why, 'Стало тяжело подниматься по лестнице');
+});
+
+test('«написать самому» не подменяет слова человека и помечает источник', async () => {
+  const { context, getElement } = uiHarnessWithModel(JSON.stringify(['Почему сейчас?']));
+
+  context.goalsStartCreate();
+  getElement('goalTitleInput').value = 'Выучить испанский';
+  context.goalsCreateNext();
+  context.goalsCreateManual();
+  getElement('goalWhyInput').value = 'Хочу говорить с семьёй за ужином';
+  context.goalsCreateNext();
+  getElement('goalSuccessInput').value = 'Держу разговор 15 минут';
+  context.goalsCreateFromForm();
+  await flush();
+
+  const goal = context.getGoals()[0];
+  assert.equal(goal.why, 'Хочу говорить с семьёй за ужином');
+  assert.equal(goal.whySource, 'manual');
+  assert.equal(goal.whyAnswers.length, 0);
+});
+
+test('без ответов шаг «зачем» дальше не пускает и не теряет введённое', async () => {
+  const { context, getElement } = uiHarnessWithModel(JSON.stringify(['Почему сейчас?']));
+
+  context.goalsStartCreate();
+  getElement('goalTitleInput').value = 'Цель без «зачем»';
+  context.goalsCreateNext();
+  await flush();
+
+  context.goalsCreateNext();
+  const html = getElement('goalsBody').innerHTML;
+  assert.match(html, /Без «зачем» цель превращается в пункт списка/);
+  assert.match(html, /id="goalWhyAnswer0"/, 'остались на шаге вопросов');
+  assert.equal(read(context, 'goalsState').create.step, 2);
+  assert.equal(context.getGoals().length, 0);
+});
+
+test('парсер вопросов понимает json, список и отказ модели', () => {
+  const { context } = uiHarness();
+  const parse = raw => Array.from(context.parseGoalWhyQuestions(raw));
+
+  assert.equal(
+    parse('```json\n["Почему сейчас?", "Что изменится?", "Для кого?"]\n```').join('|'),
+    'Почему сейчас?|Что изменится?|Для кого?'
+  );
+  assert.equal(
+    parse('1. Почему сейчас\n2. Что изменится\n3. Для кого').join('|'),
+    'Почему сейчас?|Что изменится?|Для кого?',
+    'знаки вопроса расставляет разбор, а не модель'
+  );
+  assert.equal(parse('Вот:\n- Почему сейчас?\n- Что изменится?').length, 2);
+  assert.equal(parse(JSON.stringify(['А?', 'А?', 'Б?', 'В?', 'Г?'])).length, 3, 'не больше трёх');
+  assert.equal(parse(JSON.stringify(['А?', 'А?', 'Б?'])).join('|'), 'А?|Б?', 'без повторов');
+  assert.equal(parse(JSON.stringify(['ж'.repeat(300)]))[0].length, 120, 'длина ограничена');
+  assert.equal(parse('').length, 0);
+  assert.equal(parse('Извини, не могу помочь.').length, 0, 'отказ модели — не вопрос');
+});
+
+test('экспорт целей сохраняет ответы на вопросы', async () => {
+  const { context, getElement } = uiHarnessWithModel(JSON.stringify(['Почему сейчас?', 'Для кого?']));
+
+  context.goalsStartCreate();
+  getElement('goalTitleInput').value = 'Собрать портфолио';
+  context.goalsCreateNext();
+  await flush();
+  getElement('goalWhyAnswer0').value = 'Хочу сменить работу';
+  context.goalsCreateNext();
+  getElement('goalSuccessInput').value = 'Три кейса';
+  context.goalsCreateFromForm();
+
+  const pack = JSON.parse(context.exportGoalsPackage());
+  assert.equal(pack.goals[0].whyAnswers.length, 1);
+  assert.equal(pack.goals[0].whyAnswers[0].question, 'Почему сейчас?');
+  assert.equal(pack.goals[0].whySource, 'coach');
+});
+
+test('карточка цели показывает, откуда взялась формулировка', () => {
+  const { context, getElement } = uiHarness();
+  const { goal } = context.createGoal({
+    title: 'Бегать',
+    success: '5 км',
+    whyAnswers: [{ question: 'Почему сейчас?', answer: 'Тяжело подниматься по лестнице' }],
+    whySource: 'coach'
+  });
+
+  context.goalsOpenGoal(goal.id);
+  const html = getElement('goalsBody').innerHTML;
+  assert.match(html, /Откуда эта формулировка/);
+  assert.match(html, /Почему сейчас\?/);
+  assert.match(html, /Тяжело подниматься по лестнице/);
+});
+
+test('старая цель без ответов открывается как раньше', () => {
+  const { context, getElement } = uiHarness();
+  const { goal } = context.createGoal({ title: 'Читать', why: 'Хочу вернуться к книгам', success: 'Прочитана книга' });
+
+  assert.equal(goal.whySource, 'manual', 'у целей из старой версии источник — ручной ввод');
+  context.goalsOpenGoal(goal.id);
+  const html = getElement('goalsBody').innerHTML;
+  assert.doesNotMatch(html, /Откуда эта формулировка/);
+  assert.match(html, /Хочу вернуться к книгам/);
 });
