@@ -1,0 +1,584 @@
+/* ==========================================================
+   GOALS MODULE (🎯)
+   Цели пользователя: список, карточка, создание, чек-ины.
+   Стили самодостаточные — не зависят от legacy.css.
+   ========================================================== */
+
+.goals-modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 1200;
+    overflow-y: auto;
+    padding: clamp(8px, 2.5vw, 28px);
+    background: rgba(4, 6, 11, 0.86);
+    backdrop-filter: blur(6px);
+}
+
+.goals-modal-overlay.active {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+}
+
+.goals-modal {
+    width: min(100%, 880px);
+    margin: clamp(8px, 3vh, 24px) 0;
+    border: 1px solid var(--ui-border-strong);
+    border-radius: 24px;
+    overflow: hidden;
+    background:
+        radial-gradient(circle at 12% 0%, rgba(244, 199, 125, 0.1), transparent 30rem),
+        rgba(23, 27, 37, 0.98);
+    box-shadow: var(--ui-shadow);
+}
+
+.goals-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--ui-border);
+    background: rgba(18, 22, 32, 0.9);
+}
+
+.goals-header-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+}
+
+.goals-header-icon {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    flex: 0 0 auto;
+    border: 1px solid rgba(244, 199, 125, 0.28);
+    border-radius: 14px;
+    background: rgba(244, 199, 125, 0.12);
+    font-size: 18px;
+}
+
+.goals-header-title h2 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 760;
+    letter-spacing: -0.02em;
+}
+
+.goals-header-title p {
+    margin: 2px 0 0;
+    color: var(--ui-muted);
+    font-size: 12px;
+}
+
+.goals-close-btn {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    flex: 0 0 auto;
+    border: 1px solid var(--ui-border);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--ui-text-2);
+    font-size: 15px;
+    cursor: pointer;
+}
+
+.goals-close-btn:hover {
+    background: rgba(255, 92, 122, 0.16);
+    color: #fff;
+}
+
+.goals-body {
+    padding: clamp(16px, 3vw, 26px);
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+/* ---------- Тулбар и кнопки ---------- */
+.goals-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.goals-stats {
+    color: var(--ui-muted);
+    font-size: 12px;
+    letter-spacing: 0.01em;
+}
+
+.goals-toolbar-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.goals-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 38px;
+    padding: 0 14px;
+    border: 1px solid var(--ui-border-strong);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--ui-text-2);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 640;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.goals-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+}
+
+.goals-btn-primary {
+    border-color: rgba(244, 199, 125, 0.38);
+    background: rgba(244, 199, 125, 0.16);
+    color: #ffe6b8;
+}
+
+.goals-btn-primary:hover {
+    background: rgba(244, 199, 125, 0.26);
+    color: #fff;
+}
+
+.goals-btn-ghost {
+    border-color: transparent;
+    background: transparent;
+    color: var(--ui-muted);
+}
+
+.goals-btn-ghost:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--ui-text-2);
+}
+
+.goals-btn-file {
+    position: relative;
+    overflow: hidden;
+}
+
+.goals-btn-file input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+}
+
+/* ---------- Общие заметки ---------- */
+.goals-note {
+    padding: 12px 14px;
+    border: 1px solid rgba(244, 199, 125, 0.28);
+    border-radius: 14px;
+    background: rgba(244, 199, 125, 0.08);
+    color: #f0dcb8;
+    font-size: 12.5px;
+    line-height: 1.55;
+}
+
+.goals-error {
+    padding: 12px 14px;
+    border: 1px solid rgba(255, 92, 122, 0.32);
+    border-radius: 14px;
+    background: rgba(255, 92, 122, 0.1);
+    color: #ffc2cd;
+    font-size: 12.5px;
+    line-height: 1.55;
+}
+
+/* ---------- Пустое состояние ---------- */
+.goals-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: clamp(24px, 6vw, 48px) 20px;
+    border: 1px dashed var(--ui-border-strong);
+    border-radius: 20px;
+    text-align: center;
+}
+
+.goals-empty-icon {
+    font-size: 30px;
+}
+
+.goals-empty h3 {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 720;
+}
+
+.goals-empty p {
+    max-width: 46ch;
+    margin: 0;
+    color: var(--ui-muted);
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.goals-empty .goals-btn {
+    margin-top: 8px;
+}
+
+/* ---------- Секции и карточки ---------- */
+.goals-section {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.goals-section-title {
+    color: var(--ui-muted);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.goals-archive summary {
+    cursor: pointer;
+    color: var(--ui-muted);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.goals-archive[open] summary {
+    margin-bottom: 10px;
+}
+
+.goals-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 12px;
+}
+
+.goal-card {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 16px;
+    border: 1px solid var(--ui-border);
+    border-radius: 18px;
+    background: rgba(18, 22, 32, 0.82);
+}
+
+.goal-card[data-status="done"],
+.goal-card[data-status="dropped"] {
+    opacity: 0.72;
+}
+
+.goal-card-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.goal-card-title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1.35;
+    letter-spacing: -0.01em;
+}
+
+.goal-status {
+    flex: 0 0 auto;
+    padding: 3px 9px;
+    border: 1px solid var(--ui-border);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--ui-muted);
+    font-size: 10.5px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.goal-card-why {
+    margin: 0;
+    color: var(--ui-muted);
+    font-size: 12.5px;
+    line-height: 1.55;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.goal-card-step {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 10px 12px;
+    border: 1px solid rgba(125, 211, 252, 0.22);
+    border-radius: 12px;
+    background: rgba(125, 211, 252, 0.07);
+}
+
+.goal-card-step-label {
+    color: #9fdcff;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.goal-card-step-text {
+    color: var(--ui-text-2);
+    font-size: 12.5px;
+    line-height: 1.45;
+}
+
+.goal-card-step-text.is-empty {
+    color: var(--ui-faint);
+    font-style: italic;
+}
+
+.goal-card-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    color: var(--ui-faint);
+    font-size: 11px;
+}
+
+.goal-flag {
+    color: #f4c77d;
+}
+
+.goal-quick {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.goal-quick-btn,
+.goals-btn.goal-quick-moved,
+.goals-btn.goal-quick-stuck,
+.goals-btn.goal-quick-no_time {
+    padding: 0 10px;
+    min-height: 34px;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 620;
+    cursor: pointer;
+    border: 1px solid var(--ui-border);
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--ui-text-2);
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.goal-quick-moved:hover,
+.goal-quick-moved.goal-history-state {
+    border-color: rgba(74, 222, 128, 0.34);
+    background: rgba(74, 222, 128, 0.14);
+    color: #b9f6ce;
+}
+
+.goal-quick-stuck:hover,
+.goal-quick-stuck.goal-history-state {
+    border-color: rgba(244, 199, 125, 0.34);
+    background: rgba(244, 199, 125, 0.14);
+    color: #ffe6b8;
+}
+
+.goal-quick-no_time:hover,
+.goal-quick-no_time.goal-history-state {
+    border-color: rgba(148, 163, 184, 0.34);
+    background: rgba(148, 163, 184, 0.14);
+    color: #dbe3ee;
+}
+
+.goal-card-actions {
+    display: flex;
+    justify-content: flex-end;
+}
+
+/* ---------- Детальная карточка ---------- */
+.goals-detail-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.goals-detail-title {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 760;
+    line-height: 1.25;
+    letter-spacing: -0.02em;
+}
+
+.goal-block {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 14px 16px;
+    border: 1px solid var(--ui-border);
+    border-radius: 16px;
+    background: rgba(18, 22, 32, 0.72);
+}
+
+.goal-block-title {
+    color: var(--ui-text-2);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+}
+
+.goal-block-hint {
+    margin: 0;
+    color: var(--ui-faint);
+    font-size: 11.5px;
+    line-height: 1.55;
+}
+
+.goal-block-text {
+    margin: 0;
+    color: var(--ui-text-2);
+    font-size: 13.5px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+}
+
+.goal-input {
+    width: 100%;
+    min-height: 40px;
+    padding: 10px 12px;
+    border: 1px solid var(--ui-border-strong);
+    border-radius: 12px;
+    background: rgba(10, 13, 20, 0.6);
+    color: var(--ui-text-2);
+    font: inherit;
+    font-size: 13px;
+}
+
+.goal-input:focus-visible {
+    outline: 2px solid rgba(244, 199, 125, 0.4);
+    outline-offset: 1px;
+}
+
+.goal-textarea {
+    min-height: 84px;
+    resize: vertical;
+    line-height: 1.55;
+}
+
+.goal-step-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.goal-step-actions,
+.goal-checkin-actions,
+.goal-block-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.goal-chips {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.goal-chip {
+    padding: 6px 10px;
+    border: 1px dashed var(--ui-border-strong);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--ui-muted);
+    font: inherit;
+    font-size: 11.5px;
+    cursor: pointer;
+}
+
+.goal-chip:hover {
+    border-style: solid;
+    color: var(--ui-text-2);
+}
+
+.goal-history-label {
+    color: var(--ui-faint);
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.goal-history {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.goal-history li {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+    color: var(--ui-text-2);
+    font-size: 12.5px;
+    line-height: 1.5;
+}
+
+.goal-history-state {
+    padding: 1px 8px;
+    border: 1px solid var(--ui-border);
+    border-radius: 999px;
+    font-size: 10.5px;
+    font-weight: 700;
+}
+
+.goal-history-date {
+    margin-left: auto;
+    color: var(--ui-faint);
+    font-size: 10.5px;
+}
+
+/* ---------- Узкие экраны ---------- */
+@media (max-width: 640px) {
+    .goals-modal {
+        border-radius: 18px;
+    }
+
+    .goals-body {
+        padding: 14px;
+        gap: 14px;
+    }
+
+    .goals-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .goals-detail-title {
+        font-size: 19px;
+    }
+
+    .goal-history-date {
+        margin-left: 0;
+    }
+}

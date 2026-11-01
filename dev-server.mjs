@@ -215,8 +215,13 @@ function readBody(req) {
 }
 
 const server = http.createServer(async (req, res) => {
-    const url = new URL(req.url, 'http://localhost');
-    const pathname = decodeURIComponent(url.pathname);
+    // Кривой URL (например «//» от прокси) не должен ронять дев-сервер.
+    let pathname;
+    try {
+        pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+    } catch {
+        return sendJson(res, 400, { error: 'Некорректный URL запроса' });
+    }
 
     if (req.method === 'OPTIONS') {
         res.writeHead(200, {

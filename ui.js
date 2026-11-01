@@ -201,6 +201,12 @@ async function runMigration() {
         });
         if (timelineChanged) setTimelineData(timelineData);
     }
+
+    // Цели: приводим формат к версионированному виду { version, goals }
+    if (typeof migrateGoalsData === 'function' && migrateGoalsData()) {
+        console.log('[System] Goals storage migrated');
+    }
+
     console.log('[System] Memory migration complete.');
 }
 
