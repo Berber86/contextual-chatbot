@@ -277,9 +277,10 @@ const STORAGE_KEYS = {
     personaNotes: 'chatbot_persona_notes',
     personaCounter: 'chatbot_persona_counter',
 
-    // Цели (🎯): цели пользователя и самоотчёты по ним
+    // Цели (🎯): цели пользователя, самоотчёты по ним и настройки коучинга
     goals: 'chatbot_goals',
-    goalCheckins: 'chatbot_goal_checkins'
+    goalCheckins: 'chatbot_goal_checkins',
+    coachProfile: 'chatbot_coaching_profile'
 };
 
 // ==================== LIMITS ====================
@@ -1457,12 +1458,13 @@ function getGoalLastCheckin(goalId) {
     return list.length ? list[list.length - 1] : null;
 }
 
-// Сколько чек-инов подряд отмечены как «застряло» — основа триажа застревания.
+// Сколько чек-инов подряд прошли без движения — основа триажа застревания.
+// «Без движения» — это и «застряло», и «не было времени»: оба значат, что шаг не сдвинулся.
 function getGoalStuckStreak(goalId) {
     const list = getGoalCheckins(goalId).slice().reverse();
     let streak = 0;
     for (const checkin of list) {
-        if (checkin.state !== 'stuck') break;
+        if (checkin.state === 'moved') break;
         streak += 1;
     }
     return streak;
@@ -1547,6 +1549,231 @@ function migrateGoalsData() {
         console.error('[Goals] Migration skipped, storage is corrupt:', e);
         return false;
     }
+}
+
+// ==================== GOAL COACHING (контекст для чата) ====================
+// Инкремент 2: бот видит цели пользователя, но не управляет ими.
+// Здесь только чтение и правила; никаких записей в цели из чата нет.
+const COACH_CONFIG = {
+    version: 1,
+    promptGoals: 3,              // сколько целей максимум попадает в промпт
+    whyLimit: 240,
+    successLimit: 160,
+    stepLimit: 160,
+    noteLimit: 160,
+    stuckStreakToTriage: 2,      // после двух чек-инов без движения — триаж
+    questionGapMessages: 2,      // сколько прошлых ответов бота смотрим перед вопросом о цели
+    staleDays: 21,
+    // как состояние чек-ина называется в промпте (без кодов и оценок)
+    stateLabels: { moved: 'сдвинулось', stuck: 'застряло', no_time: 'не было времени' }
+};
+
+// Профиль подстройки: в этом инкременте только выключатель и место под параметры.
+// Значения параметров начнут влиять на речь в инкременте 3.
+function emptyCoachProfile() {
+    return {
+        version: COACH_CONFIG.version,
+        enabled: true,
+        params: {
+            directness: 'neutral',
+            structure: 'medium',
+            stepSize: 'normal',
+            reflection: 'medium',
+            contactRhythm: 'regular',
+            feedback: 'process'
+        },
+        changelog: []
+    };
+}
+
+function getCoachProfileData() {
+    const raw = localStorage.getItem(STORAGE_KEYS.coachProfile);
+    if (!raw) return emptyCoachProfile();
+
+    try {
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object') return emptyCoachProfile();
+        const base = emptyCoachProfile();
+        return {
+            version: COACH_CONFIG.version,
+            enabled: parsed.enabled !== false,
+            params: { ...base.params, ...(parsed.params || {}) },
+            changelog: Array.isArray(parsed.changelog) ? parsed.changelog.slice(-60) : []
+        };
+    } catch (e) {
+        console.error('[Coach] Profile parse error:', e);
+        return emptyCoachProfile();
+    }
+}
+
+function setCoachProfileData(data) {
+    const base = emptyCoachProfile();
+    const next = {
+        version: COACH_CONFIG.version,
+        enabled: !data || data.enabled !== false,
+        params: { ...base.params, ...((data && data.params) || {}) },
+        changelog: Array.isArray(data && data.changelog) ? data.changelog.slice(-60) : []
+    };
+    localStorage.setItem(STORAGE_KEYS.coachProfile, JSON.stringify(next));
+    dispatchGoalsUpdated();
+    return next;
+}
+
+function isCoachingEnabled() {
+    return getCoachProfileData().enabled !== false;
+}
+
+function setCoachingEnabled(enabled) {
+    const data = getCoachProfileData();
+    data.enabled = Boolean(enabled);
+    return setCoachProfileData(data);
+}
+
+function getGoalLastCheckinAt(goalId) {
+    const last = getGoalLastCheckin(goalId);
+    return last && last.at ? last.at : null;
+}
+
+// Цели для коучинга: сначала те, где движение встало, потом самые «забытые».
+function getCoachableGoals() {
+    const goals = getActiveGoals().slice();
+    const rank = goal => {
+        const stuck = getGoalStuckStreak(goal.id);
+        return stuck >= COACH_CONFIG.stuckStreakToTriage ? 0 : 1;
+    };
+    goals.sort((a, b) => {
+        const byRank = rank(a) - rank(b);
+        if (byRank !== 0) return byRank;
+        const aLast = getGoalLastCheckinAt(a.id) || a.createdAt || 0;
+        const bLast = getGoalLastCheckinAt(b.id) || b.createdAt || 0;
+        return aLast - bLast;
+    });
+    return goals.slice(0, COACH_CONFIG.promptGoals);
+}
+
+function formatGoalDaysAgo(ts) {
+    if (!ts) return 'дата неизвестна';
+    const days = Math.floor((Date.now() - ts) / 86400000);
+    if (days <= 0) return 'сегодня';
+    if (days === 1) return 'вчера';
+    if (days < 7) return `${days} дн. назад`;
+    if (days < 30) return `${Math.floor(days / 7)} нед. назад`;
+    return `${Math.floor(days / 30)} мес. назад`;
+}
+
+// Триаж застревания из спеки: внешнее препятствие → мельче шаг,
+// сомнение в цели → вернуться к «зачем», смешанные сигналы → спросить причину.
+function classifyGoalObstacle(goalId) {
+    const notes = getGoalCheckins(goalId)
+        .filter(checkin => checkin.state !== 'moved' && checkin.note)
+        .slice(-2);
+    if (notes.length === 0) return 'mixed';
+
+    const text = notes.map(checkin => normalizeGoalKey(checkin.note)).join(' ');
+    const doubt = /(не мо[её]|не вижу смысла|нет смысла|сомнева|не хочу|бросить|не нужно|передумал|ошибся с целью)/;
+    const external = /(нет времени|не хватило времени|не успел|не успева|занят|работа|семь|реб[её]н|поездк|болел|болезн|устал|нет сил|деньги|очеред|дедлайн|дорог|созвон|переезд)/;
+
+    const hasDoubt = doubt.test(text);
+    const hasExternal = external.test(text);
+    if (hasDoubt && !hasExternal) return 'doubt';
+    if (hasExternal && !hasDoubt) return 'external';
+    return 'mixed';
+}
+
+function getGoalTriageHint(goal, allowQuestion) {
+    if (!goal) return '';
+    if (getGoalStuckStreak(goal.id) < COACH_CONFIG.stuckStreakToTriage) return '';
+
+    const obstacle = classifyGoalObstacle(goal.id);
+    const question = allowQuestion ? 'Можно один раз спросить, что именно мешает.' : 'Вопрос о цели сейчас не задавай — просто предложи, что делать.';
+
+    if (obstacle === 'external') {
+        return `Застряло на внешнем препятствии. Предложи уменьшенный шаг (например, на 10 минут), а не больший напор. ${question}`;
+    }
+    if (obstacle === 'doubt') {
+        return `В заметках звучит сомнение в самой цели. Вернись к его собственному «зачем» и спроси, продолжать ли; любой ответ нормален, снимать цель за него нельзя. ${question}`;
+    }
+    return `Причина застревания неясна — не додумывай её. ${question}`;
+}
+
+function getGoalsForPrompt() {
+    const goals = getCoachableGoals();
+    if (goals.length === 0) return '';
+
+    return goals.map((goal, index) => {
+        const parts = [];
+        parts.push(`${index + 1}. «${goal.title}»`);
+        parts.push(`   Зачем (слова пользователя): ${String(goal.why || '').slice(0, COACH_CONFIG.whyLimit)}`);
+        parts.push(`   Признак готовности: ${String(goal.success || '').slice(0, COACH_CONFIG.successLimit)}`);
+        parts.push(`   Следующий шаг: ${goal.nextStep && goal.nextStep.text
+            ? String(goal.nextStep.text).slice(0, COACH_CONFIG.stepLimit)
+            : 'пока не выбран'}`);
+
+        const last = getGoalLastCheckin(goal.id);
+        if (last) {
+            const note = last.note ? ` Заметка: «${String(last.note).slice(0, COACH_CONFIG.noteLimit)}»` : '';
+            const stateLabel = COACH_CONFIG.stateLabels[last.state] || last.state;
+            parts.push(`   Последний чек-ин: ${formatGoalDaysAgo(last.at)} — ${stateLabel}.${note}`);
+        } else {
+            parts.push(`   Чек-инов ещё не было. Цель создана ${formatGoalDaysAgo(goal.createdAt)}.`);
+        }
+
+        if (getGoalStuckStreak(goal.id) >= COACH_CONFIG.stuckStreakToTriage) {
+            parts.push('   Два чек-ина подряд без движения.');
+        }
+        const lastAt = getGoalLastCheckinAt(goal.id) || goal.createdAt;
+        const idleDays = lastAt ? Math.floor((Date.now() - lastAt) / 86400000) : 0;
+        if (idleDays >= COACH_CONFIG.staleDays) {
+            parts.push(`   Цель не трогали ${idleDays} дн. — уместна мягкая ревизия одним вопросом (важна / поменять шаг / снять), без стыда.`);
+        }
+
+        return parts.join('\n');
+    }).join('\n\n');
+}
+
+// Считается ли, что бот уже говорил про цели в этом сообщении.
+function assistantMessageDiscussedGoals(text, goals) {
+    const normalized = normalizeGoalKey(text);
+    if (!normalized) return false;
+    if (/(^| )(цель|цели|целью|целей|целям|целях)( |$)/.test(normalized)) return true;
+
+    return goals.some(goal => {
+        const words = normalizeGoalKey(goal.title).split(' ').filter(word => word.length >= 4);
+        const hits = words.filter(word => normalized.includes(word)).length;
+        if (words.length > 0 && hits >= Math.min(2, words.length)) return true;
+
+        const stepWords = normalizeGoalKey((goal.nextStep && goal.nextStep.text) || '')
+            .split(' ')
+            .filter(word => word.length >= 5);
+        const stepHits = stepWords.filter(word => normalized.includes(word)).length;
+        return stepWords.length > 0 && stepHits >= 2;
+    });
+}
+
+// Жёсткое правило: не больше одного вопроса о цели за последние сообщения бота.
+function isGoalQuestionAllowed(history) {
+    const goals = getActiveGoals();
+    if (goals.length === 0) return false;
+
+    const recentAssistant = (Array.isArray(history) ? history : [])
+        .filter(message => message && message.role === 'assistant' && typeof message.content === 'string')
+        .slice(-COACH_CONFIG.questionGapMessages);
+
+    const alreadyAsked = recentAssistant.some(message =>
+        message.content.includes('?') && assistantMessageDiscussedGoals(message.content, goals)
+    );
+    return !alreadyAsked;
+}
+
+// Кризис и тяжёлое состояние важнее любой цели: коучинг выключается в коде.
+function detectUserDistress(text) {
+    const value = String(text == null ? '' : text);
+    const crisis = /(не хочу (больше )?жить|не хочу жить дальше|покончить с собой|покончу с собой|суицид|убить себя|убью себя|резать себя|самоповрежд|kill myself|suicide|want to die|end my life|self[- ]harm)/i;
+    const distress = /(не могу больше|больше нет сил|нет сил|выгор|паническ|паник[ау]|депресс|всё бессмысленно|все бессмысленно|срываюсь|истерик|на грани|сдаюсь|невыносим|burn(ed|t)? ?out|can'?t cope|panic attack|depress)/i;
+
+    if (crisis.test(value)) return { level: 'crisis', matched: value.match(crisis)[0] };
+    if (distress.test(value)) return { level: 'distress', matched: value.match(distress)[0] };
+    return { level: 'none', matched: '' };
 }
 
 // ==================== TOOL DEFINITIONS (FULL VERSION) ====================
@@ -1730,6 +1957,33 @@ function getToolDefinitions() {
         {
             type: "function",
             function: {
+                name: "get_user_goals",
+                description: `Retrieves the goals the USER set for themselves: title, their own reason, success criterion and the one next step, plus the last self-reported check-in.
+
+⚡ CALL WHEN:
+• User talks about plans, intentions, progress, procrastination or being stuck
+• User asks what they were going to do / why they started something
+• You are about to suggest a next step
+• User mentions motivation, discipline or giving something up
+
+READ-ONLY: you can suggest a draft, but you never create, edit, pause, complete or drop a goal yourself.
+
+❌ Skip when the turn has nothing to do with the user's own goals.`,
+                parameters: {
+                    type: "object",
+                    properties: {
+                        reason: {
+                            type: "string",
+                            description: "Why you need the goals right now"
+                        }
+                    },
+                    required: ["reason"]
+                }
+            }
+        },
+        {
+            type: "function",
+            function: {
                 name: "get_knowledge_gaps",
                 description: `Retrieves "white spots" — important topics about the user that remain unknown but would significantly improve your ability to help them.
 
@@ -1783,6 +2037,8 @@ function executeTool(name, args) {
             return getSocialForPrompt() || 'No social connections yet.';
         case 'get_knowledge_gaps':
             return getGapsForPrompt() || 'No knowledge gaps identified yet.';
+        case 'get_user_goals':
+            return getGoalsForPrompt() || 'У пользователя нет активных целей.';
         default:
             return `Unknown tool: ${name}`;
     }

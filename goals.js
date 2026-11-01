@@ -61,6 +61,16 @@ function closeGoalsModal() {
     goalsState = { view: 'list', selectedId: null, errors: [] };
 }
 
+function goalsToggleCoaching() {
+    if (typeof isCoachingEnabled !== 'function' || typeof setCoachingEnabled !== 'function') return;
+    const next = !isCoachingEnabled();
+    setCoachingEnabled(next);
+    goalsNotify(next
+        ? 'Коучинг включён: цели появятся в разговоре'
+        : 'Коучинг выключен: цели остались только здесь');
+    renderGoalsInterface();
+}
+
 function goalsGoList() {
     goalsState.view = 'list';
     goalsState.selectedId = null;
@@ -126,11 +136,16 @@ function renderGoalsList() {
         archived.length ? `${archived.length} в архиве` : ''
     ].filter(Boolean).join(' · ');
 
+    const coachingOn = typeof isCoachingEnabled === 'function' ? isCoachingEnabled() : true;
+
     const toolbar = `
         <div class="goals-toolbar">
             <div class="goals-stats">${escapeHtml(stats)}</div>
             <div class="goals-toolbar-actions">
                 <button type="button" class="goals-btn goals-btn-primary" onclick="goalsStartCreate()">+ Новая цель</button>
+                <button type="button" class="goals-btn ${coachingOn ? '' : 'goals-btn-ghost'}"
+                    aria-pressed="${coachingOn ? 'true' : 'false'}"
+                    onclick="goalsToggleCoaching()">${coachingOn ? '🎯 В разговоре: вкл' : '🎯 В разговоре: выкл'}</button>
                 <button type="button" class="goals-btn" onclick="goalsExport()">Экспорт</button>
                 <label class="goals-btn goals-btn-file">
                     Импорт
@@ -151,11 +166,13 @@ function renderGoalsList() {
         `;
     }
 
+    const coachingOffNote = coachingOn ? '' : `<div class="goals-note">Коучинг в разговоре выключен: бот не использует ваши цели и не спрашивает о них. Цели продолжают жить здесь — включить можно этой же кнопкой.</div>`;
+
     const activeWarn = active.length > GOALS_CONFIG.activeWarn
         ? `<div class="goals-note">${active.length} целей в работе одновременно — обычно это не помогает двигаться. Можно поставить часть на паузу, это не поражение.</div>`
         : '';
 
-    return toolbar + activeWarn + `
+    return toolbar + coachingOffNote + activeWarn + `
         ${active.length ? `
             <div class="goals-section">
                 <div class="goals-section-title">В работе</div>
