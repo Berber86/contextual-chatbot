@@ -992,128 +992,16 @@ async function selectLanguageFromMenu(langCode) {
 
 // ==================== INSIGHT MODE ====================
 function toggleInsightMode() {
-
     insightMode = !insightMode;
-
-    try { localStorage.setItem(STORAGE_KEYS.insightModePref, insightMode ? "1" : "0"); } catch (_) {}
-
+    try { localStorage.setItem(STORAGE_KEYS.insightModePref, insightMode ? '1' : '0'); } catch (_) {}
     updateInsightModeUI();
-
-    console.log(`[Insight] Mode ${insightMode ? "ON" : "OFF"}`);
-
+    console.log(`[Insight] Mode ${insightMode ? 'ON' : 'OFF'}`);
 }
 
-
-
-function togglePersonaMode() {
-
-    const enabled = !isPersonaModeEnabled();
-
-    setPersonaMode(enabled);
-
-    updatePersonaModeUI();
-
-    console.log(`[Persona] Mode ${enabled ? "ON" : "OFF"}`);
-
+function updateInsightModeUI() {
+    const cb = document.getElementById('insightModeSettingsToggle');
+    if (cb) cb.checked = insightMode;
 }
-
-
-
-function updatePersonaModeUI() {
-
-    // Update settings toggle
-
-    const cb = document.getElementById("personaModeToggle");
-
-    if (cb) cb.checked = isPersonaModeEnabled();
-
-    
-
-    // Update prompt input in settings
-
-    const promptInput = document.getElementById("personaPrompt");
-
-    if (promptInput) {
-
-        promptInput.value = getPersonaPrompt();
-
-        promptInput.disabled = !isPersonaModeEnabled();
-
-    }
-
-    
-
-    // Update status
-
-    const status = document.getElementById("personaPromptStatus");
-
-    if (status) {
-
-        status.textContent = isPersonaModeEnabled() ? 
-
-            window.MemoryChatbot.getTranslation("personaModeEnabled") : 
-
-            window.MemoryChatbot.getTranslation("personaModeDisabled");
-
-    }
-
-    
-
-    // Update Knowledge Modal tab content if open
-
-    const currentTab = getCurrentTab();
-
-    if (currentTab === "personaPrompt") {
-
-        const textarea = document.getElementById("personaPromptTextarea");
-
-        if (textarea) {
-
-            textarea.value = getPersonaPrompt();
-
-            textarea.disabled = !isPersonaModeEnabled();
-
-        }
-
-        updateEditIndicator();
-
-    } else if (currentTab === "personaNotes") {
-
-        renderPersonaNotes();
-
-    }
-
-}
-
-
-
-function savePersonaPrompt(prompt) {
-
-    setPersonaPrompt(prompt);
-
-    updatePersonaModeUI();
-
-}
-
-
-
-function onPersonaPromptChange() {
-
-    const textarea = document.getElementById("personaPromptTextarea");
-
-    if (textarea) {
-
-        savePersonaPrompt(textarea.value);
-
-        updateEditIndicator();
-
-    }
-
-}
-
-
-
-// ==================== INSIGHT MODE ====================
 
 // ==================== ASK ME MODE ====================
 function isAskMeModeAvailable() {
@@ -1161,7 +1049,6 @@ function incrementMessageCounter() {
         updateStyleCounter();
         updateHypoCounter();
         updateGapsCounter();
-        updatePersonaCounter();
     }
     
     return counter;
@@ -1191,28 +1078,6 @@ function updateGapsCounter() {
     if (el) el.textContent = remaining;
 }
 
-function updatePersonaCounter() {
-    if (!isLocal) return;
-    const counter = getPersonaCounter();
-    const remaining = CONFIG.personaNotesUpdateInterval - (counter % CONFIG.personaNotesUpdateInterval);
-    const el = document.getElementById('personaCounter');
-    if (el) el.textContent = remaining;
-}
-
-function getPersonaCounter() {
-    return parseInt(localStorage.getItem(STORAGE_KEYS.personaCounter) || '0');
-}
-
-function incrementPersonaCounter() {
-    const counter = getPersonaCounter() + 1;
-    localStorage.setItem(STORAGE_KEYS.personaCounter, counter.toString());
-    return counter;
-}
-
-function resetPersonaCounter() {
-    localStorage.setItem(STORAGE_KEYS.personaCounter, '0');
-}
-
 function shouldUpdateStyle() {
     const counter = getMessageCounter();
     return counter > 0 && counter % CONFIG.styleUpdateInterval === 0;
@@ -1226,44 +1091,6 @@ function shouldUpdateHypotheses() {
 function shouldUpdateGaps() {
     const counter = getMessageCounter();
     return counter > 0 && counter % CONFIG.gapsUpdateInterval === 0;
-}
-
-function shouldUpdatePersonaNotes() {
-    const counter = getPersonaCounter();
-    return counter > 0 && counter % CONFIG.personaNotesUpdateInterval === 0;
-}
-
-function isPersonaModeEnabled() {
-    const v = localStorage.getItem(STORAGE_KEYS.personaMode);
-    return v === '1';
-}
-
-function setPersonaMode(enabled) {
-    localStorage.setItem(STORAGE_KEYS.personaMode, enabled ? '1' : '0');
-}
-
-function getPersonaPrompt() {
-    return localStorage.getItem(STORAGE_KEYS.personaPrompt) || '';
-}
-
-function setPersonaPrompt(prompt) {
-    localStorage.setItem(STORAGE_KEYS.personaPrompt, prompt);
-}
-
-function getPersonaNotes() {
-    const v = localStorage.getItem(STORAGE_KEYS.personaNotes);
-    return v ? JSON.parse(v) : [];
-}
-
-function setPersonaNotes(notes) {
-    localStorage.setItem(STORAGE_KEYS.personaNotes, JSON.stringify(notes));
-}
-
-function addPersonaNote(note) {
-    const notes = getPersonaNotes();
-    notes.push({ text: note, timestamp: Date.now() });
-    setPersonaNotes(notes);
-    return notes;
 }
 
 // ==================== CHAT HISTORY ====================
@@ -1380,148 +1207,74 @@ function closeKnowledgeModal() {
 }
 
 function switchTab(tab) {
-
     if (hasUnsavedChanges && tab !== currentTab) {
-
-        if (!confirm(t("confirmUnsavedSwitch"))) return;
-
+        if (!confirm(t('confirmUnsavedSwitch'))) return;
     }
-
-
 
     currentTab = tab;
-
     hasUnsavedChanges = false;
-
     selectedItemId = null;
 
-
-
-    document.querySelectorAll(".modal-tab").forEach(t => {
-
-        t.classList.toggle("active", t.dataset.tab === tab);
-
+    document.querySelectorAll('.modal-tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.tab === tab);
     });
 
-
-
-    ["styleInfo", "hypothesesInfo", "socialInfo", "gapsInfo", "factsInfo", "traitsInfo", "timelineInfo", "personaPromptInfo", "personaNotesInfo"].forEach(id => {
-
+    ['styleInfo', 'hypothesesInfo', 'socialInfo', 'gapsInfo', 'factsInfo', 'traitsInfo', 'timelineInfo'].forEach(id => {
         const el = document.getElementById(id);
-
-        if (el) el.style.display = "none";
-
+        if (el) el.style.display = 'none';
     });
 
+    const textarea = document.getElementById('knowledgeTextarea');
+    const structuredContainer = document.getElementById('structuredContainer');
+    const socialContainer = document.getElementById('socialContainer');
+    const readonlyIndicator = document.getElementById('readonlyIndicator');
 
-
-    const textarea = document.getElementById("knowledgeTextarea");
-
-    const personaPromptTextarea = document.getElementById("personaPromptTextarea");
-
-    const personaNotesContainer = document.getElementById("personaNotesContainer");
-
-    const structuredContainer = document.getElementById("structuredContainer");
-
-    const socialContainer = document.getElementById("socialContainer");
-
-    const readonlyIndicator = document.getElementById("readonlyIndicator");
-
-
-    const structuredTabs = ["facts", "traits", "timeline", "hypotheses", "gaps"];
-
+    const structuredTabs = ['facts', 'traits', 'timeline', 'hypotheses', 'gaps'];
     const isStructured = structuredTabs.includes(tab);
+    const isSocial = tab === 'social';
+    const isTextarea = tab === 'style';
 
-    const isSocial = tab === "social";
-
-    const isTextarea = tab === "style";
-
-    const isPersonaPrompt = tab === "personaPrompt";
-
-    const isPersonaNotes = tab === "personaNotes";
-
-
-
-    if (textarea) textarea.style.display = isTextarea ? "block" : "none";
-
-    if (personaPromptTextarea) personaPromptTextarea.style.display = isPersonaPrompt ? "block" : "none";
-
-    if (personaNotesContainer) personaNotesContainer.style.display = isPersonaNotes ? "block" : "none";
-
-    if (structuredContainer) structuredContainer.style.display = isStructured ? "block" : "none";
-
-    if (socialContainer) socialContainer.style.display = isSocial ? "flex" : "none";
-
-
+    if (textarea) textarea.style.display = isTextarea ? 'block' : 'none';
+    if (structuredContainer) structuredContainer.style.display = isStructured ? 'block' : 'none';
+    if (socialContainer) socialContainer.style.display = isSocial ? 'flex' : 'none';
 
     const infoId = `${tab}Info`;
-
     const infoEl = document.getElementById(infoId);
-
-    if (infoEl) infoEl.style.display = "block";
-
-
+    if (infoEl) infoEl.style.display = 'block';
 
     if (isStructured) {
-
         renderStructuredContent(tab);
-
-        if (readonlyIndicator) readonlyIndicator.style.display = "flex";
-
+        if (readonlyIndicator) readonlyIndicator.style.display = 'flex';
         updateEditButtons(false);
-
     } else if (isSocial) {
-
         renderSocialList();
-
-        if (readonlyIndicator) readonlyIndicator.style.display = "flex";
-
+        if (readonlyIndicator) readonlyIndicator.style.display = 'flex';
         updateEditButtons(false);
-
     } else if (isTextarea) {
-
-        const content = localStorage.getItem(STORAGE_KEYS.style) || "";
-
+        const content = localStorage.getItem(STORAGE_KEYS.style) || '';
         textarea.value = content;
-
         textarea.readOnly = false;
-
-        textarea.classList.remove("readonly");
-
-        if (readonlyIndicator) readonlyIndicator.style.display = "none";
-
-        updateEditButtons(true);
-
-    } else if (isPersonaPrompt) {
-
-        const content = getPersonaPrompt();
-
-        personaPromptTextarea.value = content;
-
-        personaPromptTextarea.readOnly = !isPersonaModeEnabled();
-
-        personaPromptTextarea.classList.toggle("readonly", !isPersonaModeEnabled());
-
-        if (readonlyIndicator) readonlyIndicator.style.display = isPersonaModeEnabled() ? "none" : "flex";
-
-        updateEditButtons(isPersonaModeEnabled());
-
-    } else if (isPersonaNotes) {
-
-        renderPersonaNotes();
-
-        if (readonlyIndicator) readonlyIndicator.style.display = "flex";
-
+        textarea.classList.remove('readonly');
+        originalTabContent = content;
+        if (readonlyIndicator) readonlyIndicator.style.display = 'none';
         updateEditButtons(false);
-
     }
 
-
-
-    updateEditIndicator();
-
+    updateTabPlaceholder();
 }
 
+// ==================== KNOWLEDGE UI HELPERS ====================
+function getKnowledgeTabStats(tab) {
+    if (tab === 'facts') {
+        const data = getFactsData();
+        const active = data.facts.filter(f => !f.superseded).length;
+        const archived = data.facts.filter(f => f.superseded).length;
+        return { icon: '📋', title: t('tabFacts').replace('📋', '').trim(), active, archived, detail: `${active} активных фактов${archived ? ` · ${archived} устарело` : ''}` };
+    }
+    if (tab === 'traits') {
+        const data = getTraitsData();
+        const active = data.traits.filter(t => !t.superseded).length;
+        const archived = data.traits.filter(t => t.superseded).length;
         return { icon: '🧠', title: t('tabTraits').replace('🧠', '').trim(), active, archived, detail: `${active} активных черт${archived ? ` · ${archived} устарело` : ''}` };
     }
     if (tab === 'timeline') {
@@ -1571,59 +1324,23 @@ function renderKnowledgeTabHeader(tab) {
 
 // ==================== STRUCTURED CONTENT RENDERING ====================
 function renderStructuredContent(tab) {
-
-    const container = document.getElementById("structuredContainer");
-
+    const container = document.getElementById('structuredContainer');
     if (!container) return;
 
-
-
-    let html = "";
-
-
+    let html = '';
 
     switch (tab) {
-
-        case "facts":
-
+        case 'facts':
             html = renderFactsList();
-
             break;
-
-        case "traits":
-
+        case 'traits':
             html = renderTraitsList();
-
             break;
-
-        case "timeline":
-
+        case 'timeline':
             html = renderTimelineList();
-
             break;
-
-        case "hypotheses":
-
+        case 'hypotheses':
             html = renderHypothesesList();
-
-            break;
-
-        case "gaps":
-
-            html = renderGapsList();
-
-            break;
-
-    }
-
-
-
-    const body = html || `<div class="no-data">${t("placeholderEmpty")}</div>`;
-
-    container.innerHTML = renderKnowledgeTabHeader(tab) + body;
-
-}
-
             break;
         case 'gaps':
             html = renderGapsList();
@@ -2708,148 +2425,76 @@ Respond in ${langName}. Use EXACTLY these two XML tags:
 
 // В ui.js заменяем функцию processMessageWithTwoStages
 async function processMessageWithTwoStages(userMessage) {
-
     const history = getChatHistory();
 
-
-
 // NEW: убираем только что отправленное userMessage из истории,
-
 // потому что ниже мы добавим его отдельным последним сообщением
-
 let historyWithoutCurrent = history.slice();
-
 const last = historyWithoutCurrent[historyWithoutCurrent.length - 1];
-
-if (last && last.role === "user" && (last.content || "").trim() === (userMessage || "").trim()) {
-
+if (last && last.role === 'user' && (last.content || '').trim() === (userMessage || '').trim()) {
     historyWithoutCurrent.pop();
-
 }
 
-
-
     // 1. Показываем ЭХО с прошлого раза в статус-баре (сообщение-мысль)
-
-    let echoText = localStorage.getItem("chatbot_next_echo") || "Анализирую контекст...";
-
-    if (!echoText.startsWith("💭") && !echoText.startsWith("🔍") && !echoText.startsWith("⚡")) {
-
-        echoText = "💭 " + echoText;
-
+    let echoText = localStorage.getItem('chatbot_next_echo') || 'Анализирую контекст...';
+    if (!echoText.startsWith('💭') && !echoText.startsWith('🔍') && !echoText.startsWith('⚡')) {
+        echoText = '💭 ' + echoText;
     }
-
     updateThinkingMessage(echoText);
-
     
-
     // 2. STAGE 1: Сбор контекста + "Прокашливание"
-
     const contextResult = await findRelevantContext(userMessage, historyWithoutCurrent);
-
     
-
     // 3. Обновляем статус-бар на "Прокашливание" (реакцию-мысль)
-
     if (contextResult.microOpening) {
-
         let microText = contextResult.microOpening;
-
-        if (!microText.startsWith("💭") && !microText.startsWith("🔍") && !microText.startsWith("⚡")) {
-
-            microText = "⚡ " + microText;
-
+        if (!microText.startsWith('💭') && !microText.startsWith('🔍') && !microText.startsWith('⚡')) {
+            microText = '⚡ ' + microText;
         }
-
         updateThinkingMessage(microText);
-
     }
-
     
-
     // 4. STAGE 2: Генерация основного ответа
-
     const streamingElement = createStreamingMessage();
-
-    let finalAnswer = "";
-
-    let nextEchoFound = "";
-
+    let finalAnswer = '';
+    let nextEchoFound = '';
     
-
     try {
-
         const langName = getLanguageName();
-
         const archetype = pickResponseArchetype();
-
         const qp = decideQuestionPolicyForThisTurn();
-
         
-
         // Добавляем текущее время в промпт
-
-        const currentTimeInfo = contextResult.currentTime || "Unknown";
-
+        const currentTimeInfo = contextResult.currentTime || 'Unknown';
         
-
         let contextBlock = contextResult.compressed && contextResult.fullContext ?
-
-            "\n=== ПОДГОТОВЛЕННЫЙ КОНТЕКСТ ===\n" + contextResult.fullContext + "\n" :
-            "\n=== CONTEXT ===\nFacts: " + (contextResult.facts || "(none)") + "\nTraits: " + (contextResult.traits || "(none)");
+            `\n=== ПОДГОТОВЛЕННЫЙ КОНТЕКСТ ===\n${contextResult.fullContext}\n` :
+            `\n=== CONTEXT ===\nFacts: ${contextResult.facts || '(none)'}\nTraits: ${contextResult.traits || '(none)'}`;
         
-
-        // === PERSONA EMULATION INJECTION ===
-
-        let personaBlock = "";
-
-        if (isPersonaModeEnabled()) {
-
-            const prompt = getPersonaPrompt();
-
-            const notes = getPersonaNotes();
-
-            const notesText = notes.map(n => n.text).join("\n");
-
-            personaBlock = "\n=== 🎭 PERSONA EMULATION ===\n" +
-                "Правило эмуляции: " + (prompt || "(пусто)") + "\n" +
-                "Заметки личности: " + (notesText || "(нет заметок)") + "\n" +
-                "Используй правило и заметки для имитации личности в ответе, сохраняя при этом полезность и дружелюбие.";
-
-        }
-
-        
-
         let questionRule = qp.shouldAsk ?
-            "\nМожешь закончить ОДНИМ вопросом к пользователю, если это уместно." :
-            "\nНе задавай вопросов в этом ответе.";
+            '\nМожешь закончить ОДНИМ вопросом к пользователю, если это уместно.' :
+            '\nНе задавай вопросов в этом ответе.';
         
-
+        // Заставляем вторую нейросеть выдать Эхо и Ответ в XML
         // Insight Mode: Associative vs. Archivist
-
         const insightModePrompt = insightMode 
-            ? "\n=== 💡 INSIGHT MODE: ON (Associative & Speculative) ===\n" +
-              "Your goal is to use the provided context as your \"subconscious\" — it should influence your tone, metaphors, and intuition, but NOT be a citation list.\n" +
-              "Strictly FORBIDDEN: repeating raw nouns or exact phrases from memory just to \"show off\" that you remember them (no \"parroting\").\n" +
-              "Approach: Move from literal facts → broader categories → implications → adjacent conversational angles.\n" +
-              "The user should feel you UNDERSTAND them, not that you are SEARCHING a database about them." 
-            : "\n=== 📋 ARCHIVIST MODE: ON (Careful & Explicit) ===\n" +
-              "You are a careful archivist. Use concrete facts from memory to provide explicit personalization and accurate callbacks.";
+            ? `\n=== 💡 INSIGHT MODE: ON (Associative & Speculative) ===\n` +
+              `Your goal is to use the provided context as your "subconscious" — it should influence your tone, metaphors, and intuition, but NOT be a citation list.\n` +
+              `Strictly FORBIDDEN: repeating raw nouns or exact phrases from memory just to "show off" that you remember them (no "parroting").\n` +
+              `Approach: Move from literal facts → broader categories → implications → adjacent conversational angles.\n` +
+              `The user should feel you UNDERSTAND them, not that you are SEARCHING a database about them.`
+            : `\n=== 📋 ARCHIVIST MODE: ON (Careful & Explicit) ===\n` +
+              `You are a careful archivist. Use concrete facts from memory to provide explicit personalization and accurate callbacks.`;
 
-
-
-        const dictatedNote = (typeof window !== "undefined" && window.dictatedMessageFlag)
-            ? "=== ⚠️ СООБЩЕНИЕ НАДИКТАНО ГОЛОСОМ ===\nЭто сообщение пользователя получено через распознавание речи (voice-to-text, Whisper). В нём возможны:\n- ошибки распознавания речи (неверно услышанные слова, омофоны, опечатки, перестановки);\n- слова-паразиты и повторы («ээ», «ну», «типа», «короче», «как бы»);\n- неточности в пунктуации или регистре.\nУчитывай именно СМЫСЛ сказанного, а не букву текста. Не придавай значения мелким огрехам распознавания, не исправляй их формально и не делай выводов из артефактов автоматического транскрибирования.\n\n" 
-            : "";
-
-
+        const dictatedNote = (typeof window !== 'undefined' && window.dictatedMessageFlag)
+            ? `=== ⚠️ СООБЩЕНИЕ НАДИКТАНО ГОЛОСОМ ===\nЭто сообщение пользователя получено через распознавание речи (voice-to-text, Whisper). В нём возможны:\n- ошибки распознавания речи (неверно услышанные слова, омофоны, опечатки, перестановки);\n- слова-паразиты и повторы («ээ», «ну», «типа», «короче», «как бы»);\n- неточности в пунктуации или регистре.\nУчитывай именно СМЫСЛ сказанного, а не букву текста. Не придавай значения мелким огрехам распознавания, не исправляй их формально и не делай выводов из артефактов автоматического транскрибирования.\n\n`
+            : '';
 
         const systemPrompt = `${dictatedNote}Ты — персональный ИИ-ассистент, который ЗНАЕТ этого пользователя. Отвечай на ${langName}.
 === ТЕКУЩЕЕ ВРЕМЯ ===
 ${currentTimeInfo}
 
 ${contextBlock}
-${personaBlock}
 ${insightModePrompt}
 
 === ⛔️ СТРОГИЙ ЗАПРЕТ: ВРЕМЕННОЙ КОНТЕКСТ ===
@@ -2877,90 +2522,79 @@ ${questionRule}
 (Твой основной, глубокий, персонализированный ответ пользователю. Текст без тегов внутри.)
 </answer>
 
-ВЫВОДИ ТОЛЬКО ЭТИ ДВА ТЕГА. НИКАКОГО ТЕКСТА СНАРУЖИ.";
+ВЫВОДИ ТОЛЬКО ЭТИ ДВА ТЕГА. НИКАКОГО ТЕКСТА СНАРУЖИ.`;
         
-
         const apiMessages = [
-
             { role: "system", content: systemPrompt },
-
             ...historyWithoutCurrent.slice(-8).map(msg => ({
-
-                role: msg.role === "user" ? "user" : "assistant",
-
+                role: msg.role === 'user' ? 'user' : 'assistant',
                 content: msg.content
-
             })),
-
             { role: "user", content: userMessage }
-
         ];
-
         
-
         // Стриминг: мы должны фильтровать теги "на лету", чтобы юзер видел только <answer>
-
         let isInsideAnswer = false;
-
-        let answerBuffer = "";
-
-        let fullBuffer = "";
-
+        let answerBuffer = '';
+        let fullBuffer = '';
         
-
         await streamResponse(
-
             apiMessages,
-
             (partialText) => {
-
                 fullBuffer = partialText;
-
                 
-
                 // Простая эвристика для стриминга (чтобы не показывать юзеру теги)
-
-                if (fullBuffer.includes("<answer>")) {
-
+                if (fullBuffer.includes('<answer>')) {
                     isInsideAnswer = true;
-
-                    answerBuffer = fullBuffer.split("<answer>")[1].replace("</answer>", "");
-
+                    answerBuffer = fullBuffer.split('<answer>')[1].replace('</answer>', '');
                     updateStreamingMessage(streamingElement, answerBuffer);
-
-                } else if (!fullBuffer.includes("<next_echo>")) {
-
+                } else if (!fullBuffer.includes('<next_echo>')) {
                     // Fallback: если ИИ проигнорировал XML (бывает), просто выводим текст
-
                     updateStreamingMessage(streamingElement, fullBuffer);
-
                 }
-
             },
-
             (finalText) => {
-
                 // Когда стрим завершён, вытаскиваем Эхо и финальный Ответ чисто
-
                 const echoMatch = finalText.match(/<next_echo>([\s\S]*?)<\/next_echo>/i);
-
                 const answerMatch = finalText.match(/<answer>([\s\S]*?)<\/answer>/i);
-
                 
-
-                nextEchoFound = echoMatch ? echoMatch[1].trim() : "Ищу в памяти...";
-
-                finalAnswer = answerMatch ? answerMatch[1].trim() : finalText.replace(/<[^>]+>/g, "").trim();
-
+                nextEchoFound = echoMatch ? echoMatch[1].trim() : 'Ищу в памяти...';
+                finalAnswer = answerMatch ? answerMatch[1].trim() : finalText.replace(/<[^>]+>/g, '').trim();
                 
-
                 finalizeStreamingMessage(streamingElement, finalAnswer);
-
                 
-
                 // Убираем статус-сообщение (мысль) только когда ответ полностью готов
+                removeThinkingMessage();
+                
+                // Сохраняем новое Эхо на следующий ход
+                if (nextEchoFound) {
+                    localStorage.setItem('chatbot_next_echo', nextEchoFound);
+                }
+            }
+        );
+        
+        return finalAnswer;
+        
+    } catch (error) {
+        removeThinkingMessage();
+        if (streamingElement) streamingElement.remove();
+        console.error('[Stage2] Failed:', error.message);
+        // Let sendMessage handle retry feedback and avoid counting a failed exchange.
+        throw error;
+    }
+}
 
-
+function buildSystemPromptLegacy() {
+    let prompt = CONFIG.baseSystemPrompt;
+    const langName = getLanguageName();
+    prompt += `\n\nIMPORTANT: Always respond in ${langName}.`;
+    
+    const style = localStorage.getItem(STORAGE_KEYS.style);
+    if (style && style.trim()) {
+        prompt += `\n\n=== COMMUNICATION STYLE ===\n${style}`;
+    }
+    
+    return prompt;
 }
 
 // ==================== API REQUESTS ====================
@@ -3291,42 +2925,18 @@ async function sendMessage(event) {
         updateAskMeModeUI();
         
         if (shouldUpdateStyle()) {
-
-            console.log("[Style] Updating...");
-
+            console.log('[Style] Updating...');
             runStyleUpdate();
-
         }
-
         
-
-        if (shouldUpdatePersonaNotes()) {
-
-            console.log("[Persona] Updating notes...");
-
-            runPersonaNotesUpdate();
-
-        }
-
-        
-
         if (shouldUpdateHypotheses()) {
-
-
-
-        if (shouldUpdatePersonaNotes()) {
-
-            console.log("[Persona] Updating notes...");
-
-            runPersonaNotesUpdate();
-
+            console.log('[Hypotheses] Updating...');
+            runHypothesesUpdate();
         }
-
         
-
-        if (shouldUpdateHypotheses()) {
-
-
+    } catch (error) {
+        removeThinkingMessage();
+        const streamingMsg = document.getElementById('streamingMessage');
         if (streamingMsg) streamingMsg.remove();
         
         console.error('[Chat] Error:', error);
@@ -3562,177 +3172,3 @@ window.debugApiStatus = function() {
 // ==================== INITIALIZATION COMPLETE ====================
 console.log('[ui.js] Loaded. Two-Stage Response Architecture with Hydra/OpenRouter support.');
 console.log('[ui.js] Debug commands: debugTwoStage("message"), debugMemory(), debugApiStatus()');
-
-// ==================== PERSONA EMULATION FUNCTIONS ====================
-function runPersonaNotesUpdate() {
-    const counter = incrementPersonaCounter();
-    const notes = getPersonaNotes();
-    
-    // Generate new persona note based on current context (simplified for now)
-    // In a real implementation, this would call the API with the persona prompt
-    // and the last few messages to generate a note.
-    const newNote = `Заметка о личности #${counter}: обновлено ${new Date().toLocaleDateString()}`;
-    addPersonaNote(newNote);
-    
-    console.log('[Persona] Note added:', newNote);
-    
-    // Update UI if the personaNotes tab is open
-    if (getCurrentTab() === 'personaNotes') {
-        renderPersonaNotes();
-    }
-    
-    updatePersonaCounter();
-}
-
-// Ensure renderPersonaNotes is defined
-function renderPersonaNotes() {
-    const container = document.getElementById('personaNotesContainer');
-    if (!container) return;
-
-    const notes = getPersonaNotes();
-    
-    let html = '';
-    if (notes.length === 0) {
-        html = `<div class="no-data">${window.MemoryChatbot.getTranslation('placeholderPersonaNotes')}</div>`;
-    } else {
-        html = '<div class="structured-list">';
-        notes.forEach((note, i) => {
-            const date = new Date(note.timestamp).toLocaleDateString();
-            html += `
-                <div class="structured-item">
-                    <div class="item-content">
-                        <div class="item-text">${escapeHtml(note.text)}</div>
-                        <div class="item-meta">${date}</div>
-                    </div>
-                </div>
-            `;
-        });
-        html += '</div>';
-    }
-
-    container.innerHTML = html;
-}
-
-// Ensure runStyleUpdate is defined (fallback if not found in original)
-if (typeof runStyleUpdate === 'undefined') {
-    window.runStyleUpdate = function() {
-        console.log('[Style] Updating style (placeholder)...');
-        updateStyleCounter();
-    };
-}
-
-// ==================== PERSONA EMULATION FUNCTIONS ====================
-function runPersonaNotesUpdate() {
-    const counter = incrementPersonaCounter();
-    const notes = getPersonaNotes();
-    
-    // Generate new persona note based on current context (simplified for now)
-    // In a real implementation, this would call the API with the persona prompt
-    // and the last few messages to generate a note.
-    const newNote = `Заметка о личности #${counter}: обновлено ${new Date().toLocaleDateString()}`;
-    addPersonaNote(newNote);
-    
-    console.log('[Persona] Note added:', newNote);
-    
-    // Update UI if the personaNotes tab is open
-    if (getCurrentTab() === 'personaNotes') {
-        renderPersonaNotes();
-    }
-    
-    updatePersonaCounter();
-}
-
-// Ensure renderPersonaNotes is defined
-function renderPersonaNotes() {
-    const container = document.getElementById('personaNotesContainer');
-    if (!container) return;
-
-    const notes = getPersonaNotes();
-    
-    let html = '';
-    if (notes.length === 0) {
-        html = `<div class="no-data">${window.MemoryChatbot.getTranslation('placeholderPersonaNotes')}</div>`;
-    } else {
-        html = '<div class="structured-list">';
-        notes.forEach((note, i) => {
-            const date = new Date(note.timestamp).toLocaleDateString();
-            html += `
-                <div class="structured-item">
-                    <div class="item-content">
-                        <div class="item-text">${escapeHtml(note.text)}</div>
-                        <div class="item-meta">${date}</div>
-                    </div>
-                </div>
-            `;
-        });
-        html += '</div>';
-    }
-
-    container.innerHTML = html;
-}
-
-// Ensure runStyleUpdate is defined (fallback if not found in original)
-if (typeof runStyleUpdate === 'undefined') {
-    window.runStyleUpdate = function() {
-        console.log('[Style] Updating style (placeholder)...');
-        updateStyleCounter();
-    };
-}
-
-// ==================== PERSONA EMULATION FUNCTIONS ====================
-function runPersonaNotesUpdate() {
-    const counter = incrementPersonaCounter();
-    const notes = getPersonaNotes();
-    
-    // Generate new persona note based on current context (simplified for now)
-    // In a real implementation, this would call the API with the persona prompt
-    // and the last few messages to generate a note.
-    const newNote = `Заметка о личности #${counter}: обновлено ${new Date().toLocaleDateString()}`;
-    addPersonaNote(newNote);
-    
-    console.log('[Persona] Note added:', newNote);
-    
-    // Update UI if the personaNotes tab is open
-    if (getCurrentTab() === 'personaNotes') {
-        renderPersonaNotes();
-    }
-    
-    updatePersonaCounter();
-}
-
-// Ensure renderPersonaNotes is defined
-function renderPersonaNotes() {
-    const container = document.getElementById('personaNotesContainer');
-    if (!container) return;
-
-    const notes = getPersonaNotes();
-    
-    let html = '';
-    if (notes.length === 0) {
-        html = `<div class="no-data">${window.MemoryChatbot.getTranslation('placeholderPersonaNotes')}</div>`;
-    } else {
-        html = '<div class="structured-list">';
-        notes.forEach((note, i) => {
-            const date = new Date(note.timestamp).toLocaleDateString();
-            html += `
-                <div class="structured-item">
-                    <div class="item-content">
-                        <div class="item-text">${escapeHtml(note.text)}</div>
-                        <div class="item-meta">${date}</div>
-                    </div>
-                </div>
-            `;
-        });
-        html += '</div>';
-    }
-
-    container.innerHTML = html;
-}
-
-// Ensure runStyleUpdate is defined (fallback if not found in original)
-if (typeof runStyleUpdate === 'undefined') {
-    window.runStyleUpdate = function() {
-        console.log('[Style] Updating style (placeholder)...');
-        updateStyleCounter();
-    };
-}
