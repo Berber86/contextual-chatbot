@@ -436,3 +436,53 @@ test('в вопрос jev попадают примеры содержимого
   // Промпт остаётся компактным: одна тема — одна короткая строка.
   assert.ok(questions[0].instructions.length < 600, 'инструкция вопроса не разрастается');
 });
+
+test('вкладка показывает темы, а по клику — записи внутри', () => {
+  const { storage } = createStorage({});
+  const container = { innerHTML: '' };
+  const context = vm.createContext({
+    console: { log() {}, warn() {}, error() {} },
+    localStorage: storage,
+    window: { dispatchEvent() {}, location: { hostname: 'localhost' } },
+    document: {
+      getElementById: id => (id === 'structuredContainer' ? container : null),
+      querySelectorAll: () => [],
+      createElement: () => ({ textContent: '', innerHTML: '' }),
+    },
+    navigator: { language: 'ru' },
+    Event, AbortController, setTimeout, clearTimeout, JSON, Number, TextDecoder, TextEncoder,
+    // escapeHtml объявлен ниже вкладки — подставляем эквивалент, чтобы не тянуть весь файл.
+    escapeHtml: text => String(text == null ? '' : text)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'),
+  });
+  vm.runInContext(app, context);
+  vm.runInContext(
+    ui.slice(ui.indexOf('// ==================== MODAL WINDOW ===================='),
+      ui.indexOf('// ==================== STRUCTURED CONTENT RENDERING ====================')),
+    context
+  );
+
+  const work = run(context, 'ensureCloud("Работа", "офис и коллектив")');
+  run(context, 'ensureCloud("Собака Бобик")');
+  run(context, `setFactsData({ facts: [
+    { id: 'f1', text: 'Работает в Сбере', confidence: 'high', superseded: false, cloud: '${work.id}' },
+    { id: 'f2', text: 'Руководит командой', confidence: 'high', superseded: false, cloud: '${work.id}' },
+    { id: 'f3', text: 'Гуляет с Бобиком', confidence: 'high', superseded: false, cloud: '${run(context, 'getClouds().find(c => c.name === "Собака Бобик").id')}' }
+  ] })`);
+
+  run(context, 'renderCloudsTab()');
+  assert.match(container.innerHTML, /Облака памяти/);
+  assert.match(container.innerHTML, /Работа/);
+  assert.match(container.innerHTML, /офис и коллектив/);
+  assert.match(container.innerHTML, /2 записи/);
+  assert.equal(container.innerHTML.includes('Работает в Сбере'), false, 'по умолчанию записи свёрнуты');
+  assert.match(container.innerHTML, /Разобрать сейчас/);
+
+  run(context, `toggleCloudDetails('${work.id}')`);
+  assert.match(container.innerHTML, /Работает в Сбере/);
+  assert.match(container.innerHTML, /Руководит командой/);
+  assert.equal(container.innerHTML.includes('Гуляет с Бобиком'), false, 'чужие темы не раскрываются');
+
+  run(context, `toggleCloudDetails('${work.id}')`);
+  assert.equal(container.innerHTML.includes('Работает в Сбере'), false, 'повторный клик сворачивает');
+});

@@ -9547,13 +9547,74 @@ body.server-mode .input-form {
 
 .cloud-row {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 10px 14px;
+    flex-direction: column;
     border-radius: 12px;
     background: var(--ui-surface, rgba(255, 255, 255, 0.04));
     border: 1px solid var(--ui-border, rgba(255, 255, 255, 0.1));
+    overflow: hidden;
+}
+
+.cloud-row.open {
+    border-color: var(--ui-border-strong, rgba(255, 255, 255, 0.18));
+}
+
+.cloud-row-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 10px 14px;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.cloud-chevron {
+    flex: none;
+    width: 12px;
+    color: var(--ui-muted);
+    font-size: 11px;
+    line-height: 1;
+}
+
+.cloud-items {
+    padding: 0 14px 12px 36px;
+}
+
+.cloud-items-empty {
+    margin: 0;
+    color: var(--ui-muted);
+    font-size: 12.5px;
+}
+
+.cloud-item-group {
+    margin-bottom: 8px;
+}
+
+.cloud-item-group:last-child {
+    margin-bottom: 0;
+}
+
+.cloud-item-title {
+    display: block;
+    color: var(--ui-muted);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.cloud-item-group ul {
+    margin: 4px 0 0;
+    padding-left: 16px;
+}
+
+.cloud-item-group li {
+    color: var(--ui-text);
+    font-size: 13px;
+    line-height: 1.45;
 }
 
 .cloud-row-main {

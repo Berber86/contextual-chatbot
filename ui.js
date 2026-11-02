@@ -1460,14 +1460,22 @@ function renderCloudsTab() {
     const lastRun = data.lastConsolidatedAt ? formatCloudDate(data.lastConsolidatedAt) : 'ещё не было';
 
     const rows = clouds.length
-        ? clouds.map(cloud => `
-            <div class="cloud-row">
-                <div class="cloud-row-main">
-                    <span class="cloud-row-name">${escapeHtml(cloud.name)}</span>
-                    ${cloud.summary ? `<span class="cloud-row-summary">${escapeHtml(cloud.summary)}</span>` : ''}
-                </div>
-                <span class="cloud-row-count">${cloud.total} ${cloudWord(cloud.total)}</span>
-            </div>`).join('')
+        ? clouds.map(cloud => {
+            const open = expandedClouds.has(cloud.id);
+            return `
+            <div class="cloud-row${open ? ' open' : ''}">
+                <button class="cloud-row-head" type="button" aria-expanded="${open ? 'true' : 'false'}"
+                        onclick="toggleCloudDetails('${escapeHtml(cloud.id)}')">
+                    <span class="cloud-chevron" aria-hidden="true">${open ? '▾' : '▸'}</span>
+                    <span class="cloud-row-main">
+                        <span class="cloud-row-name">${escapeHtml(cloud.name)}</span>
+                        ${cloud.summary ? `<span class="cloud-row-summary">${escapeHtml(cloud.summary)}</span>` : ''}
+                    </span>
+                    <span class="cloud-row-count">${cloud.total} ${cloudWord(cloud.total)}</span>
+                </button>
+                ${open ? renderCloudContents(cloud.id) : ''}
+            </div>`;
+        }).join('')
         : `<p class="cloud-empty">Тем пока нет. Они появятся сами: после нескольких сообщений фоновая стадия разберёт память по темам.</p>`;
 
     container.innerHTML = `${header}
@@ -1475,11 +1483,42 @@ function renderCloudsTab() {
             <input type="checkbox" ${enabled ? 'checked' : ''} onchange="toggleCloudMemoryFromInput(this.checked)">
             <span>Джев выбирает темы памяти перед ответом</span>
         </label>
-        <p class="cloud-hint">Темы, их названия и содержимое ведёт фоновая стадия разбора: она раскладывает новые записи, сливает дубли и переписывает описания. Здесь можно только посмотреть результат или попросить разобрать сейчас. Последний разбор: ${escapeHtml(lastRun)}.</p>
+        <p class="cloud-hint">Нажмите на тему, чтобы увидеть, какие записи в неё попали. Названия, описания и раскладку ведёт фоновая стадия разбора: она раскладывает новые записи, сливает дубли и переписывает описания. Здесь можно только посмотреть результат или попросить разобрать сейчас. Последний разбор: ${escapeHtml(lastRun)}.</p>
         <div class="cloud-actions">
             <button class="cloud-run-button" type="button" onclick="requestCloudConsolidation(this)">Разобрать сейчас</button>
         </div>
         <div class="cloud-list">${rows}</div>`;
+}
+
+// Раскрытые темы. Только состояние просмотра — на данные не влияет.
+const expandedClouds = new Set();
+
+function renderCloudContents(cloudId) {
+    const contents = getCloudContents(cloudId);
+    const groups = [
+        ['Факты', contents.facts],
+        ['Черты', contents.traits],
+        ['Хронология', contents.events],
+        ['Люди', contents.contacts],
+        ['Гипотезы', contents.hypotheses]
+    ].filter(group => group[1].length);
+
+    if (!groups.length) {
+        return `<div class="cloud-items"><p class="cloud-items-empty">В теме пока нет записей.</p></div>`;
+    }
+
+    return `<div class="cloud-items">${groups.map(([title, items]) => `
+        <div class="cloud-item-group">
+            <span class="cloud-item-title">${escapeHtml(title)}</span>
+            <ul>${items.map(text => `<li>${escapeHtml(String(text || ''))}</li>`).join('')}</ul>
+        </div>`).join('')}</div>`;
+}
+
+function toggleCloudDetails(cloudId) {
+    if (!cloudId) return;
+    if (expandedClouds.has(cloudId)) expandedClouds.delete(cloudId);
+    else expandedClouds.add(cloudId);
+    renderCloudsTab();
 }
 
 function formatCloudDate(timestamp) {

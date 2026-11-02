@@ -602,6 +602,24 @@ function getCloudsForSelection() {
     }).filter(cloud => cloud.total > 0 || cloud.id === CLOUD_CONFIG.miscId);
 }
 
+// Содержимое одного облака для просмотра в интерфейсе. Только чтение:
+// раскладку меняет фоновая стадия разбора, а не эта функция.
+function getCloudContents(cloudId) {
+    if (!cloudId) return { facts: [], traits: [], events: [], contacts: [], hypotheses: [] };
+    const pick = (items, render) => items
+        .filter(item => item && item.cloud === cloudId)
+        .slice(0, CLOUD_CONFIG.itemsPerCategory)
+        .map(render);
+
+    return {
+        facts: pick(getFactsData().facts.filter(f => !f.superseded), f => f.text),
+        traits: pick(getTraitsData().traits.filter(t => !t.superseded), t => t.text),
+        events: pick(getTimelineData().events.filter(e => !e.superseded), e => e.text),
+        contacts: pick(getSocialData().contacts, c => [c.name, c.relation].filter(Boolean).join(' — ')),
+        hypotheses: pick(getHypothesesData().hypotheses, h => h.text)
+    };
+}
+
 function cloudItemsText(items, render) {
     const slice = items.slice(0, CLOUD_CONFIG.itemsPerCategory);
     if (!slice.length) return '';
