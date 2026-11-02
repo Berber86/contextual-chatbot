@@ -312,6 +312,93 @@ async function resolveTurnPlan(message, history, options) {
     }
 }
 
+// ==================== ВЫБОР ОБЛАКОВ ПАМЯТИ ====================
+// Облако — тема (работа, хобби, здоровье, собака). Одна реплика может задевать
+// несколько тем, поэтому спрашиваем noul по каждому облаку: поднимать или нет.
+
+const CLOUD_SELECT_THRESHOLD = 0.45;
+const CLOUD_MAX_SELECTED = 4;
+
+function buildCloudQuestions(clouds) {
+    const list = (Array.isArray(clouds) ? clouds : [])
+        .filter(cloud => cloud && cloud.id && cloud.name)
+        .slice(0, SYSTEMONE_CONFIG.maxQuestions);
+    const questions = {};
+    for (const cloud of list) {
+        const counts = cloud.counts || {};
+        const contents = [
+            counts.facts ? `фактов ${counts.facts}` : '',
+            counts.traits ? `черт ${counts.traits}` : '',
+            counts.events ? `событий ${counts.events}` : '',
+            counts.contacts ? `людей ${counts.contacts}` : '',
+            counts.hypotheses ? `гипотез ${counts.hypotheses}` : ''
+        ].filter(Boolean).join(', ');
+        const samples = Array.isArray(cloud.samples) ? cloud.samples.filter(Boolean).slice(0, 3) : [];
+        const description = [
+            cloud.name,
+            cloud.summary,
+            samples.length ? `например: ${samples.join('; ')}` : '',
+            contents ? `(${contents})` : ''
+        ].filter(Boolean).join(' — ');
+        questions[cloudQuestionName(cloud.id)] = {
+            type: 'noul',
+            instructions: `Поднять облако памяти «${description}», чтобы ответить на сообщение? ` +
+                'Отвечай «да», только если тема облака действительно нужна для этого ответа, ' +
+                'а не просто упомянута одним словом.',
+            criteria: {
+                true: 'Без этого облака ответ будет хуже или потеряет важный контекст',
+                false: 'Тема не нужна: ответ можно дать без этих воспоминаний'
+            }
+        };
+    }
+    return questions;
+}
+
+// Имя вопроса — валидный ключ: id облака может содержать что угодно, поэтому хешируем.
+function cloudQuestionName(cloudId) {
+    let hash = 0;
+    for (let index = 0; index < String(cloudId).length; index++) {
+        hash = (hash * 31 + String(cloudId).charCodeAt(index)) | 0;
+    }
+    return 'cloud_' + Math.abs(hash);
+}
+
+async function selectCloudsForTurn(message, clouds, history, options) {
+    const clean = String(message == null ? '' : message).trim();
+    const list = (Array.isArray(clouds) ? clouds : []).filter(cloud => cloud && cloud.id && cloud.name);
+    if (!clean || list.length < 2) return null;
+
+    const state = {
+        message: clean.slice(0, 2000),
+        recent: (Array.isArray(history) ? history : [])
+            .filter(item => item && (item.role === 'user' || item.role === 'assistant'))
+            .slice(-4)
+            .map(item => ({ role: item.role, text: String(item.content || '').slice(0, 300) }))
+    };
+
+    const result = await systemOne(state, buildCloudQuestions(list), options || {});
+    const answers = result.answers || {};
+
+    const picked = [];
+    const probabilities = {};
+    for (const cloud of list) {
+        const answer = answers[cloudQuestionName(cloud.id)];
+        const probability = clampProbability(answer && answer.noul);
+        if (probability === null) continue;
+        probabilities[cloud.id] = probability;
+        if (probability >= CLOUD_SELECT_THRESHOLD) {
+            picked.push({ id: cloud.id, name: cloud.name, probability });
+        }
+    }
+
+    picked.sort((a, b) => b.probability - a.probability);
+    return {
+        clouds: picked.slice(0, CLOUD_MAX_SELECTED),
+        probabilities,
+        model: result.model
+    };
+}
+
 // Совместимость: только маршрут по сложности (с контекстом решения).
 async function resolveMessageRoute(message, history, options) {
     const plan = await resolveTurnPlan(message, history, options);

@@ -249,6 +249,28 @@ function handleSystemOne(req, res, body) {
         ask_question: { type: 'noul', noul: /[?？]/.test(message) ? 0.62 : 0.24 }
     };
 
+    // Вопросы, которых демо не знает (например, облака памяти cloud_<hash>),
+    // отвечаем по пересечению слов: иначе выбор тем в превью всегда пустой.
+    const questions = (body && body.questions) || {};
+    const stems = text => new Set((text.toLowerCase().match(/[a-zа-яё]{4,}/gi) || []).map(word => word.slice(0, 4)));
+    const messageStems = stems(message);
+    for (const [name, question] of Object.entries(questions)) {
+        if (name === 'complexity' || name === 'needs_memory' || name === 'archetype' || name === 'ask_question') continue;
+        const text = String((question && (question.instructions || question.criteria)) || name);
+        const overlap = Array.from(stems(text)).some(stem => messageStems.has(stem));
+        // Без совпадения слов всё равно даём стабильную псевдо-вероятность:
+        // иначе в превью не поднимается ни одна тема и выбор не видно.
+        const hash = Array.from(name).reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
+        const fallback = Number((0.15 + (hash % 46) / 100).toFixed(2));
+        if (!question || question.type === 'noul') {
+            answers[name] = { type: 'noul', noul: overlap ? 0.71 : fallback, confidence: 0.6 };
+        } else if (question.type === 'choice' && Array.isArray(question.criteria)) {
+            const first = question.criteria[0];
+            answers[name] = { type: 'choice', choice: first, confidence: 0.55, probabilities: { [first]: 0.55 } };
+        }
+    }
+
+
     return sendJson(res, 200, {
         model: (body && body.model) || 'jev-1.14',
         answers,

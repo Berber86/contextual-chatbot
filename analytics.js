@@ -120,12 +120,13 @@ Extract concrete, specific facts about the user:
 • "medium" — implied but fairly certain
 • "low" — uncertain, might be misinterpreted
 
-=== RESPONSE FORMAT ===
+${cloudPromptBlock()}=== RESPONSE FORMAT ===
 Return ONLY valid JSON, no markdown:
 {
     "facts": [
         {
             "text": "Clear, specific fact statement",
+            "cloud": "тема памяти",
             "evidence": ["exact quote from USER's message"],
             "confidence": "low|medium|high",
             "updatesFactIndex": null,
@@ -153,6 +154,124 @@ ${langInstruction}`;
     } catch (error) {
         console.error('[FACTS] Extraction failed:', error.message);
     }
+}
+
+// Облака памяти: подсказка для промптов извлечения. Если слой облаков недоступен
+// (старый набор файлов), промпты остаются ровно такими, как раньше.
+function cloudPromptBlock() {
+    if (typeof describeCloudsForPrompt !== 'function') return '';
+    return `\n=== MEMORY CLOUDS (темы памяти) ===\n${describeCloudsForPrompt()}\n\n` +
+        'Для каждого элемента укажи поле "cloud" — короткое имя темы (1–3 слова по-русски).\n' +
+        'Бери существующее облако из списка, если тема подходит. Новое имя давай только когда тема\n' +
+        'действительно новая, и не больше одного нового облака за раз.\n';
+}
+
+// ==================== ОБЛАКА: ПЕРВИЧНАЯ РАЗБИВКА ====================
+// У существующих пользователей память накоплена без облаков. Один раз (фоном, не в чате)
+// просим модель разложить её по темам. Неудача не страшна: всё уходит в «Разное»,
+// и бот продолжает работать как раньше, пока извлечение не разложит новые записи.
+
+function collectCloudBootstrapItems() {
+    const items = [];
+    const facts = getFactsData().facts.filter(f => !f.superseded && !f.cloud);
+    const traits = getTraitsData().traits.filter(t => !t.superseded && !t.cloud);
+    const events = getTimelineData().events.filter(e => !e.superseded && !e.cloud);
+    const contacts = getSocialData().contacts.filter(c => !c.cloud);
+    const hypotheses = getHypothesesData().hypotheses.filter(h => !h.cloud);
+
+    facts.slice(0, 30).forEach((item, index) => items.push({ kind: 'fact', index: index + 1, text: item.text }));
+    traits.slice(0, 15).forEach((item, index) => items.push({ kind: 'trait', index: index + 1, text: item.text }));
+    events.slice(0, 15).forEach((item, index) => items.push({ kind: 'event', index: index + 1, text: item.text }));
+    contacts.slice(0, 10).forEach((item, index) => items.push({ kind: 'contact', index: index + 1, text: item.name }));
+    hypotheses.slice(0, 8).forEach((item, index) => items.push({ kind: 'hypothesis', index: index + 1, text: item.text }));
+
+    return items;
+}
+
+function bootstrapCloudsFromMemory() {
+    if (typeof areCloudsBootstrapped !== 'function' || areCloudsBootstrapped()) return;
+    if (typeof ensureCloud !== 'function' || typeof markCloudsBootstrapped !== 'function') return;
+
+    const items = collectCloudBootstrapItems();
+    if (items.length < 4) {
+        markCloudsBootstrapped();
+        return;
+    }
+
+    const list = items.map(item => `${item.kind}#${item.index}: ${item.text}`).join('\n');
+    const prompt = `Ты раскладываешь память о человеке по темам-облакам.
+
+=== ЭЛЕМЕНТЫ ПАМЯТИ ===
+${list}
+
+=== ЗАДАЧА ===
+Собери из них 3–8 осмысленных тем (облаков): например «Работа», «Здоровье», «Собака», «Хобби», «Поездки».
+Правила:
+1. Темы называй коротко, по-русски, 1–2 словами.
+2. Каждый элемент попадает ровно в одну тему.
+3. Темы должны отражать жизнь человека, а не типы записей: «Работа» — да, «Факты» — нет.
+4. Если элемент ни к чему не относится — отправь его в тему «Разное».
+
+=== ФОРМАТ ОТВЕТА ===
+Только JSON, без markdown:
+{
+    "clouds": [{"name": "Работа", "summary": "чем занимается, коллектив, планы"}],
+    "assignments": [{"kind": "fact", "index": 1, "cloud": "Работа"}]
+}
+
+Если совсем нечего раскладывать: {"clouds": [], "assignments": []}`;
+
+    return callMemoryAPIWithRetry(prompt, 1)
+        .then(raw => {
+            const parsed = parseJSON(raw);
+            const clouds = parsed && Array.isArray(parsed.clouds) ? parsed.clouds : [];
+            const assignments = parsed && Array.isArray(parsed.assignments) ? parsed.assignments : [];
+
+            clouds.forEach(cloud => {
+                if (cloud && cloud.name) ensureCloud(cloud.name, cloud.summary || '');
+            });
+
+            // Читаем данные один раз и пишем обратно ровно эти же объекты:
+            // иначе присвоенные облака потеряются при повторном чтении из localStorage.
+            const factsData = getFactsData();
+            const traitsData = getTraitsData();
+            const eventsData = getTimelineData();
+            const socialData = getSocialData();
+            const hypothesesData = getHypothesesData();
+
+            const buckets = {
+                fact: factsData.facts.filter(f => !f.superseded && !f.cloud),
+                trait: traitsData.traits.filter(t => !t.superseded && !t.cloud),
+                event: eventsData.events.filter(e => !e.superseded && !e.cloud),
+                contact: socialData.contacts.filter(c => !c.cloud),
+                hypothesis: hypothesesData.hypotheses.filter(h => !h.cloud)
+            };
+
+            const touched = { fact: false, trait: false, event: false, contact: false, hypothesis: false };
+            for (const assignment of assignments) {
+                const bucket = buckets[assignment.kind];
+                if (!bucket || !assignment.cloud) continue;
+                const item = bucket[Number(assignment.index) - 1];
+                if (!item) continue;
+                assignItemCloud(item, assignment.cloud);
+                touched[assignment.kind] = true;
+            }
+
+            if (touched.fact) setFactsData(factsData);
+            if (touched.trait) setTraitsData(traitsData);
+            if (touched.event) setTimelineData(eventsData);
+            if (touched.contact) setSocialData(socialData);
+            if (touched.hypothesis) setHypothesesData(hypothesesData);
+
+            markCloudsBootstrapped();
+            console.log('[Clouds] Разложено элементов:', assignments.length);
+            return true;
+        })
+        .catch(error => {
+            console.warn('[Clouds] Первичная разбивка не удалась:', error.message);
+            markCloudsBootstrapped(); // не повторяем дорогой вызов каждый ход
+            return false;
+        });
 }
 
 function integrateFactsData(newFacts, currentData, history) {
@@ -253,6 +372,8 @@ function integrateFactsData(newFacts, currentData, history) {
             timestamp: timestamp,
             superseded: false
         };
+        
+        if (typeof assignItemCloud === 'function') assignItemCloud(fact, newFact.cloud);
         
         data.facts.push(fact);
         console.log('[FACTS] Added:', fact.text.substring(0, 40), `(${validEvidence.length} evidence)`);
@@ -365,12 +486,13 @@ CRITICAL REQUIREMENT FOR BREVITY: Traits MUST be extremely concise. Maximum 1 sh
 ✗ "Хороший человек" (Too vague)
 ✗ "Любит музыку" (This is a FACT, not a trait)
 
-=== RESPONSE FORMAT ===
+${cloudPromptBlock()}=== RESPONSE FORMAT ===
 Return ONLY valid JSON:
 {
     "traits": [
         {
             "text": "Very short, nuanced personality trait",
+            "cloud": "тема памяти",
             "evidence": ["exact quote from USER showing this trait"],
             "confidence": "low|medium|high",
             "updatesTraitIndex": null,
@@ -479,6 +601,8 @@ function integrateTraitsData(newTraits, currentData, history) {
             updatedAt: messageCount,
             superseded: false
         };
+        
+        if (typeof assignItemCloud === 'function') assignItemCloud(trait, newTrait.cloud);
         
         data.traits.push(trait);
         console.log('[TRAITS] Added:', trait.text.substring(0, 40), `(${validEvidence.length} evidence)`);
@@ -594,12 +718,13 @@ Extract life events, ongoing periods, and future plans:
 === IMPORTANT ===
 Evidence must be USER's EXACT words. Not paraphrased!
 
-=== RESPONSE FORMAT ===
+${cloudPromptBlock()}=== RESPONSE FORMAT ===
 Return ONLY valid JSON:
 {
     "events": [
         {
             "text": "Event description",
+            "cloud": "тема памяти",
             "type": "event|period|plan",
             "date": {
                 "exact": "2024-03-15 or null",
@@ -723,6 +848,8 @@ function integrateTimelineData(newEvents, currentData, history) {
             superseded: false
         };
         
+        if (typeof assignItemCloud === 'function') assignItemCloud(event, newEvent.cloud);
+        
         data.events.push(event);
         console.log('[TIMELINE] Added:', event.text.substring(0, 40), `(${validEvidence.length} evidence)`);
     }
@@ -826,12 +953,13 @@ Extract ALL information about people the user mentions:
 === IMPORTANT ===
 Evidence must be USER's EXACT words. Not paraphrased!
 
-=== RESPONSE FORMAT ===
+${cloudPromptBlock()}=== RESPONSE FORMAT ===
 Return ONLY valid JSON:
 {
     "contacts": [
         {
             "name": "Name as mentioned by user",
+            "cloud": "тема памяти",
             "possibleAliases": ["other names/nicknames"],
             "relation": "family/friend/colleague/acquaintance/other",
             "sentiment": "positive/neutral/negative",
@@ -922,8 +1050,12 @@ function integrateSocialData(newContacts, history) {
         
         if (existingContact) {
             updateExistingContact(data, existingContact.id, validatedContact, messageCount);
+            if (typeof assignItemCloud === 'function' && newContact.cloud) {
+                assignItemCloud(existingContact, newContact.cloud);
+            }
         } else {
             const contact = createNewContact(validatedContact, messageCount);
+            if (typeof assignItemCloud === 'function') assignItemCloud(contact, newContact.cloud);
             data.contacts.push(contact);
             console.log('[SOCIAL] Created:', contact.name);
         }
@@ -1749,6 +1881,11 @@ async function runBackgroundAnalysis() {
     const category = EXTRACTION_CATEGORIES[currentExtractionIndex];
     currentExtractionIndex = (currentExtractionIndex + 1) % EXTRACTION_CATEGORIES.length;
     
+    // Первичная разбивка памяти по облакам — один раз на пользователя, фоном.
+    if (typeof bootstrapCloudsFromMemory === 'function') {
+        bootstrapCloudsFromMemory();
+    }
+
     console.log(`[ANALYSIS] Running extraction for: ${category}`);
     
     try {

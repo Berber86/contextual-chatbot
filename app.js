@@ -278,6 +278,11 @@ const STORAGE_KEYS = {
     personaCounter: 'chatbot_persona_counter',
 
     // Цели (🎯): цели пользователя, самоотчёты по ним и настройки коучинга
+    // Облака памяти: тематические кластеры (работа, хобби, здоровье, собака…)
+    memoryClouds: 'chatbot_memory_clouds',
+    cloudMemory: 'chatbot_cloud_memory',
+    cloudsBootstrapped: 'chatbot_clouds_bootstrapped',
+
     goals: 'chatbot_goals',
     goalCheckins: 'chatbot_goal_checkins',
     goalReviews: 'chatbot_goal_reviews',
@@ -295,6 +300,289 @@ const LIMITS = {
     evidencePerItem: 3,
     personaNotes: 20
 };
+
+// ==================== ОБЛАКА ПАМЯТИ ====================
+// Облако — тематический кластер: работа, хобби, здоровье, собака Бобик, Япония.
+// Каждый элемент памяти помечен облаком, а стадия 1 поднимает не «топ-N строк»,
+// а нужные облака целиком. Так ответ видит контекст темы, а не обрывки фактов.
+const CLOUD_CONFIG = {
+    version: 1,
+    maxClouds: 24,
+    nameLimit: 40,
+    summaryLimit: 200,
+    itemsPerCategory: 12,     // сколько записей категории попадёт в промпт на облако
+    selectThreshold: 0.45,    // порог вероятности «поднять облако»
+    maxSelected: 4,
+    miscId: 'cloud_misc',
+    miscName: 'Разное'
+};
+
+function emptyCloudsData() {
+    return { version: CLOUD_CONFIG.version, clouds: [], bootstrappedAt: 0 };
+}
+
+function getCloudsData() {
+    const raw = localStorage.getItem(STORAGE_KEYS.memoryClouds);
+    if (!raw) return emptyCloudsData();
+    try {
+        const parsed = JSON.parse(raw);
+        if (parsed && Array.isArray(parsed.clouds)) {
+            return {
+                version: parsed.version || CLOUD_CONFIG.version,
+                clouds: parsed.clouds,
+                bootstrappedAt: parsed.bootstrappedAt || 0
+            };
+        }
+    } catch (e) {
+        console.error('[Clouds] Не удалось разобрать облака:', e.message);
+    }
+    return emptyCloudsData();
+}
+
+function setCloudsData(data) {
+    // Событие memory-updated здесь не шлём: облака меняются вместе с записями
+    // памяти, и их сохранение уже обновляет панель. Иначе на каждый ход
+    // прилетает лишняя пара перерисовок.
+    localStorage.setItem(STORAGE_KEYS.memoryClouds, JSON.stringify(data));
+}
+
+function getClouds() {
+    return getCloudsData().clouds;
+}
+
+function getCloudById(id) {
+    return getClouds().find(cloud => cloud.id === id) || null;
+}
+
+function normalizeCloudName(value) {
+    return String(value == null ? '' : value)
+        .replace(/\s+/g, ' ')
+        .replace(/^[\s"'«».,;:—-]+|[\s"'«».,;:—-]+$/g, '')
+        .trim()
+        .slice(0, CLOUD_CONFIG.nameLimit);
+}
+
+function normalizeCloudKey(value) {
+    return normalizeCloudName(value).toLowerCase().replace(/ё/g, 'е');
+}
+
+// Облако по имени: повторные упоминания «Работа» и «работа» — одно облако.
+function ensureCloud(name, summary) {
+    const cleanName = normalizeCloudName(name);
+    if (!cleanName) return null;
+
+    const data = getCloudsData();
+    const key = normalizeCloudKey(cleanName);
+    const found = data.clouds.find(cloud => normalizeCloudKey(cloud.name) === key);
+    if (found) {
+        if (summary && !found.summary) {
+            found.summary = String(summary).slice(0, CLOUD_CONFIG.summaryLimit);
+            found.updatedAt = Date.now();
+            setCloudsData(data);
+        }
+        return found;
+    }
+
+    if (data.clouds.length >= CLOUD_CONFIG.maxClouds) return null;
+
+    const now = Date.now();
+    const cloud = {
+        id: cleanName === CLOUD_CONFIG.miscName ? CLOUD_CONFIG.miscId : generateId('cloud'),
+        name: cleanName,
+        summary: String(summary || '').slice(0, CLOUD_CONFIG.summaryLimit),
+        createdAt: now,
+        updatedAt: now
+    };
+    data.clouds.push(cloud);
+    setCloudsData(data);
+    return cloud;
+}
+
+function ensureMiscCloud() {
+    const clouds = getClouds();
+    const byId = clouds.find(cloud => cloud.id === CLOUD_CONFIG.miscId);
+    if (byId) return byId;
+    const byName = ensureCloud(CLOUD_CONFIG.miscName, 'То, что пока не разложено по темам');
+    return byName;
+}
+
+// Помечаем элемент памяти облаком. Возвращает облако или null.
+function assignItemCloud(item, cloudName) {
+    if (!item) return null;
+    const cloud = cloudName ? ensureCloud(cloudName) : null;
+    const target = cloud || ensureMiscCloud();
+    if (!target) return null;
+    item.cloud = target.id;
+    return target;
+}
+
+// Переименование облака из интерфейса. Id не меняется — записи ссылаются на него.
+// Возвращает true, если имя обновлено. Служебное «Разное» и дубли имён не трогаем.
+function renameCloud(cloudId, newName) {
+    const name = String(newName || '').trim().replace(/\s+/g, ' ').slice(0, CLOUD_CONFIG.nameLimit);
+    if (!name || cloudId === CLOUD_CONFIG.miscId) return false;
+    const data = getCloudsData();
+    const cloud = data.clouds.find(item => item.id === cloudId);
+    if (!cloud) return false;
+    const key = normalizeCloudKey(name);
+    const clash = data.clouds.some(item => item.id !== cloudId && normalizeCloudKey(item.name) === key);
+    if (clash || key === normalizeCloudKey(cloud.name)) return false;
+    cloud.name = name;
+    cloud.updatedAt = Date.now();
+    setCloudsData(data);
+    return true;
+}
+
+function isCloudMemoryEnabled() {
+    const saved = localStorage.getItem(STORAGE_KEYS.cloudMemory);
+    return saved === null ? true : saved === '1';
+}
+
+function setCloudMemoryEnabled(on) {
+    localStorage.setItem(STORAGE_KEYS.cloudMemory, on ? '1' : '0');
+}
+
+function markCloudsBootstrapped() {
+    const data = getCloudsData();
+    data.bootstrappedAt = Date.now();
+    setCloudsData(data);
+}
+
+function areCloudsBootstrapped() {
+    return Boolean(getCloudsData().bootstrappedAt);
+}
+
+// Список облаков с содержимым — то, что видит jev при выборе.
+function getCloudsForSelection() {
+    const clouds = getClouds();
+    if (!clouds.length) return [];
+
+    const facts = getFactsData().facts.filter(f => !f.superseded);
+    const traits = getTraitsData().traits.filter(t => !t.superseded);
+    const events = getTimelineData().events.filter(e => !e.superseded);
+    const contacts = getSocialData().contacts;
+    const hypotheses = getHypothesesData().hypotheses;
+    const gaps = getGapsData().gaps;
+
+    return clouds.map(cloud => {
+        const count = category => category.filter(item => item && item.cloud === cloud.id).length;
+        const factCount = count(facts);
+        const traitCount = count(traits);
+        const eventCount = count(events);
+        const contactCount = count(contacts);
+        const hypothesisCount = count(hypotheses);
+        const gapCount = count(gaps);
+        // Пара примеров содержимого: по одному имени jev плохо понимает тему.
+        // Тексты короткие и только для выбора — в контекст ответа они не идут.
+        const samples = [];
+        const collectSamples = items => {
+            for (const item of items) {
+                if (samples.length >= 3) return;
+                if (!item || item.cloud !== cloud.id) continue;
+                const text = String(item.text || item.name || item.title || '').trim();
+                if (text) samples.push(text.slice(0, 60));
+            }
+        };
+        collectSamples(facts);
+        collectSamples(traits);
+        collectSamples(events);
+        collectSamples(hypotheses);
+        collectSamples(contacts.map(contact => ({ cloud: contact.cloud, text: [contact.name, contact.relation].filter(Boolean).join(' — ') })));
+        return {
+            id: cloud.id,
+            name: cloud.name,
+            summary: cloud.summary || '',
+            samples,
+            counts: {
+                facts: factCount,
+                traits: traitCount,
+                events: eventCount,
+                contacts: contactCount,
+                hypotheses: hypothesisCount,
+                gaps: gapCount
+            },
+            total: factCount + traitCount + eventCount + contactCount + hypothesisCount + gapCount
+        };
+    }).filter(cloud => cloud.total > 0 || cloud.id === CLOUD_CONFIG.miscId);
+}
+
+function cloudItemsText(items, render) {
+    const slice = items.slice(0, CLOUD_CONFIG.itemsPerCategory);
+    if (!slice.length) return '';
+    return slice.map(render).join('\n');
+}
+
+// Контекст выбранных облаков для стадии 2. Пустая строка — облаков нет.
+function buildCloudContext(cloudIds) {
+    const wanted = new Set(Array.isArray(cloudIds) ? cloudIds : []);
+    if (!wanted.size) return '';
+
+    const clouds = getClouds().filter(cloud => wanted.has(cloud.id));
+    if (!clouds.length) return '';
+
+    const facts = getFactsData().facts.filter(f => !f.superseded);
+    const traits = getTraitsData().traits.filter(t => !t.superseded);
+    const events = getTimelineData().events.filter(e => !e.superseded);
+    const contacts = getSocialData().contacts;
+    const hypotheses = getHypothesesData().hypotheses;
+    const gaps = getGapsData().gaps;
+
+    const blocks = clouds.map(cloud => {
+        const parts = [];
+        const factText = cloudItemsText(
+            facts.filter(f => f.cloud === cloud.id),
+            (fact, index) => `${index + 1}. ${fact.text} (${fact.confidence})`
+        );
+        if (factText) parts.push(`Факты:\n${factText}`);
+
+        const traitText = cloudItemsText(
+            traits.filter(t => t.cloud === cloud.id),
+            (trait, index) => `${index + 1}. ${trait.text} (${trait.confidence})`
+        );
+        if (traitText) parts.push(`Черты:\n${traitText}`);
+
+        const eventText = cloudItemsText(
+            events.filter(event => event.cloud === cloud.id),
+            (event, index) => `${index + 1}. ${event.text}`
+        );
+        if (eventText) parts.push(`Хронология:\n${eventText}`);
+
+        const contactText = cloudItemsText(
+            contacts.filter(contact => contact.cloud === cloud.id),
+            (contact, index) => {
+                const factsAbout = (contact.facts || []).slice(0, 3).map(fact => `   • ${fact.text}`).join('\n');
+                return `${index + 1}. ${contact.name}${factsAbout ? '\n' + factsAbout : ''}`;
+            }
+        );
+        if (contactText) parts.push(`Люди:\n${contactText}`);
+
+        const hypothesisText = cloudItemsText(
+            hypotheses.filter(hypothesis => hypothesis.cloud === cloud.id),
+            (hypothesis, index) => `${index + 1}. ${hypothesis.text} (${hypothesis.confidence || 'medium'})`
+        );
+        if (hypothesisText) parts.push(`Гипотезы:\n${hypothesisText}`);
+
+        const gapText = cloudItemsText(
+            gaps.filter(gap => gap.cloud === cloud.id),
+            (gap, index) => `${index + 1}. ${gap.topic}`
+        );
+        if (gapText) parts.push(`Чего бот ещё не знает:\n${gapText}`);
+
+        if (!parts.length) return '';
+        return `=== ОБЛАКО «${cloud.name}» ===\n${parts.join('\n\n')}`;
+    }).filter(Boolean);
+
+    return blocks.join('\n\n');
+}
+
+// Компактный список облаков для промптов извлечения памяти.
+function describeCloudsForPrompt() {
+    const clouds = getCloudsForSelection();
+    if (!clouds.length) return '(облаков пока нет)';
+    return clouds
+        .map(cloud => `- ${cloud.name}${cloud.summary ? ': ' + cloud.summary : ''} (${cloud.total})`)
+        .join('\n');
+}
 
 // ==================== PERSONA EMULATION CONFIG ====================
 const PERSONA_CONFIG = {

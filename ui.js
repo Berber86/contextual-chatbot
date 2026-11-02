@@ -1332,19 +1332,24 @@ function switchTab(tab) {
     const readonlyIndicator = document.getElementById('readonlyIndicator');
 
     const structuredTabs = ['facts', 'traits', 'timeline', 'hypotheses', 'gaps', 'personaNotes'];
+    const isClouds = tab === 'clouds';
     const isStructured = structuredTabs.includes(tab);
     const isSocial = tab === 'social';
     const isTextarea = tab === 'style' || tab === 'personaPrompt';
 
     if (textarea) textarea.style.display = isTextarea ? 'block' : 'none';
-    if (structuredContainer) structuredContainer.style.display = isStructured ? 'block' : 'none';
+    if (structuredContainer) structuredContainer.style.display = (isStructured || isClouds) ? 'block' : 'none';
     if (socialContainer) socialContainer.style.display = isSocial ? 'flex' : 'none';
 
     const infoId = `${tab}Info`;
     const infoEl = document.getElementById(infoId);
     if (infoEl) infoEl.style.display = 'block';
 
-    if (isStructured) {
+    if (isClouds) {
+        renderCloudsTab();
+        if (readonlyIndicator) readonlyIndicator.style.display = 'none';
+        updateEditButtons(false);
+    } else if (isStructured) {
         renderStructuredContent(tab);
         if (readonlyIndicator) readonlyIndicator.style.display = 'flex';
         updateEditButtons(false);
@@ -1405,6 +1410,11 @@ function getKnowledgeTabStats(tab) {
         const traits = data.contacts.reduce((sum, c) => sum + (c.traits?.length || 0), 0);
         return { icon: '👥', title: t('tabSocial').replace('👥', '').trim(), active: data.contacts.length, archived: 0, detail: `${data.contacts.length} контактов · ${facts} фактов · ${traits} черт` };
     }
+    if (tab === 'clouds') {
+        const clouds = getCloudsForSelection();
+        const items = clouds.reduce((sum, cloud) => sum + cloud.total, 0);
+        return { icon: '☁️', title: 'Облака памяти', active: clouds.length, archived: 0, detail: `${clouds.length} тем · ${items} записей разложено` };
+    }
     if (tab === 'personaNotes') {
         const notes = getPersonaNotesData().notes;
         const notesLabel = notes.length ? `${notes.length} заметок` : 'пока нет заметок';
@@ -1433,6 +1443,62 @@ function renderKnowledgeTabHeader(tab) {
             </div>
         </div>
     `;
+}
+
+// ==================== MEMORY CLOUDS TAB ====================
+// Облака — единственное место, где видно, как память разложена по темам.
+// Пока идёт первичная разбивка, список пуст: это нормально, а не ошибка.
+function renderCloudsTab() {
+    const container = document.getElementById('structuredContainer');
+    if (!container) return;
+
+    const header = renderKnowledgeTabHeader('clouds');
+    const enabled = isCloudMemoryEnabled();
+    const clouds = getCloudsForSelection();
+
+    const rows = clouds.length
+        ? clouds.map(cloud => `
+            <div class="cloud-row">
+                <input class="cloud-name-input" type="text" value="${escapeHtml(cloud.name)}"
+                       maxlength="${CLOUD_CONFIG.nameLimit}" ${cloud.id === CLOUD_CONFIG.miscId ? 'readonly' : ''}
+                       onchange="renameCloudFromInput('${escapeHtml(cloud.id)}', this.value, this)"
+                       aria-label="Название темы памяти">
+                <span class="cloud-row-count">${cloud.total} ${cloudWord(cloud.total)}</span>
+            </div>`).join('')
+        : `<p class="cloud-empty">Тем пока нет. Они появятся сами, когда в памяти наберётся достаточно записей: Джев разложит их по темам один раз и дальше будет пополнять.</p>`;
+
+    container.innerHTML = `${header}
+        <label class="cloud-toggle">
+            <input type="checkbox" ${enabled ? 'checked' : ''} onchange="toggleCloudMemoryFromInput(this.checked)">
+            <span>Джев выбирает темы памяти перед ответом</span>
+        </label>
+        <p class="cloud-hint">Выключите, если хотите вернуть прежний способ: перед ответом весь профиль сжимается в короткое досье. С темами дешевле и быстрее, но если тема не поднялась — бот её не увидит.</p>
+        <div class="cloud-list">${rows}</div>`;
+}
+
+function cloudWord(count) {
+    const mod10 = count % 10;
+    const mod100 = count % 100;
+    if (mod10 === 1 && mod100 !== 11) return 'запись';
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'записи';
+    return 'записей';
+}
+
+function renameCloudFromInput(cloudId, value, input) {
+    const renamed = renameCloud(cloudId, value);
+    const current = getCloudsForSelection().find(cloud => cloud.id === cloudId);
+    if (!renamed && input && current) {
+        // Возвращаем прежнее имя: пустое, занятое или служебное не принимаем.
+        input.value = current.name;
+    }
+    if (renamed) window.dispatchEvent(new Event('memory-updated'));
+    renderCloudsTab();
+}
+
+function toggleCloudMemoryFromInput(enabled) {
+    setCloudMemoryEnabled(Boolean(enabled));
+    window.dispatchEvent(new Event('memory-updated'));
+    renderCloudsTab();
 }
 
 // ==================== STRUCTURED CONTENT RENDERING ====================
@@ -2647,9 +2713,61 @@ function selectGapForQuestion() {
 
 // ==================== STAGE 1: CONTEXT COMPRESSION ====================
 
-// ==================== STAGE 1: CONTEXT COMPRESSION ====================
+// ==================== СТАДИЯ 1: ОБЛАКА ПАМЯТИ ====================
+// Вместо сжатия всей памяти в досье поднимаем только темы, которые нужны для ответа.
+// Облако — кластер (работа, здоровье, собака): jev отвечает «да/нет» по каждому.
+// Любая проблема — null, и тогда работает прежний путь со сжатием.
 
-// В ui.js заменяем функцию findRelevantContext
+async function prepareCloudContext(userMessage, history, timeInfo) {
+    if (typeof isCloudMemoryEnabled === 'function' && !isCloudMemoryEnabled()) return null;
+    if (typeof getCloudsForSelection !== 'function') return null;
+    if (typeof selectCloudsForTurn !== 'function') return null;
+
+    let clouds = [];
+    try {
+        clouds = getCloudsForSelection();
+    } catch (error) {
+        return null;
+    }
+    // Одно облако — это вся память целиком, выбор ничего не даёт.
+    if (!Array.isArray(clouds) || clouds.length < 2) return null;
+
+    try {
+        const selection = await selectCloudsForTurn(userMessage, clouds, history);
+        if (!selection) return null;
+
+        const ids = selection.clouds.map(cloud => cloud.id);
+        const names = selection.clouds.map(cloud => cloud.name);
+        console.log('[Clouds] Подняты: ' + (names.length ? names.join(', ') : 'ничего'));
+
+        if (!ids.length) {
+            return {
+                compressed: false,
+                cloudContext: '',
+                cloudIds: [],
+                cloudNames: [],
+                source: 'clouds',
+                currentTime: timeInfo
+            };
+        }
+
+        const context = typeof buildCloudContext === 'function' ? buildCloudContext(ids) : '';
+        if (!context) return null;
+
+        return {
+            compressed: true,
+            cloudContext: context,
+            cloudIds: ids,
+            cloudNames: names,
+            source: 'clouds',
+            currentTime: timeInfo
+        };
+    } catch (error) {
+        console.warn('[Clouds] Выбор облаков не удался, работаем по-старому:', error.message);
+        return null;
+    }
+}
+
 async function findRelevantContext(userMessage, history) {
     const allFacts = getFactsForPrompt(false);
     const allTraits = getTraitsForPrompt(false);
@@ -2665,7 +2783,11 @@ async function findRelevantContext(userMessage, history) {
     
     const timeContext = getTimeContext();
     const timeInfo = formatTimeContextForPrompt(timeContext);
-    
+
+    // Сначала облака: если они есть, сжатие всей памяти не нужно вовсе.
+    const cloudResult = await prepareCloudContext(userMessage, history, timeInfo);
+    if (cloudResult) return cloudResult;
+
     const totalContextLength = [allFacts, allTraits, allHypotheses, allTimeline, allSocial, gaps, style]
         .filter(Boolean)
         .join('').length;
@@ -2711,11 +2833,7 @@ ${isPersonaEnabled() ? `Persona (role the assistant plays): ${getPersonaPrompt()
 5. If a [LEGACY] event is the only source for a "tomorrow" plan, mark it as "POTENTIALLY OBSOLETE" in the dossier.
 
 === OUTPUT FORMAT ===
-Respond in ${langName}. Use EXACTLY these two XML tags:
-
-<micro_opening>
-(A short 3-6 word "action/thought" reacting to the user's message. MUST read like an internal thought process or a quick reaction BEFORE answering. Examples: "Вспоминаю наши прошлые разговоры...", "Ого, неожиданно...", "Ищу связь с твоим характером...", "Обдумываю эту ситуацию...". Do NOT write a greeting or a direct answer.)
-</micro_opening>
+Respond in ${langName}. Use EXACTLY this XML tag:
 
 <context_dossier>
 (Your compressed context analysis here. Preserve LEGACY/OUTDATED warnings for relative dates.)
@@ -2725,13 +2843,11 @@ Respond in ${langName}. Use EXACTLY these two XML tags:
         const response = await callAPIOpenRouter([{ role: "user", content: compressionPrompt }], true);
         const responseText = response.content || response;
         
-        const microMatch = responseText.match(/<micro_opening>([\s\S]*?)<\/micro_opening>/i);
         const contextMatch = responseText.match(/<context_dossier>([\s\S]*?)<\/context_dossier>/i);
-        
+
         return {
             compressed: true,
             fullContext: contextMatch ? contextMatch[1].trim() : responseText,
-            microOpening: microMatch ? microMatch[1].trim() : '',
             originalSize: totalContextLength,
             compressedSize: (contextMatch ? contextMatch[1] : responseText).length,
             currentTime: timeInfo
@@ -2777,16 +2893,9 @@ if (last && last.role === 'user' && (last.content || '').trim() === (userMessage
         : Promise.resolve(null);
     const contextResult = await findRelevantContext(userMessage, historyWithoutCurrent);
     
-    // 3. Обновляем статус-бар на "Прокашливание" (реакцию-мысль)
-    if (contextResult.microOpening) {
-        let microText = contextResult.microOpening;
-        if (!microText.startsWith('💭') && !microText.startsWith('🔍') && !microText.startsWith('⚡')) {
-            microText = '⚡ ' + microText;
-        }
-        updateThinkingMessage(microText);
-    }
-    
-    // 4. STAGE 2: Генерация основного ответа
+    // 3. STAGE 2: Генерация основного ответа
+    // Превью «мыслей» убрано: статус-бар показывает общее «Анализирую контекст…»,
+    // но ход от этого только быстрее — лишней генерации больше нет.
     const streamingElement = createStreamingMessage();
     let finalAnswer = '';
     let nextEchoFound = '';
@@ -2806,9 +2915,16 @@ if (last && last.role === 'user' && (last.content || '').trim() === (userMessage
         // Добавляем текущее время в промпт
         const currentTimeInfo = contextResult.currentTime || 'Unknown';
         
-        let contextBlock = contextResult.compressed && contextResult.fullContext ?
-            `\n=== ПОДГОТОВЛЕННЫЙ КОНТЕКСТ ===\n${contextResult.fullContext}\n` :
-            `\n=== CONTEXT ===\nFacts: ${contextResult.facts || '(none)'}\nTraits: ${contextResult.traits || '(none)'}`;
+        let contextBlock;
+        if (contextResult.source === 'clouds' && typeof contextResult.cloudContext === 'string') {
+            contextBlock = contextResult.cloudContext
+                ? `\n=== ПАМЯТЬ: ПОДНЯТЫЕ ОБЛАКА ===\n${contextResult.cloudContext}\n`
+                : `\n=== ПАМЯТЬ ===\nДля этого ответа память не поднималась: тема не требует воспоминаний.\n`;
+        } else if (contextResult.compressed && contextResult.fullContext) {
+            contextBlock = `\n=== ПОДГОТОВЛЕННЫЙ КОНТЕКСТ ===\n${contextResult.fullContext}\n`;
+        } else {
+            contextBlock = `\n=== CONTEXT ===\nFacts: ${contextResult.facts || '(none)'}\nTraits: ${contextResult.traits || '(none)'}`;
+        }
         
         let questionRule = qp.shouldAsk ?
             '\nМожешь закончить ОДНИМ вопросом к пользователю, если это уместно.' :
