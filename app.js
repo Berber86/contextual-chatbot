@@ -314,11 +314,23 @@ const CLOUD_CONFIG = {
     selectThreshold: 0.45,    // порог вероятности «поднять облако»
     maxSelected: 4,
     miscId: 'cloud_misc',
-    miscName: 'Разное'
+    miscName: 'Разное',
+    // Фоновая стадия разбора («сон»): когда запускается и сколько стоит.
+    minUnassigned: 4,             // сколько новых записей накопилось — пора разбирать
+    maxItemsPerPrompt: 40,        // больше записей за проход не отправляем
+    cooldownMs: 3 * 60 * 1000,    // между попытками, в том числе неудачными
+    refreshAfterMs: 24 * 60 * 60 * 1000, // раз в сутки — проверить дубли и имена
+    refreshMinItems: 8
 };
 
 function emptyCloudsData() {
-    return { version: CLOUD_CONFIG.version, clouds: [], bootstrappedAt: 0 };
+    return {
+        version: CLOUD_CONFIG.version,
+        clouds: [],
+        bootstrappedAt: 0,       // первая успешная разбивка
+        lastConsolidatedAt: 0,   // последний успешный разбор
+        lastAttemptAt: 0         // последняя попытка, включая неудачную
+    };
 }
 
 function getCloudsData() {
@@ -330,7 +342,9 @@ function getCloudsData() {
             return {
                 version: parsed.version || CLOUD_CONFIG.version,
                 clouds: parsed.clouds,
-                bootstrappedAt: parsed.bootstrappedAt || 0
+                bootstrappedAt: parsed.bootstrappedAt || 0,
+                lastConsolidatedAt: parsed.lastConsolidatedAt || 0,
+                lastAttemptAt: parsed.lastAttemptAt || 0
             };
         }
     } catch (e) {
@@ -442,14 +456,96 @@ function setCloudMemoryEnabled(on) {
     localStorage.setItem(STORAGE_KEYS.cloudMemory, on ? '1' : '0');
 }
 
-function markCloudsBootstrapped() {
+function markCloudConsolidationAttempt() {
     const data = getCloudsData();
-    data.bootstrappedAt = Date.now();
+    data.lastAttemptAt = Date.now();
     setCloudsData(data);
 }
 
-function areCloudsBootstrapped() {
-    return Boolean(getCloudsData().bootstrappedAt);
+function markCloudConsolidated() {
+    const data = getCloudsData();
+    const now = Date.now();
+    data.lastAttemptAt = now;
+    data.lastConsolidatedAt = now;
+    data.bootstrappedAt = data.bootstrappedAt || now;
+    setCloudsData(data);
+}
+
+function findCloudByName(name) {
+    const key = normalizeCloudKey(name);
+    if (!key) return null;
+    return getClouds().find(cloud => normalizeCloudKey(cloud.name) === key) || null;
+}
+
+function updateCloudSummary(cloudId, summary) {
+    const text = String(summary || '').trim().slice(0, CLOUD_CONFIG.summaryLimit);
+    if (!text) return false;
+    const data = getCloudsData();
+    const cloud = data.clouds.find(item => item.id === cloudId);
+    if (!cloud || cloud.summary === text) return false;
+    cloud.summary = text;
+    cloud.updatedAt = Date.now();
+    setCloudsData(data);
+    return true;
+}
+
+// Слияние тем: записи переезжают в целевую, исходная исчезает.
+function mergeClouds(fromId, intoId) {
+    if (!fromId || !intoId || fromId === intoId) return false;
+    if (fromId === CLOUD_CONFIG.miscId) return false;
+    const data = getCloudsData();
+    const from = data.clouds.find(item => item.id === fromId);
+    const into = data.clouds.find(item => item.id === intoId);
+    if (!from || !into) return false;
+
+    const retag = items => {
+        let changed = false;
+        items.forEach(item => {
+            if (item && item.cloud === fromId) {
+                item.cloud = intoId;
+                changed = true;
+            }
+        });
+        return changed;
+    };
+
+    const factsData = getFactsData();
+    const traitsData = getTraitsData();
+    const eventsData = getTimelineData();
+    const socialData = getSocialData();
+    const hypothesesData = getHypothesesData();
+
+    if (retag(factsData.facts)) setFactsData(factsData);
+    if (retag(traitsData.traits)) setTraitsData(traitsData);
+    if (retag(eventsData.events)) setTimelineData(eventsData);
+    if (retag(socialData.contacts)) setSocialData(socialData);
+    if (retag(hypothesesData.hypotheses)) setHypothesesData(hypothesesData);
+
+    data.clouds = data.clouds.filter(item => item.id !== fromId);
+    into.updatedAt = Date.now();
+    setCloudsData(data);
+    return true;
+}
+
+// Темы без единой записи (кроме «Разного») не нужны: это следы слияний.
+function pruneEmptyClouds() {
+    const data = getCloudsData();
+    if (!data.clouds.length) return 0;
+    const used = new Set();
+    const collect = items => (items || []).forEach(item => item && item.cloud && used.add(item.cloud));
+    collect(getFactsData().facts);
+    collect(getTraitsData().traits);
+    collect(getTimelineData().events);
+    collect(getSocialData().contacts);
+    collect(getHypothesesData().hypotheses);
+    collect(getGapsData().gaps);
+
+    const kept = data.clouds.filter(cloud => cloud.id === CLOUD_CONFIG.miscId || used.has(cloud.id));
+    const removed = data.clouds.length - kept.length;
+    if (!removed) return 0;
+    data.clouds = kept;
+    setCloudsData(data);
+    return removed;
 }
 
 // Список облаков с содержимым — то, что видит jev при выборе.
@@ -576,14 +672,6 @@ function buildCloudContext(cloudIds) {
 }
 
 // Компактный список облаков для промптов извлечения памяти.
-function describeCloudsForPrompt() {
-    const clouds = getCloudsForSelection();
-    if (!clouds.length) return '(облаков пока нет)';
-    return clouds
-        .map(cloud => `- ${cloud.name}${cloud.summary ? ': ' + cloud.summary : ''} (${cloud.total})`)
-        .join('\n');
-}
-
 // ==================== PERSONA EMULATION CONFIG ====================
 const PERSONA_CONFIG = {
     notesInterval: 5,        // заметка об образе каждые N сообщений пользователя

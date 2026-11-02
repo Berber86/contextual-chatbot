@@ -9556,27 +9556,51 @@ body.server-mode .input-form {
     border: 1px solid var(--ui-border, rgba(255, 255, 255, 0.1));
 }
 
-.cloud-name-input {
-    flex: 1;
+.cloud-row-main {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
     min-width: 0;
-    padding: 6px 8px;
-    border-radius: 8px;
-    border: 1px solid transparent;
-    background: transparent;
+}
+
+.cloud-row-name {
     color: var(--ui-text);
     font-size: 14px;
     font-weight: 600;
 }
 
-.cloud-name-input:hover,
-.cloud-name-input:focus {
-    border-color: var(--ui-border, rgba(255, 255, 255, 0.16));
-    outline: none;
+.cloud-row-summary {
+    color: var(--ui-muted);
+    font-size: 12px;
+    line-height: 1.35;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-.cloud-name-input[readonly] {
+.cloud-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 12px;
+}
+
+.cloud-run-button {
+    padding: 8px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--ui-border, rgba(255, 255, 255, 0.16));
+    background: var(--ui-surface, rgba(255, 255, 255, 0.05));
+    color: var(--ui-text);
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.cloud-run-button:hover:not(:disabled) {
+    border-color: var(--ui-accent, #6c8cff);
+}
+
+.cloud-run-button:disabled {
+    opacity: 0.6;
     cursor: default;
-    color: var(--ui-muted);
 }
 
 .cloud-row-count {

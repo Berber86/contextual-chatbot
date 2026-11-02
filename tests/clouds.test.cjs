@@ -47,6 +47,30 @@ function cloudHarness(initial = {}, fetchHandler) {
 
 const run = (context, expression) => vm.runInContext(expression, context);
 
+// app.js + analytics.js: фоновая стадия разбора. Модель подменяем целиком —
+// проверяем, что стадия делает с ответом, а не как устроен провайдер памяти.
+function consolidationHarness(getPayload) {
+  const { values, storage } = createStorage({});
+  const calls = [];
+  const context = vm.createContext({
+    console: { log() {}, warn() {}, error() {} },
+    localStorage: storage,
+    window: { dispatchEvent() {}, location: { hostname: 'localhost' } },
+    document: { createElement: () => ({ textContent: '', innerHTML: '' }), getElementById: () => null, querySelectorAll: () => [] },
+    Event, AbortController, setTimeout, clearTimeout, JSON, Number, TextDecoder, TextEncoder,
+    getMessageCounter: () => 12,
+    getChatHistory: () => [{ role: 'user', content: 'привет' }, { role: 'assistant', content: 'привет' }],
+    parseJSON: text => JSON.parse(text),
+    callMemoryAPIWithRetry: async prompt => {
+      calls.push(prompt);
+      return JSON.stringify(getPayload(prompt, calls.length));
+    },
+  });
+  vm.runInContext(app, context);
+  vm.runInContext(analytics, context);
+  return { context, calls, values };
+}
+
 function seedMemory(context, facts) {
   run(context, 'setFactsData({ facts: ' + JSON.stringify(facts) + ' })');
 }
@@ -254,64 +278,117 @@ test('превью «мыслей» убрано из интерфейса и и
   assert.doesNotMatch(ui, /contextResult\.microOpening/, 'статус-бар её не показывает');
 });
 
-test('извлечение памяти раскладывает новые записи по облакам', () => {
-  assert.match(analytics, /function cloudPromptBlock\(\)/, 'есть блок облаков для промптов');
-  assert.match(analytics, /MEMORY CLOUDS/, 'модель видит список тем');
-  const schemaFields = analytics.match(/"cloud": "тема памяти"/g) || [];
-  assert.equal(schemaFields.length, 4, 'факты, черты, хронология и контакты просят облако');
-
-  const assigns = analytics.match(/assignItemCloud\(/g) || [];
-  assert.ok(assigns.length >= 4, 'записи получают облако при сохранении');
-  assert.match(analytics, /assignItemCloud\(fact, newFact\.cloud\)/);
-  assert.match(analytics, /assignItemCloud\(trait, newTrait\.cloud\)/);
-  assert.match(analytics, /assignItemCloud\(event, newEvent\.cloud\)/);
-  assert.match(analytics, /assignItemCloud\(contact, newContact\.cloud\)/);
+test('извлечение памяти не придумывает темы: это работа фоновой стадии', () => {
+  assert.equal(analytics.includes('cloudPromptBlock'), false, 'подсказки про облака в промптах нет');
+  assert.equal(analytics.includes('"cloud": "тема памяти"'), false, 'схемы извлечения без поля cloud');
+  assert.equal(/assignItemCloud\(/.test(analytics), true, 'стадия раскладывает записи сама');
+  const assignLines = analytics.split('\n').filter(line => line.includes('assignItemCloud('));
+  assert.ok(assignLines.length <= 3, 'присвоение живёт только в стадии разбора, а не в четырёх сохранениях');
+  assert.equal(/assignItemCloud\(fact, newFact\.cloud\)/.test(analytics), false);
+  assert.equal(/assignItemCloud\(newContact\.cloud\)/.test(analytics), false);
 });
 
-test('первичная разбивка делается один раз и не повторяется после сбоя', async () => {
-  const { values, storage } = createStorage();
-  const context = vm.createContext({
-    console: { log() {}, warn() {}, error() {} },
-    localStorage: storage,
-    window: { dispatchEvent() {} },
-    document: { createElement: () => ({ textContent: '', innerHTML: '' }) },
-    Event,
-    setTimeout,
-    clearTimeout,
-    JSON,
-    fetch: async () => ({ ok: true, json: async () => ({}), text: async () => '' }),
-  });
-  vm.runInContext(app, context);
-  vm.runInContext('function parseJSON(text) { try { return JSON.parse(text); } catch (e) { return null; } }', context);
+test('стадия разбора сама раскладывает новые записи и называет темы', async () => {
+  const { context, calls } = consolidationHarness(() => ({
+    clouds: [
+      { name: 'Работа', summary: 'офис, коллектив, планы' },
+      { name: 'Собака Бобик', summary: 'прогулки и корм' },
+    ],
+    moves: [{ index: 1, cloud: 'Работа' }, { index: 2, cloud: 'Собака Бобик' }],
+    merges: [],
+    renames: [],
+  }));
 
-  let asked = 0;
-  context.callMemoryAPIWithRetry = async () => {
-    asked++;
-    return JSON.stringify({
-      clouds: [{ name: 'Работа', summary: 'офис' }, { name: 'Собака', summary: 'Бобик' }],
-      assignments: [
-        { kind: 'fact', index: 1, cloud: 'Работа' },
-        { kind: 'fact', index: 2, cloud: 'Собака' },
-      ],
-    });
-  };
-  vm.runInContext(analytics, context);
   run(context, `setFactsData({ facts: [
     { id: 'f1', text: 'Работает в Сбере', confidence: 'high', superseded: false },
     { id: 'f2', text: 'Гуляет с Бобиком', confidence: 'high', superseded: false },
-    { id: 'f3', text: 'Любит кофе', confidence: 'medium', superseded: false }
-  ] });
-  setTraitsData({ traits: [{ id: 't1', text: 'Любит планировать', confidence: 'medium', superseded: false }] })`);
+    { id: 'f3', text: 'Любит кофе', confidence: 'medium', superseded: false },
+    { id: 'f4', text: 'Живёт в Амстердаме', confidence: 'high', superseded: false }
+  ] })`);
 
-  await run(context, 'bootstrapCloudsFromMemory()');
-  assert.equal(asked, 1);
+  assert.equal(run(context, 'shouldRunCloudConsolidation()'), true, 'четыре записи и ни одной темы — пора');
+  await run(context, 'runCloudConsolidation()');
+  assert.equal(calls.length, 1, 'один вызов модели на проход');
+
+  const clouds = Array.from(run(context, 'getClouds()'));
+  const names = clouds.map(cloud => cloud.name).sort();
+  assert.deepEqual(names, ['Работа', 'Разное', 'Собака Бобик'], 'новые темы названы, остаток ушёл в «Разное»');
+  assert.equal(run(context, 'getClouds().find(c => c.name === "Работа").summary'), 'офис, коллектив, планы');
+
   const facts = Array.from(run(context, 'getFactsData().facts'));
-  assert.equal(facts.filter(fact => fact.cloud).length, 2, 'два факта разложены');
-  assert.equal(run(context, 'areCloudsBootstrapped()'), true);
-  assert.deepEqual(Array.from(run(context, 'getClouds().map(c => c.name)')).sort(), ['Работа', 'Собака']);
+  const cloudOf = text => clouds.find(cloud => cloud.id === facts.find(f => f.text === text).cloud)?.name;
+  assert.equal(cloudOf('Работает в Сбере'), 'Работа');
+  assert.equal(cloudOf('Гуляет с Бобиком'), 'Собака Бобик');
+  assert.equal(cloudOf('Любит кофе'), 'Разное', 'нераспознанное не теряется');
+  assert.equal(run(context, 'getCloudsData().lastConsolidatedAt > 0'), true);
+});
 
-  await run(context, 'bootstrapCloudsFromMemory()');
-  assert.equal(asked, 1, 'повторно модель не спрашиваем');
+test('разбор сливает дубли тем и переименовывает неудачные имена', async () => {
+  const { context } = consolidationHarness((prompt, call) => (call === 1
+    ? { clouds: [], moves: [{ index: 1, cloud: 'Карьера' }, { index: 2, cloud: 'Офисное' }], merges: [], renames: [] }
+    : { clouds: [], moves: [], merges: [{ from: 'Офисное', into: 'Карьера' }], renames: [{ from: 'Карьера', to: 'Работа' }] }));
+
+  run(context, `setFactsData({ facts: [
+    { id: 'f1', text: 'Работает в Сбере', confidence: 'high', superseded: false },
+    { id: 'f2', text: 'Ходит в офис на Тульской', confidence: 'high', superseded: false }
+  ] })`);
+
+  await run(context, 'runCloudConsolidation({ force: true })');
+  assert.deepEqual(Array.from(run(context, 'getClouds().map(c => c.name)')).sort(), ['Карьера', 'Офисное'], 'сначала две темы об одном');
+
+  await run(context, 'runCloudConsolidation({ force: true })');
+  const clouds = Array.from(run(context, 'getClouds()'));
+  assert.deepEqual(clouds.map(cloud => cloud.name), ['Работа'], 'дубль слит, имя исправлено');
+  const facts = Array.from(run(context, 'getFactsData().facts'));
+  assert.equal(facts.every(fact => fact.cloud === clouds[0].id), true, 'записи переехали вместе с темой');
+});
+
+test('разбор не частит: пауза между попытками и порог по числу записей', async () => {
+  const { context, calls } = consolidationHarness(() => ({ clouds: [], moves: [], merges: [], renames: [] }));
+  run(context, `setFactsData({ facts: [
+    { id: 'f1', text: 'Один факт', confidence: 'high', superseded: false }
+  ] })`);
+
+  assert.equal(run(context, 'shouldRunCloudConsolidation()'), false, 'одной записи мало');
+  await run(context, 'runCloudConsolidation()');
+  assert.equal(calls.length, 0, 'без повода модель не зовём');
+
+  run(context, `setFactsData({ facts: [
+    { id: 'f1', text: 'Работает в Сбере', confidence: 'high', superseded: false },
+    { id: 'f2', text: 'Гуляет с Бобиком', confidence: 'high', superseded: false },
+    { id: 'f3', text: 'Любит кофе', confidence: 'medium', superseded: false },
+    { id: 'f4', text: 'Живёт в Амстердаме', confidence: 'high', superseded: false }
+  ] })`);
+  assert.equal(run(context, 'shouldRunCloudConsolidation()'), true);
+  await run(context, 'runCloudConsolidation()');
+  assert.equal(calls.length, 1);
+
+  run(context, `setFactsData({ facts: [
+    { id: 'f1', text: 'Работает в Сбере', confidence: 'high', superseded: false },
+    { id: 'f2', text: 'Гуляет с Бобиком', confidence: 'high', superseded: false },
+    { id: 'f3', text: 'Любит кофе', confidence: 'medium', superseded: false },
+    { id: 'f4', text: 'Живёт в Амстердаме', confidence: 'high', superseded: false },
+    { id: 'f5', text: 'Учит японский', confidence: 'high', superseded: false },
+    { id: 'f6', text: 'Мечтает о Киото', confidence: 'high', superseded: false }
+  ] })`);
+  assert.equal(run(context, 'shouldRunCloudConsolidation()'), false, 'сразу после прохода — пауза');
+  assert.equal(run(context, 'shouldRunCloudConsolidation(true)'), true, 'кнопка «разобрать сейчас» паузу обходит');
+});
+
+test('сбой разбора не повторяется каждый ход', async () => {
+  const { context, calls } = consolidationHarness(() => { throw new Error('down'); });
+  run(context, `setFactsData({ facts: [
+    { id: 'f1', text: 'Работает в Сбере', confidence: 'high', superseded: false },
+    { id: 'f2', text: 'Гуляет с Бобиком', confidence: 'high', superseded: false },
+    { id: 'f3', text: 'Любит кофе', confidence: 'medium', superseded: false },
+    { id: 'f4', text: 'Живёт в Амстердаме', confidence: 'high', superseded: false }
+  ] })`);
+
+  const first = await run(context, 'runCloudConsolidation()');
+  assert.equal(first, false, 'сбой не считается успехом');
+  assert.equal(calls.length, 1);
+  assert.equal(run(context, 'shouldRunCloudConsolidation()'), false, 'пауза после неудачи');
+  assert.equal(run(context, 'getCloudsData().lastConsolidatedAt'), 0);
 });
 
 test('облако переименовывается без потери записей, дубли и «Разное» — нет', () => {
@@ -328,15 +405,18 @@ test('облако переименовывается без потери зап
   assert.equal(run(context, `renameCloud('nope', 'Что-то')`), false);
 });
 
-test('в интерфейсе есть вкладка облаков: список, переименование и выключатель', () => {
+test('вкладка облаков только показывает работу стадии разбора', () => {
   const html = fs.readFileSync('index.html', 'utf8');
   const page = fs.readFileSync('ui.js', 'utf8');
 
   assert.match(html, /data-tab="clouds"/);
   assert.match(html, /id="cloudsInfo"/);
   assert.match(page, /function renderCloudsTab\(/);
-  assert.match(page, /renameCloudFromInput\(/);
   assert.match(page, /toggleCloudMemoryFromInput\(/);
+  assert.match(page, /requestCloudConsolidation\(/, 'можно попросить стадию поработать сейчас');
+  // Имена и содержимое правит стадия, а не человек: полей ввода в вкладке нет.
+  assert.equal(page.includes('cloud-name-input'), false, 'ручного переименования нет');
+  assert.equal(page.includes('renameCloudFromInput'), false);
   // Вкладка рисуется по требованию: на верхнем уровне ui.js никаких вызовов.
   assert.equal(page.includes('\nrenderCloudsTab();'), false);
 });

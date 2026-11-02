@@ -1446,8 +1446,9 @@ function renderKnowledgeTabHeader(tab) {
 }
 
 // ==================== MEMORY CLOUDS TAB ====================
-// Облака — единственное место, где видно, как память разложена по темам.
-// Пока идёт первичная разбивка, список пуст: это нормально, а не ошибка.
+// Вкладка только показывает результат фоновой стадии разбора: имена тем,
+// описания и количество записей здесь не редактируются вручную — этим
+// занимается стадия «сна/разбора», её можно только попросить поработать сейчас.
 function renderCloudsTab() {
     const container = document.getElementById('structuredContainer');
     if (!container) return;
@@ -1455,25 +1456,40 @@ function renderCloudsTab() {
     const header = renderKnowledgeTabHeader('clouds');
     const enabled = isCloudMemoryEnabled();
     const clouds = getCloudsForSelection();
+    const data = getCloudsData();
+    const lastRun = data.lastConsolidatedAt ? formatCloudDate(data.lastConsolidatedAt) : 'ещё не было';
 
     const rows = clouds.length
         ? clouds.map(cloud => `
             <div class="cloud-row">
-                <input class="cloud-name-input" type="text" value="${escapeHtml(cloud.name)}"
-                       maxlength="${CLOUD_CONFIG.nameLimit}" ${cloud.id === CLOUD_CONFIG.miscId ? 'readonly' : ''}
-                       onchange="renameCloudFromInput('${escapeHtml(cloud.id)}', this.value, this)"
-                       aria-label="Название темы памяти">
+                <div class="cloud-row-main">
+                    <span class="cloud-row-name">${escapeHtml(cloud.name)}</span>
+                    ${cloud.summary ? `<span class="cloud-row-summary">${escapeHtml(cloud.summary)}</span>` : ''}
+                </div>
                 <span class="cloud-row-count">${cloud.total} ${cloudWord(cloud.total)}</span>
             </div>`).join('')
-        : `<p class="cloud-empty">Тем пока нет. Они появятся сами, когда в памяти наберётся достаточно записей: Джев разложит их по темам один раз и дальше будет пополнять.</p>`;
+        : `<p class="cloud-empty">Тем пока нет. Они появятся сами: после нескольких сообщений фоновая стадия разберёт память по темам.</p>`;
 
     container.innerHTML = `${header}
         <label class="cloud-toggle">
             <input type="checkbox" ${enabled ? 'checked' : ''} onchange="toggleCloudMemoryFromInput(this.checked)">
             <span>Джев выбирает темы памяти перед ответом</span>
         </label>
-        <p class="cloud-hint">Выключите, если хотите вернуть прежний способ: перед ответом весь профиль сжимается в короткое досье. С темами дешевле и быстрее, но если тема не поднялась — бот её не увидит.</p>
+        <p class="cloud-hint">Темы, их названия и содержимое ведёт фоновая стадия разбора: она раскладывает новые записи, сливает дубли и переписывает описания. Здесь можно только посмотреть результат или попросить разобрать сейчас. Последний разбор: ${escapeHtml(lastRun)}.</p>
+        <div class="cloud-actions">
+            <button class="cloud-run-button" type="button" onclick="requestCloudConsolidation(this)">Разобрать сейчас</button>
+        </div>
         <div class="cloud-list">${rows}</div>`;
+}
+
+function formatCloudDate(timestamp) {
+    try {
+        return new Date(timestamp).toLocaleString(currentLanguage === 'ru' ? 'ru-RU' : 'en-GB', {
+            day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit'
+        });
+    } catch (error) {
+        return 'недавно';
+    }
 }
 
 function cloudWord(count) {
@@ -1484,15 +1500,24 @@ function cloudWord(count) {
     return 'записей';
 }
 
-function renameCloudFromInput(cloudId, value, input) {
-    const renamed = renameCloud(cloudId, value);
-    const current = getCloudsForSelection().find(cloud => cloud.id === cloudId);
-    if (!renamed && input && current) {
-        // Возвращаем прежнее имя: пустое, занятое или служебное не принимаем.
-        input.value = current.name;
+// Ручной запуск — не редактирование: стадия сама решает, что и как переложить.
+async function requestCloudConsolidation(button) {
+    if (!button || button.disabled) return;
+    button.disabled = true;
+    const wasText = button.textContent;
+    button.textContent = 'Разбираю…';
+    try {
+        if (typeof runCloudConsolidation === 'function') {
+            await runCloudConsolidation({ force: true });
+        }
+    } catch (error) {
+        console.warn('[Clouds] Разбор по кнопке не удался:', error.message);
+    } finally {
+        button.disabled = false;
+        button.textContent = wasText;
+        renderCloudsTab();
+        window.dispatchEvent(new Event('memory-updated'));
     }
-    if (renamed) window.dispatchEvent(new Event('memory-updated'));
-    renderCloudsTab();
 }
 
 function toggleCloudMemoryFromInput(enabled) {

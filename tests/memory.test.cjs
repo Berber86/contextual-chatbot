@@ -50,7 +50,13 @@ test('public user without browser keys writes all four memory sections through H
     const stored = vm.runInContext(`JSON.parse(localStorage.getItem(STORAGE_KEYS.${section}))`, context);
     assert.equal(stored?.[field]?.length, 1, `${section}: ${JSON.stringify(errors)}`);
   }
-  assert.equal(requests.length, 4);
+  // Четыре извлечения плюс, возможно, фоновый разбор облаков — он ходит туда же.
+  const prompts = requests.map(r => r.body.messages?.[0]?.content || '');
+  for (const marker of ['FACTS about the user', 'PERSONALITY TRAITS', 'TIMELINE EVENTS', 'PEOPLE mentioned']) {
+    assert.equal(prompts.some(prompt => prompt.includes(marker)), true, `извлечение «${marker}» прошло через прокси`);
+  }
+  assert.equal(prompts.filter(prompt => prompt.includes('=== ОБЛАКА СЕЙЧАС ===')).length <= 1, true, 'разбор облаков не частит');
+  assert.equal(requests.length >= 4, true);
   assert.ok(requests.every(r => r.url === '/api/hydra' && r.body.model === 'hydra-gemini'));
   assert.ok(requests.every(r => !r.headers.Authorization));
   assert.equal(events.filter(e => e === 'memory-updated').length, 4);

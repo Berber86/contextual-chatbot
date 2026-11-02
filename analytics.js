@@ -120,13 +120,12 @@ Extract concrete, specific facts about the user:
 • "medium" — implied but fairly certain
 • "low" — uncertain, might be misinterpreted
 
-${cloudPromptBlock()}=== RESPONSE FORMAT ===
+=== RESPONSE FORMAT ===
 Return ONLY valid JSON, no markdown:
 {
     "facts": [
         {
             "text": "Clear, specific fact statement",
-            "cloud": "тема памяти",
             "evidence": ["exact quote from USER's message"],
             "confidence": "low|medium|high",
             "updatesFactIndex": null,
@@ -156,122 +155,199 @@ ${langInstruction}`;
     }
 }
 
-// Облака памяти: подсказка для промптов извлечения. Если слой облаков недоступен
-// (старый набор файлов), промпты остаются ровно такими, как раньше.
-function cloudPromptBlock() {
-    if (typeof describeCloudsForPrompt !== 'function') return '';
-    return `\n=== MEMORY CLOUDS (темы памяти) ===\n${describeCloudsForPrompt()}\n\n` +
-        'Для каждого элемента укажи поле "cloud" — короткое имя темы (1–3 слова по-русски).\n' +
-        'Бери существующее облако из списка, если тема подходит. Новое имя давай только когда тема\n' +
-        'действительно новая, и не больше одного нового облака за раз.\n';
+// ==================== ОБЛАКА: ФОНОВАЯ СТАДИЯ РАЗБОРА ====================
+// Извлечение только записывает записи. Названия тем, их наполнение, слияние
+// дублей и переименование — работа отдельной фоновой стадии («сон»): она
+// запускается не в ходу ответа, а после извлечения, с паузой между попытками.
+//
+// Что делает стадия:
+//   1. раскладывает новые записи (без облака) по темам;
+//   2. создаёт тему, если её ещё нет, и пишет короткое описание;
+//   3. сливает темы об одном и том же, переименовывает неудачные;
+//   4. всё, что не разложилось, отправляет в «Разное».
+// Один вызов модели на проход; повтор — не раньше, чем через cooldown.
+
+function collectCloudCatalog() {
+    const facts = getFactsData();
+    const traits = getTraitsData();
+    const events = getTimelineData();
+    const social = getSocialData();
+    const hypotheses = getHypothesesData();
+
+    return {
+        data: { facts, traits, events, social, hypotheses },
+        lists: {
+            fact: facts.facts.filter(f => !f.superseded),
+            trait: traits.traits.filter(t => !t.superseded),
+            event: events.events.filter(e => !e.superseded),
+            contact: social.contacts,
+            hypothesis: hypotheses.hypotheses
+        }
+    };
 }
 
-// ==================== ОБЛАКА: ПЕРВИЧНАЯ РАЗБИВКА ====================
-// У существующих пользователей память накоплена без облаков. Один раз (фоном, не в чате)
-// просим модель разложить её по темам. Неудача не страшна: всё уходит в «Разное»,
-// и бот продолжает работать как раньше, пока извлечение не разложит новые записи.
-
-function collectCloudBootstrapItems() {
+// Новые записи, которые стадия ещё не разложила. Порядок фиксирован:
+// индекс в промпте — это индекс в этом снимке.
+function collectUnassignedItems(catalog) {
     const items = [];
-    const facts = getFactsData().facts.filter(f => !f.superseded && !f.cloud);
-    const traits = getTraitsData().traits.filter(t => !t.superseded && !t.cloud);
-    const events = getTimelineData().events.filter(e => !e.superseded && !e.cloud);
-    const contacts = getSocialData().contacts.filter(c => !c.cloud);
-    const hypotheses = getHypothesesData().hypotheses.filter(h => !h.cloud);
-
-    facts.slice(0, 30).forEach((item, index) => items.push({ kind: 'fact', index: index + 1, text: item.text }));
-    traits.slice(0, 15).forEach((item, index) => items.push({ kind: 'trait', index: index + 1, text: item.text }));
-    events.slice(0, 15).forEach((item, index) => items.push({ kind: 'event', index: index + 1, text: item.text }));
-    contacts.slice(0, 10).forEach((item, index) => items.push({ kind: 'contact', index: index + 1, text: item.name }));
-    hypotheses.slice(0, 8).forEach((item, index) => items.push({ kind: 'hypothesis', index: index + 1, text: item.text }));
-
+    const limit = CLOUD_CONFIG.maxItemsPerPrompt;
+    const push = (kind, list, render) => {
+        list.forEach(item => {
+            if (items.length >= limit || !item || item.cloud) return;
+            items.push({ kind, id: item.id, text: render(item) });
+        });
+    };
+    push('fact', catalog.lists.fact, item => item.text);
+    push('trait', catalog.lists.trait, item => item.text);
+    push('event', catalog.lists.event, item => item.text);
+    push('contact', catalog.lists.contact, item => [item.name, item.relation].filter(Boolean).join(' — '));
+    push('hypothesis', catalog.lists.hypothesis, item => item.text);
     return items;
 }
 
-function bootstrapCloudsFromMemory() {
-    if (typeof areCloudsBootstrapped !== 'function' || areCloudsBootstrapped()) return;
-    if (typeof ensureCloud !== 'function' || typeof markCloudsBootstrapped !== 'function') return;
+function cloudConsolidationPrompt(catalog, items) {
+    const existing = getCloudsForSelection();
+    const cloudList = existing.length
+        ? existing.map(cloud => `- ${cloud.name}${cloud.summary ? ': ' + cloud.summary : ''} (${cloud.total})`).join('\n')
+        : '(облаков пока нет)';
+    const itemList = items.map((item, index) => `${index + 1}. [${item.kind}] ${String(item.text || '').slice(0, 160)}`).join('\n');
 
-    const items = collectCloudBootstrapItems();
-    if (items.length < 4) {
-        markCloudsBootstrapped();
-        return;
-    }
+    return `Ты — фоновая стадия разбора памяти. Ты не отвечаешь пользователю: ты приводишь его память в порядок.
 
-    const list = items.map(item => `${item.kind}#${item.index}: ${item.text}`).join('\n');
-    const prompt = `Ты раскладываешь память о человеке по темам-облакам.
+=== ОБЛАКА СЕЙЧАС ===
+${cloudList}
 
-=== ЭЛЕМЕНТЫ ПАМЯТИ ===
-${list}
+=== ЗАПИСИ БЕЗ ОБЛАКА (${items.length}) ===
+${itemList}
 
-=== ЗАДАЧА ===
-Собери из них 3–8 осмысленных тем (облаков): например «Работа», «Здоровье», «Собака», «Хобби», «Поездки».
-Правила:
-1. Темы называй коротко, по-русски, 1–2 словами.
-2. Каждый элемент попадает ровно в одну тему.
-3. Темы должны отражать жизнь человека, а не типы записей: «Работа» — да, «Факты» — нет.
-4. Если элемент ни к чему не относится — отправь его в тему «Разное».
+=== ЧТО СДЕЛАТЬ ===
+1. Разложи записи без облака по темам. Тема — сторона жизни человека: «Работа», «Здоровье», «Собака Бобик», «Поездка в Японию». Не дели по типам записей.
+2. Если подходящей темы нет — создай её, но не больше двух новых тем за проход. Всего тем не больше ${CLOUD_CONFIG.maxClouds}.
+3. Если две темы об одном и том же — слей их (merges), записи перейдут сами.
+4. Если имя темы неудачное (слишком общее, длинное или не по-русски) — переименуй (renames).
+5. Описание темы — одна короткая строка о том, что в ней лежит.
+6. Не трогай записи, у которых уже есть тема, и не придумывай новых записей.
+7. Запись, которая ни к чему не относится, оставь без ответа — она уйдёт в «Разное».
 
 === ФОРМАТ ОТВЕТА ===
 Только JSON, без markdown:
 {
     "clouds": [{"name": "Работа", "summary": "чем занимается, коллектив, планы"}],
-    "assignments": [{"kind": "fact", "index": 1, "cloud": "Работа"}]
+    "moves": [{"index": 1, "cloud": "Работа"}],
+    "merges": [{"from": "Карьера", "into": "Работа"}],
+    "renames": [{"from": "Офисное", "to": "Работа"}]
 }
 
-Если совсем нечего раскладывать: {"clouds": [], "assignments": []}`;
+Если раскладывать нечего и порядок уже хороший: {"clouds": [], "moves": [], "merges": [], "renames": []}`;
+}
 
-    return callMemoryAPIWithRetry(prompt, 1)
-        .then(raw => {
-            const parsed = parseJSON(raw);
-            const clouds = parsed && Array.isArray(parsed.clouds) ? parsed.clouds : [];
-            const assignments = parsed && Array.isArray(parsed.assignments) ? parsed.assignments : [];
+function applyCloudConsolidation(parsed, catalog, items) {
+    const renames = Array.isArray(parsed.renames) ? parsed.renames : [];
+    const merges = Array.isArray(parsed.merges) ? parsed.merges : [];
+    const clouds = Array.isArray(parsed.clouds) ? parsed.clouds : [];
+    const moves = Array.isArray(parsed.moves) ? parsed.moves : [];
 
-            clouds.forEach(cloud => {
-                if (cloud && cloud.name) ensureCloud(cloud.name, cloud.summary || '');
-            });
+    // 1. Слияния — до переименований: модель называет темы теми именами,
+    // которые видела в промпте, а не теми, что появятся после renames.
+    for (const merge of merges) {
+        if (!merge || !merge.from || !merge.into) continue;
+        const from = findCloudByName(merge.from);
+        const into = findCloudByName(merge.into) || ensureCloud(merge.into);
+        if (from && into) mergeClouds(from.id, into.id);
+    }
 
-            // Читаем данные один раз и пишем обратно ровно эти же объекты:
-            // иначе присвоенные облака потеряются при повторном чтении из localStorage.
-            const factsData = getFactsData();
-            const traitsData = getTraitsData();
-            const eventsData = getTimelineData();
-            const socialData = getSocialData();
-            const hypothesesData = getHypothesesData();
+    // 2. Переименования оставшихся тем.
+    for (const rename of renames) {
+        if (!rename || !rename.from || !rename.to) continue;
+        const cloud = findCloudByName(rename.from);
+        if (cloud) renameCloud(cloud.id, rename.to);
+    }
 
-            const buckets = {
-                fact: factsData.facts.filter(f => !f.superseded && !f.cloud),
-                trait: traitsData.traits.filter(t => !t.superseded && !t.cloud),
-                event: eventsData.events.filter(e => !e.superseded && !e.cloud),
-                contact: socialData.contacts.filter(c => !c.cloud),
-                hypothesis: hypothesesData.hypotheses.filter(h => !h.cloud)
-            };
+    // 3. Описания и новые темы.
+    for (const cloud of clouds) {
+        if (!cloud || !cloud.name) continue;
+        const created = ensureCloud(cloud.name, cloud.summary || '');
+        if (created && cloud.summary) updateCloudSummary(created.id, cloud.summary);
+    }
 
-            const touched = { fact: false, trait: false, event: false, contact: false, hypothesis: false };
-            for (const assignment of assignments) {
-                const bucket = buckets[assignment.kind];
-                if (!bucket || !assignment.cloud) continue;
-                const item = bucket[Number(assignment.index) - 1];
-                if (!item) continue;
-                assignItemCloud(item, assignment.cloud);
-                touched[assignment.kind] = true;
-            }
+    // 4. Раскладка новых записей по индексам снимка.
+    const touched = { fact: false, trait: false, event: false, contact: false, hypothesis: false };
+    let placed = 0;
+    for (const move of moves) {
+        if (!move || !move.cloud) continue;
+        const item = items[Number(move.index) - 1];
+        if (!item) continue;
+        const list = catalog.lists[item.kind];
+        const record = Array.isArray(list) ? list.find(entry => entry && entry.id === item.id) : null;
+        if (!record || record.cloud) continue;
+        assignItemCloud(record, move.cloud);
+        touched[item.kind] = true;
+        placed++;
+    }
 
-            if (touched.fact) setFactsData(factsData);
-            if (touched.trait) setTraitsData(traitsData);
-            if (touched.event) setTimelineData(eventsData);
-            if (touched.contact) setSocialData(socialData);
-            if (touched.hypothesis) setHypothesesData(hypothesesData);
+    // 5. Остальное — в «Разное», чтобы ничего не потерялось.
+    for (const item of items) {
+        const list = catalog.lists[item.kind];
+        const record = Array.isArray(list) ? list.find(entry => entry && entry.id === item.id) : null;
+        if (!record || record.cloud) continue;
+        assignItemCloud(record, null);
+        touched[item.kind] = true;
+    }
 
-            markCloudsBootstrapped();
-            console.log('[Clouds] Разложено элементов:', assignments.length);
-            return true;
-        })
-        .catch(error => {
-            console.warn('[Clouds] Первичная разбивка не удалась:', error.message);
-            markCloudsBootstrapped(); // не повторяем дорогой вызов каждый ход
-            return false;
-        });
+    if (touched.fact) setFactsData(catalog.data.facts);
+    if (touched.trait) setTraitsData(catalog.data.traits);
+    if (touched.event) setTimelineData(catalog.data.events);
+    if (touched.contact) setSocialData(catalog.data.social);
+    if (touched.hypothesis) setHypothesesData(catalog.data.hypotheses);
+
+    // 6. Пустые темы (кроме «Разного») больше не нужны.
+    pruneEmptyClouds();
+    return { placed, clouds: clouds.length, merges: merges.length, renames: renames.length };
+}
+
+// Запускать ли разбор прямо сейчас. force — кнопка «разобрать сейчас» в интерфейсе.
+function shouldRunCloudConsolidation(force = false) {
+    if (typeof isCloudMemoryEnabled !== 'function' || !isCloudMemoryEnabled()) return false;
+    if (force) return true;
+    const data = getCloudsData();
+    const now = Date.now();
+    if (data.lastAttemptAt && now - data.lastAttemptAt < CLOUD_CONFIG.cooldownMs) return false;
+
+    const catalog = collectCloudCatalog();
+    const unassigned = collectUnassignedItems(catalog).length;
+    if (unassigned >= CLOUD_CONFIG.minUnassigned) return true;
+
+    const total = Object.values(catalog.lists).reduce((sum, list) => sum + list.length, 0);
+    if (!data.clouds.length && total >= CLOUD_CONFIG.minUnassigned) return true;
+    if (data.lastConsolidatedAt && now - data.lastConsolidatedAt >= CLOUD_CONFIG.refreshAfterMs) {
+        return total >= CLOUD_CONFIG.refreshMinItems;
+    }
+    return false;
+}
+
+async function runCloudConsolidation(options = {}) {
+    const force = options.force === true;
+    if (typeof getCloudsData !== 'function' || typeof ensureCloud !== 'function') return false;
+    if (!shouldRunCloudConsolidation(force)) return false;
+
+    const catalog = collectCloudCatalog();
+    const items = collectUnassignedItems(catalog);
+    const total = Object.values(catalog.lists).reduce((sum, list) => sum + list.length, 0);
+    if (!items.length && !getClouds().length) return false;
+    if (!items.length && !force && total < CLOUD_CONFIG.refreshMinItems) return false;
+
+    markCloudConsolidationAttempt();
+    try {
+        const raw = await callMemoryAPIWithRetry(cloudConsolidationPrompt(catalog, items), 1);
+        const parsed = parseJSON(raw) || {};
+        const result = applyCloudConsolidation(parsed, catalog, items);
+        markCloudConsolidated();
+        console.log(`[Clouds] Разбор: разложено ${result.placed}, тем ${getClouds().length}, слияний ${result.merges}, переименований ${result.renames}`);
+        return true;
+    } catch (error) {
+        console.warn('[Clouds] Разбор не удался, попробуем позже:', error.message);
+        return false;
+    }
 }
 
 function integrateFactsData(newFacts, currentData, history) {
@@ -373,7 +449,6 @@ function integrateFactsData(newFacts, currentData, history) {
             superseded: false
         };
         
-        if (typeof assignItemCloud === 'function') assignItemCloud(fact, newFact.cloud);
         
         data.facts.push(fact);
         console.log('[FACTS] Added:', fact.text.substring(0, 40), `(${validEvidence.length} evidence)`);
@@ -486,13 +561,12 @@ CRITICAL REQUIREMENT FOR BREVITY: Traits MUST be extremely concise. Maximum 1 sh
 ✗ "Хороший человек" (Too vague)
 ✗ "Любит музыку" (This is a FACT, not a trait)
 
-${cloudPromptBlock()}=== RESPONSE FORMAT ===
+=== RESPONSE FORMAT ===
 Return ONLY valid JSON:
 {
     "traits": [
         {
             "text": "Very short, nuanced personality trait",
-            "cloud": "тема памяти",
             "evidence": ["exact quote from USER showing this trait"],
             "confidence": "low|medium|high",
             "updatesTraitIndex": null,
@@ -602,7 +676,6 @@ function integrateTraitsData(newTraits, currentData, history) {
             superseded: false
         };
         
-        if (typeof assignItemCloud === 'function') assignItemCloud(trait, newTrait.cloud);
         
         data.traits.push(trait);
         console.log('[TRAITS] Added:', trait.text.substring(0, 40), `(${validEvidence.length} evidence)`);
@@ -718,13 +791,12 @@ Extract life events, ongoing periods, and future plans:
 === IMPORTANT ===
 Evidence must be USER's EXACT words. Not paraphrased!
 
-${cloudPromptBlock()}=== RESPONSE FORMAT ===
+=== RESPONSE FORMAT ===
 Return ONLY valid JSON:
 {
     "events": [
         {
             "text": "Event description",
-            "cloud": "тема памяти",
             "type": "event|period|plan",
             "date": {
                 "exact": "2024-03-15 or null",
@@ -848,7 +920,6 @@ function integrateTimelineData(newEvents, currentData, history) {
             superseded: false
         };
         
-        if (typeof assignItemCloud === 'function') assignItemCloud(event, newEvent.cloud);
         
         data.events.push(event);
         console.log('[TIMELINE] Added:', event.text.substring(0, 40), `(${validEvidence.length} evidence)`);
@@ -953,13 +1024,12 @@ Extract ALL information about people the user mentions:
 === IMPORTANT ===
 Evidence must be USER's EXACT words. Not paraphrased!
 
-${cloudPromptBlock()}=== RESPONSE FORMAT ===
+=== RESPONSE FORMAT ===
 Return ONLY valid JSON:
 {
     "contacts": [
         {
             "name": "Name as mentioned by user",
-            "cloud": "тема памяти",
             "possibleAliases": ["other names/nicknames"],
             "relation": "family/friend/colleague/acquaintance/other",
             "sentiment": "positive/neutral/negative",
@@ -1050,12 +1120,8 @@ function integrateSocialData(newContacts, history) {
         
         if (existingContact) {
             updateExistingContact(data, existingContact.id, validatedContact, messageCount);
-            if (typeof assignItemCloud === 'function' && newContact.cloud) {
-                assignItemCloud(existingContact, newContact.cloud);
-            }
         } else {
             const contact = createNewContact(validatedContact, messageCount);
-            if (typeof assignItemCloud === 'function') assignItemCloud(contact, newContact.cloud);
             data.contacts.push(contact);
             console.log('[SOCIAL] Created:', contact.name);
         }
@@ -1881,11 +1947,6 @@ async function runBackgroundAnalysis() {
     const category = EXTRACTION_CATEGORIES[currentExtractionIndex];
     currentExtractionIndex = (currentExtractionIndex + 1) % EXTRACTION_CATEGORIES.length;
     
-    // Первичная разбивка памяти по облакам — один раз на пользователя, фоном.
-    if (typeof bootstrapCloudsFromMemory === 'function') {
-        bootstrapCloudsFromMemory();
-    }
-
     console.log(`[ANALYSIS] Running extraction for: ${category}`);
     
     try {
@@ -1905,6 +1966,14 @@ async function runBackgroundAnalysis() {
         }
     } catch (error) {
         console.error(`[ANALYSIS] ${category} extraction failed:`, error.message);
+    }
+
+    // Разбор облаков — отдельная фоновая стадия, после извлечения: она видит
+    // только что записанные пункты. Свои паузы и пороги проверяет сама.
+    if (typeof runCloudConsolidation === 'function') {
+        Promise.resolve(runCloudConsolidation()).catch(error => {
+            console.warn('[Clouds] Разбор не запустился:', error.message);
+        });
     }
 }
 
