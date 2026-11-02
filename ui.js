@@ -2356,9 +2356,12 @@ async function streamHydraSmart(messages, onChunk, onComplete, options = {}) {
     };
     if (info.key) headers['Authorization'] = 'Bearer ' + info.key;
 
-    const { signal, ...requestOptions } = options;
-    const requestBody = { model: getChatModel(), messages: messages, stream: true, ...requestOptions };
-    console.log('[Stream] Умный режим → Hydra (' + (info.url.startsWith('/api') ? 'прокси /api/hydra' : 'direct') + '), model: ' + getChatModel());
+    // Маршрут по сложности может прислать свою модель; иначе — выбор пользователя.
+    const routedModel = options.route && options.route.model ? options.route.model : null;
+    const { signal, route, ...requestOptions } = options;
+    const model = routedModel || getChatModel();
+    const requestBody = { model: model, messages: messages, stream: true, ...requestOptions };
+    console.log('[Stream] Умный режим → Hydra (' + (info.url.startsWith('/api') ? 'прокси /api/hydra' : 'direct') + '), model: ' + model);
 
     const response = await fetch(info.url, {
         method: 'POST',
@@ -2410,7 +2413,22 @@ async function streamHydraSmart(messages, onChunk, onComplete, options = {}) {
 }
 
 async function streamResponse(messages, onChunk, onComplete, options = {}) {
-    if (isSmartMode()) {
+    const route = options.route || null;
+    const smart = isSmartMode() || isFullHydraMode();
+
+    // Лёгкий ход: сначала бесплатная цепочка OpenRouter, платный провайдер — только как страховка.
+    if (route && route.provider === 'openrouter') {
+        try {
+            return await streamResponseOpenRouter(messages, onChunk, onComplete, options);
+        } catch (e) {
+            if (options.signal?.aborted || e.name === 'AbortError') throw e;
+            console.warn('[Stream] Лёгкий маршрут (OpenRouter) не сработал, откат на Hydra:', e.message);
+            if (smart) return await streamHydraSmart(messages, onChunk, onComplete, options);
+            throw e;
+        }
+    }
+
+    if (smart) {
         try {
             return await streamHydraSmart(messages, onChunk, onComplete, options);
         } catch (e) {
@@ -2420,6 +2438,32 @@ async function streamResponse(messages, onChunk, onComplete, options = {}) {
     }
     console.log('[Stream] Using OpenRouter with fallback chain');
     return await streamResponseOpenRouter(messages, onChunk, onComplete, options);
+}
+
+// ==================== МАРШРУТИЗАЦИЯ ПО СЛОЖНОСТИ ====================
+// Один дешёвый запрос к System One (jev / solar-decide) решает, какой моделью отвечать.
+// Любая проблема — null, и тогда работает прежний выбор модели. Ничего не ломаем.
+
+function isComplexityRoutingAvailable() {
+    if (typeof resolveMessageRoute !== 'function') return false;
+    if (typeof isComplexityRoutingEnabled === 'function' && !isComplexityRoutingEnabled()) return false;
+    // Без платного провайдера маршрут нечего менять: все уровни ушли бы в один и тот же OpenRouter.
+    return isSmartMode() || isFullHydraMode();
+}
+
+async function resolveTurnRoute(userMessage, history) {
+    if (!isComplexityRoutingAvailable()) return null;
+    try {
+        const route = await resolveMessageRoute(userMessage, history);
+        if (!route) return null;
+        console.log('[Route] сложность ' + route.score.toFixed(2) + ' → ' + route.label +
+            ' (' + route.provider + (route.model ? '/' + route.model : '') + ')' +
+            (route.confidence === null ? '' : ', confidence ' + route.confidence));
+        return route;
+    } catch (error) {
+        console.warn('[Route] маршрут не определён, остаёмся на прежней модели:', error.message);
+        return null;
+    }
 }
 
 function createStreamingMessage() {
@@ -2711,6 +2755,11 @@ if (last && last.role === 'user' && (last.content || '').trim() === (userMessage
     updateThinkingMessage(echoText);
     
     // 2. STAGE 1: Сбор контекста + "Прокашливание"
+    // Сложность считаем параллельно: маршрут не должен добавлять ожидание к ответу.
+    // Если jev.js не загрузился, чат обязан работать как раньше.
+    const routePromise = typeof resolveTurnRoute === 'function'
+        ? resolveTurnRoute(userMessage, historyWithoutCurrent)
+        : Promise.resolve(null);
     const contextResult = await findRelevantContext(userMessage, historyWithoutCurrent);
     
     // 3. Обновляем статус-бар на "Прокашливание" (реакцию-мысль)
@@ -2813,6 +2862,9 @@ ${questionRule}
             { role: "user", content: userMessage }
         ];
         
+        // Маршрут по сложности готов к этому моменту (считался параллельно со стадией 1).
+        const turnRoute = await routePromise;
+
         // Стриминг: мы должны фильтровать теги "на лету", чтобы юзер видел только <answer>
         let isInsideAnswer = false;
         let answerBuffer = '';
@@ -2850,7 +2902,8 @@ ${questionRule}
                 if (nextEchoFound) {
                     localStorage.setItem('chatbot_next_echo', nextEchoFound);
                 }
-            }
+            },
+            turnRoute ? { route: turnRoute } : {}
         );
         
         return finalAnswer;

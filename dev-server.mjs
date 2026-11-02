@@ -204,6 +204,48 @@ function handleChat(req, res, body) {
     });
 }
 
+// Демо-ответ System One: без ключа Hydra маршрут по сложности должен работать локально.
+// Сложность считается по простым признакам — этого хватает, чтобы увидеть все три уровня.
+function handleSystemOne(req, res, body) {
+    const state = body && body.state;
+    const message = typeof state === 'string'
+        ? state
+        : String((state && (state.message || JSON.stringify(state))) || '');
+    const forced = Number(process.env.SYSTEMONE_DEV_FORCE);
+
+    let score = Number.isFinite(forced) ? forced : 0.08;
+    if (!Number.isFinite(forced)) {
+        // Грубая, но наглядная эвристика: длина + вопросительная форма + «сложные» темы.
+        // Нужна только для превью — в проде сложность оценивает сама модель.
+        score += Math.min(0.35, message.length / 300);
+        if (/[?？]/.test(message)) score += 0.04;
+        const heavy = /(почему|зачем|как|объясни|сравн|план|решени|выбор|успе|страшн|тяжел|отношен|деньг|здоров|смысл|работ|команд|руковод)/gi;
+        const hits = (message.match(heavy) || []).length;
+        score += Math.min(0.4, hits * 0.12);
+        score = Math.min(0.95, Math.max(0.05, score));
+    }
+
+    const levels = 10;
+    const raw = score * (levels - 1);
+    const answers = {
+        complexity: {
+            type: 'score',
+            score: Number(raw.toFixed(2)),
+            confidence: 0.82,
+            probabilities: { [String(Math.round(raw))]: 0.62 },
+            legend: {}
+        },
+        needs_memory: { type: 'noul', noul: score > 0.4 ? 0.71 : 0.19 }
+    };
+
+    return sendJson(res, 200, {
+        model: (body && body.model) || 'jev-1.14',
+        answers,
+        usage: { input_tokens: Math.max(40, Math.round(message.length / 3)), output_tokens: 0 },
+        demo: true
+    });
+}
+
 function readBody(req) {
     return new Promise((resolve) => {
         let raw = '';
@@ -239,6 +281,10 @@ const server = http.createServer(async (req, res) => {
     // идут именно туда, и без этого мока их нельзя проверить локально.
     if ((pathname === '/api/chat' || pathname === '/api/hydra') && req.method === 'POST') {
         return handleChat(req, res, await readBody(req));
+    }
+    // /api/systemone — типизированные решения (jev / solar-decide). Без ключа — демо.
+    if (pathname === '/api/systemone' && req.method === 'POST') {
+        return handleSystemOne(req, res, await readBody(req));
     }
     if (pathname.startsWith('/api/')) {
         return sendJson(res, 404, { error: `В дев-сервере нет обработчика ${pathname}` });
