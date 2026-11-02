@@ -194,6 +194,65 @@ function pickRouteByComplexity(score, provider) {
     return { tier: 'hard', provider: 'hydra', model: 'hydra-gemini-pro', score, label: 'Gemini Pro' };
 }
 
+// ==================== АРХЕТИП ОТВЕТА И ВОПРОС ====================
+// Раньше архетип и «задавать ли вопрос» выбирались Math.random(). Это часть того же
+// запроса, что и сложность: state один, цена та же, поведение перестаёт быть рулеткой.
+
+const RESPONSE_ARCHETYPES = {
+    answer_first: 'Answer-first: start with the useful answer immediately, then (optionally) add a short memory-based observation.',
+    reframe: 'Reframe: offer an alternative interpretation using their traits/hypotheses, then give a concrete next step.',
+    options: 'Options: propose 2–3 options with trade-offs; minimal fluff, maximal clarity.',
+    micro_plan: 'Micro-plan: give a short plan (2–4 steps) tailored to what you know about them.',
+    reality_check: 'Reality-check: gently challenge or test an assumption, grounded in what you know about them.',
+    story: 'Story/analogy: use a brief analogy that fits their known interests; keep it tight.',
+    connector: 'Connector: link their current message to something from their past or a pattern you\'ve noticed.',
+    minimalist: 'Minimalist: a concise response that moves forward; no fluff, pure value.'
+};
+
+const ARCHETYPE_CRITERIA = {
+    answer_first: 'Нужен прямой полезный ответ: человек пришёл за результатом, а не за разбором',
+    reframe: 'Человек застрял в одной трактовке — уместно предложить другую',
+    options: 'Нужен выбор из нескольких путей, важны компромиссы',
+    micro_plan: 'Нужен короткий план из 2–4 шагов под его ситуацию',
+    reality_check: 'Есть допущение или ожидание, которое стоит мягко проверить',
+    story: 'Аналогия или история помогут лучше прямого ответа',
+    connector: 'Уместно связать с прошлым разговором или замеченным паттерном',
+    minimalist: 'Лучше короткая реплика без структуры и теории'
+};
+
+const ASK_QUESTION_PROBABILITY_THRESHOLD = 0.5;
+
+function buildTurnQuestions() {
+    const questions = buildComplexityQuestions();
+    questions.archetype = {
+        type: 'choice',
+        instructions: 'Какая форма ответа лучше всего подойдёт именно на это сообщение? Выбери одну.',
+        criteria: ARCHETYPE_CRITERIA
+    };
+    questions.ask_question = {
+        type: 'noul',
+        instructions: 'Уместно ли закончить ответ одним вопросом к человеку? Не если он просит просто сделать что-то, ' +
+            'не если вопрос будет для галочки, и не если человеку сейчас тяжело.',
+        criteria: {
+            true: 'Вопрос поможет человеку продвинуться и звучит естественно',
+            false: 'Вопрос лишний: ответ самодостаточен или человеку не до вопросов'
+        }
+    };
+    return questions;
+}
+
+function clampProbability(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return null;
+    return Math.min(1, Math.max(0, number));
+}
+
+function normalizeArchetype(answer) {
+    const key = answer && typeof answer.choice === 'string' ? answer.choice : '';
+    if (!RESPONSE_ARCHETYPES[key]) return null;
+    return { key, instruction: RESPONSE_ARCHETYPES[key] };
+}
+
 // Главная точка входа: сложность → маршрут. null означает «оставь как было»,
 // и это безопасный ответ на любую проблему: сеть, таймаут, мусор в ответе.
 async function assessMessageComplexity(message, history, options) {
@@ -206,35 +265,62 @@ async function assessMessageComplexity(message, history, options) {
         .map(item => ({ role: item.role, text: String(item.content || '').slice(0, 400) }));
 
     const state = { message: clean.slice(0, 2000), recent };
-    const result = await systemOne(state, buildComplexityQuestions(), options || {});
-    const answer = result.answers.complexity || {};
+    const result = await systemOne(state, buildTurnQuestions(), options || {});
+    const answers = result.answers || {};
+    const answer = answers.complexity || {};
     const score = normalizeComplexityScore(answer.score, COMPLEXITY_LEVELS.length);
+    const archetype = normalizeArchetype(answers.archetype);
+    const askProbability = clampProbability(answers.ask_question && answers.ask_question.noul);
 
     return {
         score,
         confidence: Number.isFinite(Number(answer.confidence)) ? Number(answer.confidence) : null,
-        needsMemory: Number(result.answers.needs_memory && result.answers.needs_memory.noul) || 0,
+        needsMemory: clampProbability(answers.needs_memory && answers.needs_memory.noul) || 0,
         levels: answer.probabilities || null,
+        archetype: archetype ? archetype.instruction : null,
+        archetypeKey: archetype ? archetype.key : null,
+        askProbability,
+        shouldAsk: askProbability === null ? null : askProbability >= ASK_QUESTION_PROBABILITY_THRESHOLD,
         model: result.model
     };
 }
 
-async function resolveMessageRoute(message, history, options) {
+// Один запрос за ход: сложность, нужна ли память, архетип ответа и уместность вопроса.
+// null — любая проблема; вызывающий код тогда работает по-старому.
+async function resolveTurnPlan(message, history, options) {
+    const clean = String(message == null ? '' : message).trim();
+    if (!clean) return null;
+
     try {
-        const assessment = await assessMessageComplexity(message, history, options);
-        if (!assessment || assessment.score === null) return null;
-        const route = pickRouteByComplexity(assessment.score);
-        if (!route) return null;
-        return Object.assign({}, route, {
+        const assessment = await assessMessageComplexity(clean, history, options);
+        if (!assessment) return null;
+        return {
+            route: pickRouteByComplexity(assessment.score),
+            complexity: assessment.score,
             confidence: assessment.confidence,
             needsMemory: assessment.needsMemory,
-            source: 'jev'
-        });
+            archetype: assessment.archetype,
+            archetypeKey: assessment.archetypeKey,
+            askProbability: assessment.askProbability,
+            shouldAsk: assessment.shouldAsk,
+            model: assessment.model
+        };
     } catch (error) {
         systemOneStats.errors++;
-        console.warn('[Route] сложность не определена, работаем как раньше:', error.message);
+        console.warn('[Route] решение по ходу не получено, работаем как раньше:', error.message);
         return null;
     }
+}
+
+// Совместимость: только маршрут по сложности (с контекстом решения).
+async function resolveMessageRoute(message, history, options) {
+    const plan = await resolveTurnPlan(message, history, options);
+    if (!plan || !plan.route) return null;
+    return Object.assign({}, plan.route, {
+        confidence: plan.confidence,
+        needsMemory: plan.needsMemory,
+        source: 'jev'
+    });
 }
 
 // ==================== ФЛАГИ И НАБЛЮДАЕМОСТЬ ====================

@@ -2451,19 +2451,34 @@ function isComplexityRoutingAvailable() {
     return isSmartMode() || isFullHydraMode();
 }
 
-async function resolveTurnRoute(userMessage, history) {
+async function resolveTurnDecisions(userMessage, history) {
     if (!isComplexityRoutingAvailable()) return null;
     try {
-        const route = await resolveMessageRoute(userMessage, history);
-        if (!route) return null;
-        console.log('[Route] сложность ' + route.score.toFixed(2) + ' → ' + route.label +
-            ' (' + route.provider + (route.model ? '/' + route.model : '') + ')' +
-            (route.confidence === null ? '' : ', confidence ' + route.confidence));
-        return route;
+        const plan = typeof resolveTurnPlan === 'function'
+            ? await resolveTurnPlan(userMessage, history)
+            : null;
+        if (!plan) return null;
+        const route = plan.route;
+        console.log('[Route] сложность ' + (plan.complexity === null ? '?' : plan.complexity.toFixed(2)) +
+            (route ? ' → ' + route.label + ' (' + route.provider + (route.model ? '/' + route.model : '') + ')' : ' → прежняя модель') +
+            (plan.archetypeKey ? ', архетип: ' + plan.archetypeKey : '') +
+            (plan.shouldAsk === null ? '' : ', вопрос: ' + (plan.shouldAsk ? 'да' : 'нет')));
+        return plan;
     } catch (error) {
-        console.warn('[Route] маршрут не определён, остаёмся на прежней модели:', error.message);
+        console.warn('[Route] решение по ходу не получено, работаем как раньше:', error.message);
         return null;
     }
+}
+
+// Вопрос в конце ответа: ASK_ME важнее модели, модель важнее случая.
+function decideTurnQuestionPolicy(plan) {
+    if (askMeMode && isAskMeModeAvailable()) {
+        return { shouldAsk: true, probability: 0.85, modeLabel: 'ASK_ME' };
+    }
+    if (plan && typeof plan.shouldAsk === 'boolean') {
+        return { shouldAsk: plan.shouldAsk, probability: plan.askProbability, modeLabel: 'SYSTEM_ONE' };
+    }
+    return decideQuestionPolicyForThisTurn();
 }
 
 function createStreamingMessage() {
@@ -2757,8 +2772,8 @@ if (last && last.role === 'user' && (last.content || '').trim() === (userMessage
     // 2. STAGE 1: Сбор контекста + "Прокашливание"
     // Сложность считаем параллельно: маршрут не должен добавлять ожидание к ответу.
     // Если jev.js не загрузился, чат обязан работать как раньше.
-    const routePromise = typeof resolveTurnRoute === 'function'
-        ? resolveTurnRoute(userMessage, historyWithoutCurrent)
+    const routePromise = typeof resolveTurnDecisions === 'function'
+        ? resolveTurnDecisions(userMessage, historyWithoutCurrent)
         : Promise.resolve(null);
     const contextResult = await findRelevantContext(userMessage, historyWithoutCurrent);
     
@@ -2778,8 +2793,15 @@ if (last && last.role === 'user' && (last.content || '').trim() === (userMessage
     
     try {
         const langName = getLanguageName();
-        const archetype = pickResponseArchetype();
-        const qp = decideQuestionPolicyForThisTurn();
+
+        // Решение по ходу (сложность, архетип, уместность вопроса) считалось параллельно стадии 1.
+        const turnPlan = routePromise === undefined ? null : await routePromise;
+        const turnRoute = turnPlan && turnPlan.route ? turnPlan.route : null;
+        // Без решения остаются прежние случайные функции — поведение не хуже, чем было.
+        const archetype = (turnPlan && turnPlan.archetype) || pickResponseArchetype();
+        const qp = typeof decideTurnQuestionPolicy === 'function'
+            ? decideTurnQuestionPolicy(turnPlan)
+            : decideQuestionPolicyForThisTurn();
         
         // Добавляем текущее время в промпт
         const currentTimeInfo = contextResult.currentTime || 'Unknown';
@@ -2862,9 +2884,6 @@ ${questionRule}
             { role: "user", content: userMessage }
         ];
         
-        // Маршрут по сложности готов к этому моменту (считался параллельно со стадией 1).
-        const turnRoute = await routePromise;
-
         // Стриминг: мы должны фильтровать теги "на лету", чтобы юзер видел только <answer>
         let isInsideAnswer = false;
         let answerBuffer = '';
