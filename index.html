@@ -597,6 +597,9 @@
             <button class="modal-tab" data-tab="gaps" onclick="switchTab('gaps')" data-i18n="tabGaps">
                 🔍 White Spots
             </button>
+            <button class="modal-tab" data-tab="clouds" onclick="switchTab('clouds')">
+                ☁️ Облака памяти
+            </button>
             <button class="modal-tab" data-tab="personaPrompt" onclick="switchTab('personaPrompt')" data-i18n="tabPersonaPrompt">
                 🎭 Промпт личности
             </button>
@@ -628,6 +631,9 @@
             </div>
             <div id="gapsInfo" class="tab-info" style="display: none;" data-i18n="gapsInfo">
                 <strong>🔍 White Spots</strong> — important topics about you that remain unknown. The AI uses these to ask better questions. Updated every 6 messages. Read-only.
+            </div>
+            <div id="cloudsInfo" class="tab-info" style="display: none;">
+                <strong>☁️ Облака памяти</strong> — темы, вокруг которых собрана вся память: факты, черты, события, люди, гипотезы. Перед каждым ответом Джев выбирает, какие темы поднять, вместо того чтобы перечитывать весь профиль. Названия, описания и раскладку ведёт фоновая стадия разбора: вручную здесь ничего не правится.
             </div>
             <div id="personaPromptInfo" class="tab-info" style="display: none;" data-i18n="personaPromptInfo">
                 <strong>🎭 Промпт личности</strong> — роль, в образе которой бот отвечает в чате. Опишите характер, манеру речи и привычки. Пока промпт пуст, эмуляция выключена.
