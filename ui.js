@@ -2928,9 +2928,6 @@ Respond in ${langName}. Use EXACTLY this XML tag:
 }
 // ==================== TWO-STAGE RESPONSE ARCHITECTURE ====================
 
-// ==================== TWO-STAGE RESPONSE ARCHITECTURE ====================
-
-// В ui.js заменяем функцию processMessageWithTwoStages
 async function processMessageWithTwoStages(userMessage) {
     const history = getChatHistory();
 
