@@ -162,9 +162,10 @@ ${langInstruction}`;
 //
 // Что делает стадия:
 //   1. раскладывает новые записи (без облака) по темам;
-//   2. создаёт тему, если её ещё нет, и пишет короткое описание;
-//   3. сливает темы об одном и том же, переименовывает неудачные;
-//   4. всё, что не разложилось, отправляет в «Разное».
+//   2. добавляет уже разложенной записи вторую тему, если она правда общая;
+//   3. создаёт тему, если её ещё нет, и пишет короткое описание;
+//   4. сливает темы об одном и том же, переименовывает неудачные;
+//   5. всё, что не разложилось, отправляет в «Разное».
 // Один вызов модели на проход; повтор — не раньше, чем через cooldown.
 
 function collectCloudCatalog() {
@@ -193,8 +194,38 @@ function collectUnassignedItems(catalog) {
     const limit = CLOUD_CONFIG.maxItemsPerPrompt;
     const push = (kind, list, render) => {
         list.forEach(item => {
-            if (items.length >= limit || !item || item.cloud) return;
+            if (items.length >= limit || !item || getItemCloudIds(item).length) return;
             items.push({ kind, id: item.id, text: render(item) });
+        });
+    };
+    push('fact', catalog.lists.fact, item => item.text);
+    push('trait', catalog.lists.trait, item => item.text);
+    push('event', catalog.lists.event, item => item.text);
+    push('contact', catalog.lists.contact, item => [item.name, item.relation].filter(Boolean).join(' — '));
+    push('hypothesis', catalog.lists.hypothesis, item => item.text);
+    return items;
+}
+
+// Записи для промпта разбора: сначала без темы, потом уже разложенные —
+// у вторых видно текущие темы, чтобы стадия могла добавить общую.
+function collectConsolidationItems(catalog) {
+    const unassigned = collectUnassignedItems(catalog);
+    const limit = CLOUD_CONFIG.maxItemsPerPrompt;
+    if (unassigned.length >= limit) return unassigned;
+
+    const items = unassigned.slice();
+    const seen = new Set(items.map(item => `${item.kind}:${item.id}`));
+    const push = (kind, list, render) => {
+        list.forEach(item => {
+            if (items.length >= limit || !item) return;
+            if (!getItemCloudIds(item).length) return;
+            const key = `${kind}:${item.id}`;
+            if (seen.has(key)) return;
+            seen.add(key);
+            const names = getItemCloudIds(item)
+                .map(id => (getClouds().find(cloud => cloud.id === id) || {}).name)
+                .filter(Boolean);
+            items.push({ kind, id: item.id, text: render(item), cloudNames: names });
         });
     };
     push('fact', catalog.lists.fact, item => item.text);
@@ -210,42 +241,51 @@ function cloudConsolidationPrompt(catalog, items) {
     const cloudList = existing.length
         ? existing.map(cloud => `- ${cloud.name}${cloud.summary ? ': ' + cloud.summary : ''} (${cloud.total})`).join('\n')
         : '(облаков пока нет)';
-    const itemList = items.map((item, index) => `${index + 1}. [${item.kind}] ${String(item.text || '').slice(0, 160)}`).join('\n');
+    const itemList = items.map((item, index) => {
+        const themes = item.cloudNames && item.cloudNames.length ? ` (темы: ${item.cloudNames.join(', ')})` : ' (без темы)';
+        return `${index + 1}. [${item.kind}] ${String(item.text || '').slice(0, 160)}${themes}`;
+    }).join('\n');
 
     return `Ты — фоновая стадия разбора памяти. Ты не отвечаешь пользователю: ты приводишь его память в порядок.
 
 === ОБЛАКА СЕЙЧАС ===
 ${cloudList}
 
-=== ЗАПИСИ БЕЗ ОБЛАКА (${items.length}) ===
+=== ЗАПИСИ (${items.length}) ===
 ${itemList}
 
 === ЧТО СДЕЛАТЬ ===
-1. Разложи записи без облака по темам. Тема — сторона жизни человека: «Работа», «Здоровье», «Собака Бобик», «Поездка в Японию». Не дели по типам записей.
-2. Если подходящей темы нет — создай её, но не больше двух новых тем за проход. Всего тем не больше ${CLOUD_CONFIG.maxClouds}.
-3. Если две темы об одном и том же — слей их (merges), записи перейдут сами.
-4. Если имя темы неудачное (слишком общее, длинное или не по-русски) — переименуй (renames).
-5. Описание темы — одна короткая строка о том, что в ней лежит.
-6. Не трогай записи, у которых уже есть тема, и не придумывай новых записей.
-7. Запись, которая ни к чему не относится, оставь без ответа — она уйдёт в «Разное».
+1. Разложи записи без темы по темам. Тема — сторона жизни человека: «Работа», «Здоровье», «Собака Бобик», «Поездка в Японию». Не дели по типам записей.
+2. Одна запись может быть сразу в нескольких темах, если она действительно общая: например «работаю в Сбере» — и «Работа», и «Карьера». Больше двух тем на запись не давай, и не дублируй ради полноты.
+3. Записи с темами уже разложены: добавляй им вторую тему только через links, и только когда без неё другая тема будет отвечать хуже. Сами темы у них не отбирай.
+4. Если подходящей темы нет — создай её, но не больше двух новых тем за проход. Всего тем не больше ${CLOUD_CONFIG.maxClouds}.
+5. Если две темы об одном и том же — слей их (merges), записи перейдут сами.
+6. Если имя темы неудачное (слишком общее, длинное или не по-русски) — переименуй (renames).
+7. Описание темы — одна короткая строка о том, что в ней лежит.
+8. Не придумывай новых записей. Запись, которая ни к чему не относится, оставь без темы — она уйдёт в «Разное».
 
 === ФОРМАТ ОТВЕТА ===
 Только JSON, без markdown:
 {
     "clouds": [{"name": "Работа", "summary": "чем занимается, коллектив, планы"}],
-    "moves": [{"index": 1, "cloud": "Работа"}],
+    "placements": [{"index": 1, "clouds": ["Работа", "Карьера"]}],
+    "links": [{"index": 12, "cloud": "Карьера"}],
     "merges": [{"from": "Карьера", "into": "Работа"}],
     "renames": [{"from": "Офисное", "to": "Работа"}]
 }
 
-Если раскладывать нечего и порядок уже хороший: {"clouds": [], "moves": [], "merges": [], "renames": []}`;
+placements — для записей без темы (полный список тем), links — дополнительная тема для уже разложенной записи.
+Если раскладывать нечего и порядок уже хороший: {"clouds": [], "placements": [], "links": [], "merges": [], "renames": []}`;
 }
 
 function applyCloudConsolidation(parsed, catalog, items) {
     const renames = Array.isArray(parsed.renames) ? parsed.renames : [];
     const merges = Array.isArray(parsed.merges) ? parsed.merges : [];
     const clouds = Array.isArray(parsed.clouds) ? parsed.clouds : [];
-    const moves = Array.isArray(parsed.moves) ? parsed.moves : [];
+    // moves — старый формат (одна тема), placements — текущий (набор тем).
+    const placements = (Array.isArray(parsed.placements) ? parsed.placements : [])
+        .concat(Array.isArray(parsed.moves) ? parsed.moves : []);
+    const links = Array.isArray(parsed.links) ? parsed.links : [];
 
     // 1. Слияния — до переименований: модель называет темы теми именами,
     // которые видела в промпте, а не теми, что появятся после renames.
@@ -270,26 +310,54 @@ function applyCloudConsolidation(parsed, catalog, items) {
         if (created && cloud.summary) updateCloudSummary(created.id, cloud.summary);
     }
 
-    // 4. Раскладка новых записей по индексам снимка.
+    // 4. Раскладка записей без темы: сразу набор тем.
     const touched = { fact: false, trait: false, event: false, contact: false, hypothesis: false };
-    let placed = 0;
-    for (const move of moves) {
-        if (!move || !move.cloud) continue;
-        const item = items[Number(move.index) - 1];
-        if (!item) continue;
+    const recordFor = item => {
         const list = catalog.lists[item.kind];
-        const record = Array.isArray(list) ? list.find(entry => entry && entry.id === item.id) : null;
-        if (!record || record.cloud) continue;
-        assignItemCloud(record, move.cloud);
+        return Array.isArray(list) ? list.find(entry => entry && entry.id === item.id) : null;
+    };
+    let placed = 0;
+    for (const placement of placements) {
+        if (!placement) continue;
+        const names = (Array.isArray(placement.clouds) ? placement.clouds : [placement.cloud])
+            .filter(Boolean)
+            .map(name => String(name).trim())
+            .filter(Boolean)
+            .slice(0, 3);
+        if (!names.length) continue;
+        const item = items[Number(placement.index) - 1];
+        if (!item) continue;
+        const record = recordFor(item);
+        if (!record) continue;
+        // Уже разложенной записи набор тем не переписываем — только links.
+        if (getItemCloudIds(record).length) continue;
+        assignItemCloud(record, names[0]);
+        names.slice(1).forEach(name => addItemCloud(record, name));
         touched[item.kind] = true;
         placed++;
     }
 
-    // 5. Остальное — в «Разное», чтобы ничего не потерялось.
+    // 5. Общие записи: добавляем вторую тему, прежние не отбираем.
+    let linked = 0;
+    for (const link of links) {
+        if (!link || !link.cloud) continue;
+        const item = items[Number(link.index) - 1];
+        if (!item) continue;
+        const record = recordFor(item);
+        if (!record) continue;
+        if (!getItemCloudIds(record).length) continue;
+        const before = getItemCloudIds(record).length;
+        addItemCloud(record, link.cloud);
+        if (getItemCloudIds(record).length > before) {
+            touched[item.kind] = true;
+            linked++;
+        }
+    }
+
+    // 6. Остальное — в «Разное», чтобы ничего не потерялось.
     for (const item of items) {
-        const list = catalog.lists[item.kind];
-        const record = Array.isArray(list) ? list.find(entry => entry && entry.id === item.id) : null;
-        if (!record || record.cloud) continue;
+        const record = recordFor(item);
+        if (!record || getItemCloudIds(record).length) continue;
         assignItemCloud(record, null);
         touched[item.kind] = true;
     }
@@ -302,7 +370,7 @@ function applyCloudConsolidation(parsed, catalog, items) {
 
     // 6. Пустые темы (кроме «Разного») больше не нужны.
     pruneEmptyClouds();
-    return { placed, clouds: clouds.length, merges: merges.length, renames: renames.length };
+    return { placed, linked, clouds: clouds.length, merges: merges.length, renames: renames.length };
 }
 
 // Запускать ли разбор прямо сейчас. force — кнопка «разобрать сейчас» в интерфейсе.
@@ -331,7 +399,7 @@ async function runCloudConsolidation(options = {}) {
     if (!shouldRunCloudConsolidation(force)) return false;
 
     const catalog = collectCloudCatalog();
-    const items = collectUnassignedItems(catalog);
+    const items = collectConsolidationItems(catalog);
     const total = Object.values(catalog.lists).reduce((sum, list) => sum + list.length, 0);
     if (!items.length && !getClouds().length) return false;
     if (!items.length && !force && total < CLOUD_CONFIG.refreshMinItems) return false;
@@ -342,7 +410,7 @@ async function runCloudConsolidation(options = {}) {
         const parsed = parseJSON(raw) || {};
         const result = applyCloudConsolidation(parsed, catalog, items);
         markCloudConsolidated();
-        console.log(`[Clouds] Разбор: разложено ${result.placed}, тем ${getClouds().length}, слияний ${result.merges}, переименований ${result.renames}`);
+        console.log(`[Clouds] Разбор: разложено ${result.placed}, связей ${result.linked}, тем ${getClouds().length}, слияний ${result.merges}, переименований ${result.renames}`);
         return true;
     } catch (error) {
         console.warn('[Clouds] Разбор не удался, попробуем позже:', error.message);

@@ -486,3 +486,73 @@ test('вкладка показывает темы, а по клику — за�
   run(context, `toggleCloudDetails('${work.id}')`);
   assert.equal(container.innerHTML.includes('Работает в Сбере'), false, 'повторный клик сворачивает');
 });
+
+test('одна запись может принадлежать нескольким темам, а в промпт идёт один раз', () => {
+  const { context } = cloudHarness();
+  const work = run(context, 'ensureCloud("Работа")');
+  const career = run(context, 'ensureCloud("Карьера")');
+
+  // Читаем и пишем один и тот же объект: getFactsData() каждый раз парсит заново.
+  run(context, `
+    const data = getFactsData();
+    data.facts = [{ id: 'f1', text: 'Работает в Сбере', confidence: 'high', superseded: false }];
+    assignItemCloud(data.facts[0], 'Работа');
+    addItemCloud(data.facts[0], 'Карьера');
+    setFactsData(data);
+  `);
+
+  const ids = Array.from(run(context, 'getItemCloudIds(getFactsData().facts[0])'));
+  assert.deepEqual(ids.sort(), [work.id, career.id].sort(), 'обе темы записаны');
+  assert.equal(run(context, 'getFactsData().facts[0].cloud'), work.id, 'основная тема осталась первой');
+
+  const counts = Array.from(run(context, 'getCloudsForSelection()')).map(cloud => [cloud.name, cloud.total]);
+  assert.deepEqual(counts.sort(), [['Карьера', 1], ['Работа', 1]], 'в каждой теме запись считается');
+  assert.equal(run(context, 'countUniqueCloudItems()'), 1, 'уникальных записей — одна');
+
+  const block = run(context, `buildCloudContext(${JSON.stringify([work.id, career.id])})`);
+  assert.equal(String(block).split('Работает в Сбере').length - 1, 1, 'в контексте запись не дублируется');
+
+  // Как и стадия разбора: читаем, меняем и сохраняем один и тот же объект.
+  run(context, `const d1 = getFactsData(); removeItemCloud(d1.facts[0], '${work.id}'); setFactsData(d1);`);
+  assert.deepEqual(Array.from(run(context, 'getItemCloudIds(getFactsData().facts[0])')), [career.id]);
+
+  run(context, `const d2 = getFactsData(); removeItemCloud(d2.facts[0], '${career.id}'); setFactsData(d2);`);
+  assert.equal(run(context, 'getItemCloudIds(getFactsData().facts[0])[0]'), 'cloud_misc', 'без тем — в «Разное»');
+});
+
+test('стадия разбора ставит несколько тем и добавляет общую через links', async () => {
+  const { context, calls } = consolidationHarness((prompt, call) => {
+    if (call === 1) {
+      return {
+        clouds: [{ name: 'Карьера', summary: 'рост и планы' }],
+        placements: [{ index: 1, clouds: ['Работа', 'Карьера'] }],
+        links: [],
+        merges: [],
+        renames: [],
+      };
+    }
+    // Второй проход: у записи уже есть «Работа», просим добавить «Карьера».
+    return { clouds: [], placements: [], links: [{ index: 5, cloud: 'Карьера' }], merges: [], renames: [] };
+  });
+
+  run(context, `ensureCloud('Работа'); setFactsData({ facts: [
+    { id: 'f1', text: 'Работает в Сбере', confidence: 'high', superseded: false },
+    { id: 'f2', text: 'Любит кофе', confidence: 'medium', superseded: false },
+    { id: 'f3', text: 'Живёт в Амстердаме', confidence: 'high', superseded: false },
+    { id: 'f4', text: 'Учит японский', confidence: 'high', superseded: false },
+    { id: 'f5', text: 'Готовится к повышению', confidence: 'high', superseded: false, cloud: getClouds()[0].id }
+  ] })`);
+
+  await run(context, 'runCloudConsolidation({ force: true })');
+  const first = Array.from(run(context, 'getItemCloudIds(getFactsData().facts[0])'));
+  assert.equal(first.length, 2, 'новая запись попала сразу в две темы');
+  assert.equal(first.includes(run(context, 'findCloudByName("Карьера").id')), true);
+
+  const assignedBefore = Array.from(run(context, 'getItemCloudIds(getFactsData().facts[4])'));
+  await run(context, 'runCloudConsolidation({ force: true })');
+  const assignedAfter = Array.from(run(context, 'getItemCloudIds(getFactsData().facts[4])'));
+  assert.deepEqual(assignedBefore, [run(context, 'findCloudByName("Работа").id')], 'до связывания тема одна');
+  assert.equal(assignedAfter.length, 2, 'links добавил вторую тему');
+  assert.equal(assignedAfter.includes(run(context, 'findCloudByName("Работа").id')), true, 'прежняя тема не отобрана');
+  assert.equal(calls.length, 2);
+});

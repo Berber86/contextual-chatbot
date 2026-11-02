@@ -1412,7 +1412,8 @@ function getKnowledgeTabStats(tab) {
     }
     if (tab === 'clouds') {
         const clouds = getCloudsForSelection();
-        const items = clouds.reduce((sum, cloud) => sum + cloud.total, 0);
+        // Запись может быть в нескольких темах — считаем её один раз.
+        const items = typeof countUniqueCloudItems === 'function' ? countUniqueCloudItems() : 0;
         return { icon: '☁️', title: 'Облака памяти', active: clouds.length, archived: 0, detail: `${clouds.length} тем · ${items} записей разложено` };
     }
     if (tab === 'personaNotes') {

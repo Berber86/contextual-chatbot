@@ -420,14 +420,64 @@ function ensureMiscCloud() {
     return byName;
 }
 
-// Помечаем элемент памяти облаком. Возвращает облако или null.
+// Запись может принадлежать нескольким темам: одна и та же мысль бывает
+// и про работу, и про выгорание. Основная тема лежит в item.cloud (для
+// совместимости и для старых записей), полный список — в item.clouds.
+function getItemCloudIds(item) {
+    if (!item) return [];
+    const ids = Array.isArray(item.clouds) ? item.clouds.filter(Boolean) : [];
+    if (item.cloud && !ids.includes(item.cloud)) ids.unshift(item.cloud);
+    return Array.from(new Set(ids));
+}
+
+function itemInCloud(item, cloudId) {
+    if (!cloudId) return false;
+    return getItemCloudIds(item).includes(cloudId);
+}
+
+function setItemCloudIds(item, ids) {
+    if (!item) return [];
+    const clean = Array.from(new Set((Array.isArray(ids) ? ids : []).filter(Boolean)));
+    item.clouds = clean;
+    item.cloud = clean[0] || null;
+    return clean;
+}
+
+// Полная замена тем записи (стадия разбора) или один адрес при первом присвоении.
 function assignItemCloud(item, cloudName) {
     if (!item) return null;
     const cloud = cloudName ? ensureCloud(cloudName) : null;
     const target = cloud || ensureMiscCloud();
     if (!target) return null;
-    item.cloud = target.id;
+    setItemCloudIds(item, [target.id]);
     return target;
+}
+
+// Добавить ещё одну тему, не отбирая прежние. Возвращает облако или null.
+function addItemCloud(item, cloudName) {
+    if (!item || !cloudName) return null;
+    const cloud = ensureCloud(cloudName);
+    if (!cloud) return null;
+    const ids = getItemCloudIds(item);
+    if (!ids.includes(cloud.id)) {
+        ids.push(cloud.id);
+        setItemCloudIds(item, ids);
+    }
+    return cloud;
+}
+
+function removeItemCloud(item, cloudId) {
+    if (!item || !cloudId) return false;
+    const ids = getItemCloudIds(item);
+    if (!ids.includes(cloudId)) return false;
+    const rest = ids.filter(id => id !== cloudId);
+    if (!rest.length) {
+        // Без темы запись потеряется для выбора — отправляем в «Разное».
+        assignItemCloud(item, null);
+    } else {
+        setItemCloudIds(item, rest);
+    }
+    return true;
 }
 
 // Переименование облака из интерфейса. Id не меняется — записи ссылаются на него.
@@ -501,10 +551,12 @@ function mergeClouds(fromId, intoId) {
     const retag = items => {
         let changed = false;
         items.forEach(item => {
-            if (item && item.cloud === fromId) {
-                item.cloud = intoId;
-                changed = true;
-            }
+            if (!item) return;
+            const ids = getItemCloudIds(item);
+            if (!ids.includes(fromId)) return;
+            const next = ids.map(id => (id === fromId ? intoId : id));
+            setItemCloudIds(item, next);
+            changed = true;
         });
         return changed;
     };
@@ -532,7 +584,7 @@ function pruneEmptyClouds() {
     const data = getCloudsData();
     if (!data.clouds.length) return 0;
     const used = new Set();
-    const collect = items => (items || []).forEach(item => item && item.cloud && used.add(item.cloud));
+    const collect = items => (items || []).forEach(item => getItemCloudIds(item).forEach(id => used.add(id)));
     collect(getFactsData().facts);
     collect(getTraitsData().traits);
     collect(getTimelineData().events);
@@ -561,7 +613,7 @@ function getCloudsForSelection() {
     const gaps = getGapsData().gaps;
 
     return clouds.map(cloud => {
-        const count = category => category.filter(item => item && item.cloud === cloud.id).length;
+        const count = category => category.filter(item => itemInCloud(item, cloud.id)).length;
         const factCount = count(facts);
         const traitCount = count(traits);
         const eventCount = count(events);
@@ -574,7 +626,7 @@ function getCloudsForSelection() {
         const collectSamples = items => {
             for (const item of items) {
                 if (samples.length >= 3) return;
-                if (!item || item.cloud !== cloud.id) continue;
+                if (!itemInCloud(item, cloud.id)) continue;
                 const text = String(item.text || item.name || item.title || '').trim();
                 if (text) samples.push(text.slice(0, 60));
             }
@@ -583,7 +635,7 @@ function getCloudsForSelection() {
         collectSamples(traits);
         collectSamples(events);
         collectSamples(hypotheses);
-        collectSamples(contacts.map(contact => ({ cloud: contact.cloud, text: [contact.name, contact.relation].filter(Boolean).join(' — ') })));
+        collectSamples(contacts.map(contact => ({ clouds: getItemCloudIds(contact), text: [contact.name, contact.relation].filter(Boolean).join(' — ') })));
         return {
             id: cloud.id,
             name: cloud.name,
@@ -607,7 +659,7 @@ function getCloudsForSelection() {
 function getCloudContents(cloudId) {
     if (!cloudId) return { facts: [], traits: [], events: [], contacts: [], hypotheses: [] };
     const pick = (items, render) => items
-        .filter(item => item && item.cloud === cloudId)
+        .filter(item => itemInCloud(item, cloudId))
         .slice(0, CLOUD_CONFIG.itemsPerCategory)
         .map(render);
 
@@ -627,11 +679,32 @@ function cloudItemsText(items, render) {
 }
 
 // Контекст выбранных облаков для стадии 2. Пустая строка — облаков нет.
-function buildCloudContext(cloudIds) {
-    const wanted = new Set(Array.isArray(cloudIds) ? cloudIds : []);
-    if (!wanted.size) return '';
+function cloudItemKey(item) {
+    return String(item.id || item.text || item.topic || '');
+}
 
-    const clouds = getClouds().filter(cloud => wanted.has(cloud.id));
+// Уникальных записей в темах — для заголовка вкладки: сумма по темам завышена,
+// потому что запись может принадлежать нескольким.
+function countUniqueCloudItems() {
+    const seen = new Set();
+    const collect = items => (items || []).forEach(item => {
+        if (getItemCloudIds(item).length) seen.add(cloudItemKey(item));
+    });
+    collect(getFactsData().facts.filter(f => !f.superseded));
+    collect(getTraitsData().traits.filter(t => !t.superseded));
+    collect(getTimelineData().events.filter(e => !e.superseded));
+    collect(getSocialData().contacts);
+    collect(getHypothesesData().hypotheses);
+    collect(getGapsData().gaps);
+    return seen.size;
+}
+
+function buildCloudContext(cloudIds) {
+    const order = Array.isArray(cloudIds) ? cloudIds : [];
+    if (!order.length) return '';
+
+    const all = getClouds();
+    const clouds = order.map(id => all.find(cloud => cloud.id === id)).filter(Boolean);
     if (!clouds.length) return '';
 
     const facts = getFactsData().facts.filter(f => !f.superseded);
@@ -641,45 +714,49 @@ function buildCloudContext(cloudIds) {
     const hypotheses = getHypothesesData().hypotheses;
     const gaps = getGapsData().gaps;
 
+    // Запись, попавшая в две поднятые темы, в промпт идёт один раз:
+    // первая по порядку выбора тема её и показывает.
+    const taken = new Set();
+    const pickFor = (list, cloud) => list.filter(item =>
+        itemInCloud(item, cloud.id) && !taken.has(cloudItemKey(item)));
+    const markRendered = items => items
+        .slice(0, CLOUD_CONFIG.itemsPerCategory)
+        .forEach(item => taken.add(cloudItemKey(item)));
+
     const blocks = clouds.map(cloud => {
         const parts = [];
-        const factText = cloudItemsText(
-            facts.filter(f => f.cloud === cloud.id),
-            (fact, index) => `${index + 1}. ${fact.text} (${fact.confidence})`
-        );
+
+        const factItems = pickFor(facts, cloud);
+        const factText = cloudItemsText(factItems, (fact, index) => `${index + 1}. ${fact.text} (${fact.confidence})`);
+        markRendered(factItems);
         if (factText) parts.push(`Факты:\n${factText}`);
 
-        const traitText = cloudItemsText(
-            traits.filter(t => t.cloud === cloud.id),
-            (trait, index) => `${index + 1}. ${trait.text} (${trait.confidence})`
-        );
+        const traitItems = pickFor(traits, cloud);
+        const traitText = cloudItemsText(traitItems, (trait, index) => `${index + 1}. ${trait.text} (${trait.confidence})`);
+        markRendered(traitItems);
         if (traitText) parts.push(`Черты:\n${traitText}`);
 
-        const eventText = cloudItemsText(
-            events.filter(event => event.cloud === cloud.id),
-            (event, index) => `${index + 1}. ${event.text}`
-        );
+        const eventItems = pickFor(events, cloud);
+        const eventText = cloudItemsText(eventItems, (event, index) => `${index + 1}. ${event.text}`);
+        markRendered(eventItems);
         if (eventText) parts.push(`Хронология:\n${eventText}`);
 
-        const contactText = cloudItemsText(
-            contacts.filter(contact => contact.cloud === cloud.id),
-            (contact, index) => {
-                const factsAbout = (contact.facts || []).slice(0, 3).map(fact => `   • ${fact.text}`).join('\n');
-                return `${index + 1}. ${contact.name}${factsAbout ? '\n' + factsAbout : ''}`;
-            }
-        );
+        const contactItems = pickFor(contacts, cloud);
+        const contactText = cloudItemsText(contactItems, (contact, index) => {
+            const factsAbout = (contact.facts || []).slice(0, 3).map(fact => `   • ${fact.text}`).join('\n');
+            return `${index + 1}. ${contact.name}${factsAbout ? '\n' + factsAbout : ''}`;
+        });
+        markRendered(contactItems);
         if (contactText) parts.push(`Люди:\n${contactText}`);
 
-        const hypothesisText = cloudItemsText(
-            hypotheses.filter(hypothesis => hypothesis.cloud === cloud.id),
-            (hypothesis, index) => `${index + 1}. ${hypothesis.text} (${hypothesis.confidence || 'medium'})`
-        );
+        const hypothesisItems = pickFor(hypotheses, cloud);
+        const hypothesisText = cloudItemsText(hypothesisItems, (hypothesis, index) => `${index + 1}. ${hypothesis.text} (${hypothesis.confidence || 'medium'})`);
+        markRendered(hypothesisItems);
         if (hypothesisText) parts.push(`Гипотезы:\n${hypothesisText}`);
 
-        const gapText = cloudItemsText(
-            gaps.filter(gap => gap.cloud === cloud.id),
-            (gap, index) => `${index + 1}. ${gap.topic}`
-        );
+        const gapItems = pickFor(gaps, cloud);
+        const gapText = cloudItemsText(gapItems, (gap, index) => `${index + 1}. ${gap.topic}`);
+        markRendered(gapItems);
         if (gapText) parts.push(`Чего бот ещё не знает:\n${gapText}`);
 
         if (!parts.length) return '';
