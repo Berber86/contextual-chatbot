@@ -227,6 +227,15 @@ function handleSystemOne(req, res, body) {
 
     const levels = 10;
     const raw = score * (levels - 1);
+
+    // Архетип и уместность вопроса — тоже грубая эвристика, только для превью.
+    const archetype =
+        /(или|выбрать|вариант|что лучше)/i.test(message) ? 'options' :
+        /(как|что делать|план|шаг)/i.test(message) ? 'micro_plan' :
+        /(не получается|застрял|не могу|срываюсь)/i.test(message) ? 'reframe' :
+        /(напомни|раньше|говорили|прошлый раз)/i.test(message) ? 'connector' :
+        message.length < 25 ? 'minimalist' : 'answer_first';
+
     const answers = {
         complexity: {
             type: 'score',
@@ -235,7 +244,9 @@ function handleSystemOne(req, res, body) {
             probabilities: { [String(Math.round(raw))]: 0.62 },
             legend: {}
         },
-        needs_memory: { type: 'noul', noul: score > 0.4 ? 0.71 : 0.19 }
+        needs_memory: { type: 'noul', noul: score > 0.4 ? 0.71 : 0.19 },
+        archetype: { type: 'choice', choice: archetype, confidence: 0.66, probabilities: { [archetype]: 0.66 } },
+        ask_question: { type: 'noul', noul: /[?？]/.test(message) ? 0.62 : 0.24 }
     };
 
     return sendJson(res, 200, {

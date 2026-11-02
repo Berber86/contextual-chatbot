@@ -35,6 +35,8 @@ function jevHarness(options = {}) {
       answers: {
         complexity: { type: 'score', score: 6.3, confidence: 0.77 },
         needs_memory: { type: 'noul', noul: 0.64 },
+        archetype: { type: 'choice', choice: 'micro_plan', confidence: 0.6 },
+        ask_question: { type: 'noul', noul: 0.72 },
       },
       usage: { input_tokens: 420, output_tokens: 0 },
     }),
@@ -63,22 +65,26 @@ const run = (context, expression) => vm.runInContext(expression, context);
 test('systemOne шлёт контракт System One: model, state, типизированные вопросы', async () => {
   const { context, calls } = jevHarness();
 
-  const result = await run(context, 'systemOne({ message: "привет" }, buildComplexityQuestions())');
+  const result = await run(context, 'systemOne({ message: "привет" }, buildTurnQuestions())');
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, '/api/systemone', 'в браузере идём через серверный прокси');
   assert.equal(calls[0].body.model, 'jev-1.14', 'по умолчанию Jev');
   assert.equal(calls[0].body.state.message, 'привет');
   const questions = calls[0].body.questions;
+  assert.equal(Object.keys(questions).length, 4, 'один запрос — четыре решения');
   assert.equal(questions.complexity.type, 'score');
   assert.equal(questions.complexity.criteria.length, 10, 'десять уровней → нормализация в 0..1');
   assert.equal(questions.needs_memory.type, 'noul');
+  assert.equal(questions.archetype.type, 'choice');
+  assert.equal(Object.keys(questions.archetype.criteria).length, 8, 'восемь архетипов ответа');
+  assert.equal(questions.ask_question.type, 'noul');
   assert.equal(result.answers.complexity.score, 6.3);
 });
 
 test('провайдер переключается на solar-decide', async () => {
   const { context, calls } = jevHarness({ storage: { chatbot_systemone_provider: 'solar' } });
-  await run(context, 'systemOne("тест", buildComplexityQuestions())');
+  await run(context, 'systemOne("тест", buildTurnQuestions())');
   assert.equal(calls[0].body.model, 'solar-decide');
 });
 
@@ -103,8 +109,8 @@ test('защита контракта: больше 32 вопросов и не�
 
 test('повторный одинаковый запрос берётся из кэша и не тратит деньги', async () => {
   const { context, calls } = jevHarness();
-  await run(context, 'systemOne("привет", buildComplexityQuestions())');
-  await run(context, 'systemOne("привет", buildComplexityQuestions())');
+  await run(context, 'systemOne("привет", buildTurnQuestions())');
+  await run(context, 'systemOne("привет", buildTurnQuestions())');
   assert.equal(calls.length, 1);
   assert.equal(run(context, 'getSystemOneStats().cacheHits'), 1);
 });
@@ -254,12 +260,14 @@ test('маршрутизация включается только там, гд�
   assert.match(uiSource, /function isComplexityRoutingAvailable\(\)/, 'есть гейт доступности');
   assert.match(uiSource, /isSmartMode\(\) \|\| isFullHydraMode\(\)/, 'без Hydra маршрут не включается');
   assert.match(uiSource, /isComplexityRoutingEnabled\(\)/, 'есть выключатель');
-  assert.match(uiSource, /const routePromise = typeof resolveTurnRoute === 'function'/,
-    'сложность считается параллельно стадии 1, а не перед ответом');
-  assert.match(uiSource, /resolveTurnRoute\(userMessage, historyWithoutCurrent\)/,
-    'маршрут запрашивается по текущему сообщению');
+  assert.match(uiSource, /const routePromise = typeof resolveTurnDecisions === 'function'/,
+    'решение считается параллельно стадии 1, а не перед ответом');
+  assert.match(uiSource, /resolveTurnDecisions\(userMessage, historyWithoutCurrent\)/,
+    'решение запрашивается по текущему сообщению');
   assert.match(uiSource, /\n        : Promise\.resolve\(null\);/, 'без jev.js ход не падает');
-  assert.match(uiSource, /const turnRoute = await routePromise;/, 'маршрут применяется к стадии 2');
+  assert.match(uiSource, /const turnPlan = routePromise === undefined \? null : await routePromise;/,
+    'к стадии 2 решение уже готово');
+  assert.match(uiSource, /turnRoute \? \{ route: turnRoute \} : \{\}/, 'маршрут уходит в стриминг');
 });
 
 test('System One подключён в страницу, в дев-сервер и в прод-прокси', () => {
@@ -270,4 +278,92 @@ test('System One подключён в страницу, в дев-сервер 
   assert.match(apiSystemOne, /ALLOWED_TYPES/, 'граница проверяет типы вопросов');
   assert.match(devServer, /pathname === '\/api\/systemone'/, 'дев-сервер умеет отвечать без ключа');
   assert.match(devServer, /function handleSystemOne/, 'и отдаёт демо-ответ по сложности');
+});
+
+// ==================== АРХЕТИП ОТВЕТА И ВОПРОС ====================
+
+test('решение по ходу приносит архетип и уместность вопроса из того же запроса', async () => {
+  const { context, calls } = jevHarness();
+
+  const plan = await run(context, 'resolveTurnPlan("Хочу начать бегать, но не знаю с чего", [])');
+
+  assert.equal(calls.length, 1, 'один запрос на ход');
+  assert.equal(plan.archetypeKey, 'micro_plan');
+  assert.match(plan.archetype, /^Micro-plan:/, 'в промпт уходит та же инструкция, что и раньше');
+  assert.equal(plan.askProbability, 0.72);
+  assert.equal(plan.shouldAsk, true);
+  assert.equal(plan.route.tier, 'medium');
+});
+
+test('порог вопроса 0.5: 0.49 — молчим, 0.5 — спрашиваем', async () => {
+  const handlerFor = noul => async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      answers: {
+        complexity: { type: 'score', score: 2 },
+        needs_memory: { type: 'noul', noul: 0.2 },
+        archetype: { type: 'choice', choice: 'answer_first' },
+        ask_question: { type: 'noul', noul },
+      },
+      usage: { input_tokens: 100, output_tokens: 0 },
+    }),
+    text: async () => '',
+  });
+
+  const low = jevHarness({ handler: handlerFor(0.49) });
+  const high = jevHarness({ handler: handlerFor(0.5) });
+
+  assert.equal((await run(low.context, 'resolveTurnPlan("ок", [])')).shouldAsk, false);
+  assert.equal((await run(high.context, 'resolveTurnPlan("ок", [])')).shouldAsk, true);
+});
+
+test('неизвестный или пропавший архетип не ломает ход: остаётся null и фолбэк', async () => {
+  const { context } = jevHarness({
+    handler: async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        answers: {
+          complexity: { type: 'score', score: 2 },
+          needs_memory: { type: 'noul', noul: 0.2 },
+          archetype: { type: 'choice', choice: 'не-такой-архетип' },
+          ask_question: { type: 'noul', noul: 0.2 },
+        },
+        usage: { input_tokens: 100, output_tokens: 0 },
+      }),
+      text: async () => '',
+    }),
+  });
+
+  const plan = await run(context, 'resolveTurnPlan("ок", [])');
+  assert.equal(plan.archetype, null);
+  assert.equal(plan.archetypeKey, null);
+  assert.equal(plan.route.tier, 'easy', 'остальные решения при этом живы');
+});
+
+test('архетипы в jev.js совпадают с прежними строками ui.js — промпт не меняется', () => {
+  const block = uiSource.slice(uiSource.indexOf('function pickResponseArchetype()'), uiSource.indexOf('function decideQuestionPolicyForThisTurn()'));
+  const legacy = Array.from(block.matchAll(/"([^"]+)"/g)).map(match => match[1]);
+  const { context } = jevHarness();
+  const current = run(context, 'Object.values(RESPONSE_ARCHETYPES)');
+
+  assert.equal(legacy.length, 8, 'в ui.js восемь архетипов');
+  assert.deepEqual(Array.from(current).sort(), legacy.slice().sort(),
+    'инструкции в промпт остались дословно прежними');
+});
+
+test('вопрос в конце ответа: ASK_ME важнее модели, модель важнее случая', () => {
+  assert.match(uiSource, /function decideTurnQuestionPolicy\(plan\)/, 'есть решатель');
+  const body = uiSource.slice(uiSource.indexOf('function decideTurnQuestionPolicy(plan)'));
+  const askMe = body.indexOf('askMeMode && isAskMeModeAvailable()');
+  const fromModel = body.indexOf("typeof plan.shouldAsk === 'boolean'");
+  const legacy = body.indexOf('return decideQuestionPolicyForThisTurn();');
+  assert.ok(askMe > 0 && fromModel > askMe && legacy > fromModel, 'порядок: ASK_ME → модель → случай');
+
+  assert.match(uiSource, /const archetype = \(turnPlan && turnPlan\.archetype\) \|\| pickResponseArchetype\(\);/,
+    'без решения остаётся прежний случайный архетип');
+  assert.match(uiSource, /const qp = typeof decideTurnQuestionPolicy === 'function'/,
+    'политика вопроса берётся из решения');
+  assert.match(uiSource, /\n            : decideQuestionPolicyForThisTurn\(\);/, 'в срезе без решателя — прежний случай');
 });
