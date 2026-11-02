@@ -556,3 +556,67 @@ test('стадия разбора ставит несколько тем и до
   assert.equal(assignedAfter.includes(run(context, 'findCloudByName("Работа").id')), true, 'прежняя тема не отобрана');
   assert.equal(calls.length, 2);
 });
+
+test('тема может делиться: часть записей уезжает в новую тему', async () => {
+  const { context } = consolidationHarness(() => ({
+    clouds: [{ name: 'Здоровье', summary: 'сон и спина' }],
+    placements: [],
+    links: [],
+    reassign: [{ index: 1, clouds: ['Здоровье'] }, { index: 2, clouds: ['Здоровье'] }],
+    merges: [],
+    renames: [],
+  }));
+
+  run(context, `const data = getFactsData();
+    data.facts = [
+      { id: 'f1', text: 'Болит спина', confidence: 'high', superseded: false },
+      { id: 'f2', text: 'Спит по шесть часов', confidence: 'high', superseded: false },
+      { id: 'f3', text: 'Работает в Сбере', confidence: 'high', superseded: false },
+      { id: 'f4', text: 'Руководит командой', confidence: 'high', superseded: false }
+    ];
+    const work = ensureCloud('Работа');
+    data.facts.forEach(fact => assignItemCloud(fact, 'Работа'));
+    setFactsData(data);`);
+
+  await run(context, 'runCloudConsolidation({ force: true })');
+
+  const counts = Object.fromEntries(Array.from(run(context, 'getCloudsForSelection()')).map(c => [c.name, c.total]));
+  assert.equal(counts['Работа'], 2, 'в исходной теме осталось две записи');
+  assert.equal(counts['Здоровье'], 2, 'две ушли в новую тему');
+  assert.equal(run(context, 'findCloudByName("Работа") !== null'), true, 'исходная тема не удалена');
+});
+
+test('деление не может опустошить тему — это уже слияние', async () => {
+  const { context } = consolidationHarness(() => ({
+    clouds: [],
+    placements: [],
+    links: [],
+    reassign: [{ index: 1, clouds: ['Отдых'] }, { index: 2, clouds: ['Отдых'] }],
+    merges: [],
+    renames: [],
+  }));
+
+  run(context, `const data = getFactsData();
+    data.facts = [
+      { id: 'f1', text: 'Работает в Сбере', confidence: 'high', superseded: false },
+      { id: 'f2', text: 'Руководит командой', confidence: 'high', superseded: false }
+    ];
+    data.facts.forEach(fact => assignItemCloud(fact, 'Работа'));
+    setFactsData(data);`);
+
+  await run(context, 'runCloudConsolidation({ force: true })');
+
+  const counts = Object.fromEntries(Array.from(run(context, 'getCloudsForSelection()')).map(c => [c.name, c.total]));
+  assert.equal(counts['Работа'], 1, 'последняя запись осталась в теме');
+  assert.equal(counts['Отдых'], 1, 'перенос прошёл только для одной записи');
+});
+
+test('тем не может быть больше лимита', () => {
+  const { context } = cloudHarness();
+  run(context, `
+    for (let i = 0; i < CLOUD_CONFIG.maxClouds; i++) ensureCloud('Тема ' + i);
+  `);
+  assert.equal(run(context, 'getClouds().length'), run(context, 'CLOUD_CONFIG.maxClouds'));
+  assert.equal(run(context, "ensureCloud('Лишняя')"), null, 'сверх лимита тема не создаётся');
+  assert.equal(run(context, 'getClouds().length'), run(context, 'CLOUD_CONFIG.maxClouds'));
+});

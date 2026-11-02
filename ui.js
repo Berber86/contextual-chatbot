@@ -1459,6 +1459,7 @@ function renderCloudsTab() {
     const clouds = getCloudsForSelection();
     const data = getCloudsData();
     const lastRun = data.lastConsolidatedAt ? formatCloudDate(data.lastConsolidatedAt) : 'ещё не было';
+    const pending = cloudPendingCount();
 
     const rows = clouds.length
         ? clouds.map(cloud => {
@@ -1484,7 +1485,8 @@ function renderCloudsTab() {
             <input type="checkbox" ${enabled ? 'checked' : ''} onchange="toggleCloudMemoryFromInput(this.checked)">
             <span>Джев выбирает темы памяти перед ответом</span>
         </label>
-        <p class="cloud-hint">Нажмите на тему, чтобы увидеть, какие записи в неё попали. Названия, описания и раскладку ведёт фоновая стадия разбора: она раскладывает новые записи, сливает дубли и переписывает описания. Здесь можно только посмотреть результат или попросить разобрать сейчас. Последний разбор: ${escapeHtml(lastRun)}.</p>
+        <p class="cloud-hint">Нажмите на тему, чтобы увидеть, какие записи в неё попали. Названия, описания, деление и слияние тем ведёт фоновая стадия разбора. Здесь можно только посмотреть результат или попросить разобрать сейчас.
+            Тем: ${clouds.length} из ${CLOUD_CONFIG.maxClouds}${pending ? ` · без темы: ${pending}` : ''} · последний разбор: ${escapeHtml(lastRun)}.</p>
         <div class="cloud-actions">
             <button class="cloud-run-button" type="button" onclick="requestCloudConsolidation(this)">Разобрать сейчас</button>
         </div>
@@ -1520,6 +1522,17 @@ function toggleCloudDetails(cloudId) {
     if (expandedClouds.has(cloudId)) expandedClouds.delete(cloudId);
     else expandedClouds.add(cloudId);
     renderCloudsTab();
+}
+
+// Сколько записей ещё не разобрано. Один проход берёт не больше maxItemsPerPrompt,
+// поэтому старую память иногда нужно разобрать несколько раз подряд.
+function cloudPendingCount() {
+    if (typeof collectUnassignedItems !== 'function' || typeof collectCloudCatalog !== 'function') return 0;
+    try {
+        return collectUnassignedItems(collectCloudCatalog()).length;
+    } catch (error) {
+        return 0;
+    }
 }
 
 function formatCloudDate(timestamp) {
