@@ -263,8 +263,11 @@ test('стадия 1 сначала пробует облака, и только
   assert.ok(cloudCall > 0 && lengthCheck > cloudCall && compression > lengthCheck, 'порядок: облака → длина → сжатие');
 
   assert.match(ui, /function prepareCloudContext\(/, 'есть подготовка облачного контекста');
-  assert.match(ui, /clouds\.length < 2/, 'одно облако не считается выбором');
   assert.match(ui, /isCloudMemoryEnabled\(\)/, 'есть выключатель');
+  // Одна тема с записями — это вся память: берём её напрямую, без jev и без сжатия.
+  assert.match(ui, /clouds\.length === 1/, 'одна тема — отдельная ветка');
+  assert.match(ui, /Тема одна — берём без jev/, 'и это видно в консоли');
+  assert.match(ui, /lastCloudSkip/, 'причина отказа запоминается для спойлера');
 });
 
 test('стадия 2 получает облачный контекст, а не досье', () => {
@@ -677,4 +680,80 @@ test('спойлер показывает вероятности, сырой о�
 
   assert.match(page, /lastJevDebug = buildJevDebug\(contextResult, contextBlock, turnPlan\)/, 'stage 2 запоминает отладку');
   assert.match(page, /appendJevSpoiler\(element\)/, 'спойлер добавляется к готовому ответу');
+});
+
+// Стадия 1 живёт в ui.js, но зависит только от app.js и jev.js.
+function loadStageOne(context) {
+  const start = ui.indexOf('let lastCloudSkip = null;');
+  const end = ui.indexOf('async function findRelevantContext');
+  assert.ok(start > 0 && end > start, 'секция стадии 1 на месте');
+  vm.runInContext(ui.slice(start, end), context);
+}
+
+test('одна тема с записями поднимается напрямую, без jev', async () => {
+  const { context, calls } = cloudHarness({}, cloudAnswer({}));
+  loadStageOne(context);
+  seedCloudsWithFacts(context, ['Работа']);
+  run(context, `ensureCloud('Пустая тема')`);
+
+  const result = await run(context, `prepareCloudContext('Привет', [], { text: 'сейчас' })`);
+  assert.equal(result && result.source, 'clouds');
+  assert.equal(result.single, true, 'режим одной темы');
+  assert.match(result.cloudContext, /Работа/);
+  assert.equal(calls.length, 0, 'jev не спрашивали — платить не за что');
+  assert.equal(run(context, 'getClouds().length'), 1, 'пустая тема вычищена до подсчёта');
+});
+
+test('без тем с записями причина отказа попадает в отладку', async () => {
+  const { context, calls } = cloudHarness({}, cloudAnswer({}));
+  loadStageOne(context);
+  run(context, `ensureCloud('Пустая раз'); ensureCloud('Пустая два')`);
+
+  const result = await run(context, `prepareCloudContext('Привет', [], { text: 'сейчас' })`);
+  assert.equal(result, null);
+  assert.equal(run(context, 'lastCloudSkip.code'), 'no-clouds');
+  assert.match(run(context, 'lastCloudSkip.text'), /всего тем: 0/);
+  assert.equal(calls.length, 0);
+});
+
+test('ошибка jev даёт понятную причину, а не молчаливое сжатие', async () => {
+  const { context } = cloudHarness({}, async () => ({
+    ok: false, status: 500, json: async () => ({}), text: async () => 'down',
+  }));
+  loadStageOne(context);
+  seedCloudsWithFacts(context, ['Работа', 'Собака']);
+
+  const result = await run(context, `prepareCloudContext('Что по работе?', [], { text: 'сейчас' })`);
+  assert.equal(result, null);
+  assert.equal(run(context, 'lastCloudSkip.code'), 'error');
+  assert.match(run(context, 'lastCloudSkip.text'), /ошибка jev/);
+});
+
+test('спойлер объясняет режим одной темы и причину отказа', () => {
+  const page = fs.readFileSync('ui.js', 'utf8');
+  const start = page.indexOf('// ==================== JEV SPOILER ====================');
+  const end = page.indexOf('// ==================== TWO-STAGE RESPONSE ARCHITECTURE ====================');
+  const context = vm.createContext({
+    console: { log() {}, warn() {}, error() {} },
+    escapeHtml: text => String(text == null ? '' : text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'),
+    getClouds: () => [],
+  });
+  vm.runInContext(page.slice(start, end), context);
+
+  const single = vm.runInContext(`buildJevSpoiler({
+    source: 'clouds', single: true, picked: ['Работа'], themes: [], block: 'факт'
+  })`, context);
+  assert.match(single, /Тема одна — jev не спрашивали/);
+  assert.match(single, /без jev/);
+
+  const skipped = vm.runInContext(`buildJevSpoiler({
+    source: 'compression', picked: [], themes: [], block: 'досье',
+    skip: { code: 'no-clouds', text: 'нет ни одной темы с записями (всего тем: 5)' }
+  })`, context);
+  assert.match(skipped, /работало сжатие досье/);
+  assert.match(skipped, /Почему не облака/);
+  assert.match(skipped, /всего тем: 5/);
+
+  const empty = vm.runInContext(`buildJevSpoiler({ source: 'clouds', picked: [], themes: [], block: '' })`, context);
+  assert.match(empty, /jev не поднял ни одной темы/);
 });

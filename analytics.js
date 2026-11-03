@@ -466,6 +466,10 @@ async function runCloudConsolidation(options = {}) {
     } catch (error) {
         console.warn('[Clouds] Разбор не удался, попробуем позже:', error.message);
         return false;
+    } finally {
+        // Если применение упало на середине, пустые темы всё равно убираем:
+        // иначе в списке остаются «облака» без единой записи.
+        if (typeof pruneEmptyClouds === 'function') pruneEmptyClouds();
     }
 }
 
