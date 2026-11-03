@@ -253,65 +253,6 @@ function normalizeArchetype(answer) {
     return { key, instruction: RESPONSE_ARCHETYPES[key] };
 }
 
-// Главная точка входа: сложность → маршрут. null означает «оставь как было»,
-// и это безопасный ответ на любую проблему: сеть, таймаут, мусор в ответе.
-async function assessMessageComplexity(message, history, options) {
-    const clean = String(message == null ? '' : message).trim();
-    if (!clean) return null;
-
-    const recent = (Array.isArray(history) ? history : [])
-        .filter(item => item && (item.role === 'user' || item.role === 'assistant'))
-        .slice(-4)
-        .map(item => ({ role: item.role, text: String(item.content || '').slice(0, 400) }));
-
-    const state = { message: clean.slice(0, 2000), recent };
-    const result = await systemOne(state, buildTurnQuestions(), options || {});
-    const answers = result.answers || {};
-    const answer = answers.complexity || {};
-    const score = normalizeComplexityScore(answer.score, COMPLEXITY_LEVELS.length);
-    const archetype = normalizeArchetype(answers.archetype);
-    const askProbability = clampProbability(answers.ask_question && answers.ask_question.noul);
-
-    return {
-        score,
-        confidence: Number.isFinite(Number(answer.confidence)) ? Number(answer.confidence) : null,
-        needsMemory: clampProbability(answers.needs_memory && answers.needs_memory.noul) || 0,
-        levels: answer.probabilities || null,
-        archetype: archetype ? archetype.instruction : null,
-        archetypeKey: archetype ? archetype.key : null,
-        askProbability,
-        shouldAsk: askProbability === null ? null : askProbability >= ASK_QUESTION_PROBABILITY_THRESHOLD,
-        model: result.model
-    };
-}
-
-// Один запрос за ход: сложность, нужна ли память, архетип ответа и уместность вопроса.
-// null — любая проблема; вызывающий код тогда работает по-старому.
-async function resolveTurnPlan(message, history, options) {
-    const clean = String(message == null ? '' : message).trim();
-    if (!clean) return null;
-
-    try {
-        const assessment = await assessMessageComplexity(clean, history, options);
-        if (!assessment) return null;
-        return {
-            route: pickRouteByComplexity(assessment.score),
-            complexity: assessment.score,
-            confidence: assessment.confidence,
-            needsMemory: assessment.needsMemory,
-            archetype: assessment.archetype,
-            archetypeKey: assessment.archetypeKey,
-            askProbability: assessment.askProbability,
-            shouldAsk: assessment.shouldAsk,
-            model: assessment.model
-        };
-    } catch (error) {
-        systemOneStats.errors++;
-        console.warn('[Route] решение по ходу не получено, работаем как раньше:', error.message);
-        return null;
-    }
-}
-
 // ==================== ВЫБОР ОБЛАКОВ ПАМЯТИ ====================
 // Облако — тема (работа, хобби, здоровье, собака). Раньше спрашивали noul на
 // каждую тему: 24 темы = 24 вопроса из 32 доступных, и на всё остальное в ходу
@@ -400,59 +341,6 @@ function pickCloudsFromDistribution(list, probabilities, noneProbability) {
     // Пусто при живых вероятностях — берём лучшую: память в этом приложении
     // важнее строгости порога, иначе ход уйдёт в дорогое сжатие досье.
     return picked.length ? picked : [ranked[0]];
-}
-
-async function selectCloudsForTurn(message, clouds, history, options) {
-    const clean = String(message == null ? '' : message).trim();
-    const list = (Array.isArray(clouds) ? clouds : []).filter(cloud => cloud && cloud.id && cloud.name);
-    if (!clean || list.length < 2) return null;
-
-    const state = {
-        message: clean.slice(0, 2000),
-        recent: (Array.isArray(history) ? history : [])
-            .filter(item => item && (item.role === 'user' || item.role === 'assistant'))
-            .slice(-4)
-            .map(item => ({ role: item.role, text: String(item.content || '').slice(0, 300) }))
-    };
-
-    const questions = buildCloudQuestions(list);
-    const result = await systemOne(state, questions, options || {});
-    const answers = result.answers || {};
-    const answer = answers.clouds || {};
-    const rawProbabilities = answer.probabilities || {};
-
-    const probabilities = {};
-    list.forEach((cloud, index) => {
-        const probability = clampProbability(rawProbabilities[cloudOptionKey(index)]);
-        if (probability !== null) probabilities[cloud.id] = probability;
-    });
-    const noneProbability = clampProbability(rawProbabilities[CLOUD_NONE_OPTION]) || 0;
-
-    const picked = pickCloudsFromDistribution(list, probabilities, noneProbability);
-
-    return {
-        clouds: picked,
-        probabilities,
-        noneProbability,
-        model: result.model,
-        threshold: CLOUD_SELECT_THRESHOLD,
-        maxSelected: CLOUD_MAX_SELECTED,
-        relativeCut: CLOUD_RELATIVE_CUT,
-        questions,
-        // Сырой ответ модели — для отладки в интерфейсе, в логику не идёт.
-        raw: answers
-    };
-}
-
-// Совместимость: только маршрут по сложности (с контекстом решения).
-async function resolveMessageRoute(message, history, options) {
-    const plan = await resolveTurnPlan(message, history, options);
-    if (!plan || !plan.route) return null;
-    return Object.assign({}, plan.route, {
-        confidence: plan.confidence,
-        needsMemory: plan.needsMemory,
-        source: 'jev'
-    });
 }
 
 // ==================== ФЛАГИ И НАБЛЮДАЕМОСТЬ ====================

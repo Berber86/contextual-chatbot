@@ -6,6 +6,7 @@ const vm = require('node:vm');
 const app = fs.readFileSync('app.js', 'utf8');
 const analytics = fs.readFileSync('analytics.js', 'utf8');
 const jev = fs.readFileSync('jev.js', 'utf8');
+const council = fs.readFileSync('council.js', 'utf8');
 const ui = fs.readFileSync('ui.js', 'utf8');
 
 function createStorage(initial = {}) {
@@ -42,10 +43,17 @@ function cloudHarness(initial = {}, fetchHandler) {
   });
   vm.runInContext(app, context);
   vm.runInContext(jev, context);
+  vm.runInContext(council, context);
   return { context, values, calls, storage };
 }
 
 const run = (context, expression) => vm.runInContext(expression, context);
+
+// Решение о темах приходит из совета: отдельной функции выбора больше нет.
+const councilMemory = (context, message, clouds) => vm.runInContext(
+  `(async () => { const plan = await resolveCouncil(${JSON.stringify(message)}, [], { clouds: ${JSON.stringify(clouds)} }); return plan ? plan.memory : null; })()`,
+  context
+);
 
 // app.js + analytics.js: фоновая стадия разбора. Модель подменяем целиком —
 // проверяем, что стадия делает с ответом, а не как устроен провайдер памяти.
@@ -202,13 +210,16 @@ test('выбор облаков: один вопрос choice на все тем
   seedCloudsWithFacts(context, ['Работа', 'Собака', 'Япония']);
   const clouds = run(context, 'getCloudsForSelection().map(c => ({ id: c.id, name: c.name, counts: c.counts }))');
 
-  const selection = await run(context, `selectCloudsForTurn("Что посоветуешь по работе?", ${JSON.stringify(Array.from(clouds))}, [])`);
+  const selection = await councilMemory(context, 'Что посоветуешь по работе?', Array.from(clouds));
 
   assert.equal(calls.length, 1, 'один запрос на ход');
   const questions = calls[0].body.questions;
-  assert.equal(Object.keys(questions).length, 1, 'одна тема — один слот, а не отдельный вопрос');
-  assert.equal(questions.clouds.type, 'choice');
+  assert.equal(Object.keys(questions).length, 8, 'весь совет: маршрут, состояние, приветствие и темы');
+  assert.equal(questions.clouds.type, 'choice', 'темы — один слот, а не вопрос на каждую');
   assert.equal(Object.keys(questions.clouds.criteria).length, 4, 'три темы плюс «ничего»');
+  ['complexity', 'archetype', 'ask_question', 'distress', 'crisis', 'greeting'].forEach(name => {
+    assert.ok(questions[name], `вопрос «${name}» в том же запросе`);
+  });
   assert.ok(questions.clouds.criteria.none, 'вариант «ничего не нужно» на месте');
 
   assert.equal(selection.clouds.length, 1, '0.14 меньше 40% от 0.62 — не поднимаем');
@@ -226,7 +237,7 @@ test('выбор облаков: не больше четырёх, самые в
   const clouds = Array.from(run(context, 'getCloudsForSelection().map(c => ({ id: c.id, name: c.name, counts: c.counts }))'));
   assert.equal(clouds.length, 5);
 
-  const selection = await run(context, `selectCloudsForTurn("тест", ${JSON.stringify(clouds)}, [])`);
+  const selection = await councilMemory(context, 'тест', clouds);
   assert.equal(selection.clouds.length, 4, 'пятое облако отсекается');
   for (let index = 1; index < selection.clouds.length; index++) {
     assert.ok(selection.clouds[index - 1].probability >= selection.clouds[index].probability, 'по убыванию');
@@ -265,15 +276,15 @@ test('выбор облаков: одна тема — не повод для з
   const { context, calls } = cloudHarness({}, cloudAnswer({}));
   seedCloudsWithFacts(context, ['Работа']);
   const clouds = Array.from(run(context, 'getCloudsForSelection().map(c => ({ id: c.id, name: c.name, counts: c.counts }))'));
-  assert.equal(await run(context, `selectCloudsForTurn("привет", ${JSON.stringify(clouds)}, [])`), null);
-  assert.equal(calls.length, 0, 'одно облако — это вся память, выбирать нечего');
+  assert.equal(await councilMemory(context, 'привет', clouds), null, 'одна тема — выбирать нечего');
+  assert.equal(calls.length, 1, 'совет спрашивает только про маршрут, состояние и приветствие');
+  assert.equal(calls[0].body.questions.clouds, undefined, 'вопроса о темах нет');
 
   const broken = cloudHarness({}, async () => ({ ok: false, status: 500, json: async () => ({}), text: async () => 'down' }));
   seedCloudsWithFacts(broken.context, ['Работа', 'Собака']);
   const pair = Array.from(run(broken.context, 'getCloudsForSelection().map(c => ({ id: c.id, name: c.name, counts: c.counts }))'));
-  await assert.rejects(async () => {
-    await run(broken.context, `selectCloudsForTurn("тест", ${JSON.stringify(pair)}, [])`);
-  }, 'ошибку сети обрабатывает вызывающий код');
+  assert.equal(await councilMemory(broken.context, 'тест', pair), null,
+    'ошибка сети — совет не дал решения, а не уронил ход');
 });
 
 // ==================== ВСТРОЙКА В ЧАТ ====================
@@ -281,7 +292,7 @@ test('выбор облаков: одна тема — не повод для з
 test('стадия 1 сначала пробует облака, и только потом сжатие', () => {
   const start = ui.indexOf('async function findRelevantContext');
   const findBody = ui.slice(start, ui.indexOf('function buildSystemPromptLegacy', start));
-  const cloudCall = findBody.indexOf('prepareCloudContext(userMessage, history, timeInfo)');
+  const cloudCall = findBody.indexOf('prepareCloudContext(userMessage, history, timeInfo, council)');
   const lengthCheck = findBody.indexOf('totalContextLength < 2000');
   const compression = findBody.indexOf('compressionPrompt');
   assert.ok(cloudCall > 0 && lengthCheck > cloudCall && compression > lengthCheck, 'порядок: облака → длина → сжатие');
@@ -654,7 +665,7 @@ test('jev отдаёт сырой ответ, вопросы и порог дл�
   seedCloudsWithFacts(context, ['Работа', 'Собака']);
   const clouds = Array.from(run(context, 'getCloudsForSelection()'));
 
-  const selection = await run(context, `selectCloudsForTurn("Что по работе?", ${JSON.stringify(clouds)}, [])`);
+  const selection = await councilMemory(context, 'Что по работе?', clouds);
   assert.equal(selection.threshold, 0.1);
   assert.equal(selection.maxSelected, 4);
   assert.equal(selection.relativeCut, 0.4);
@@ -717,11 +728,36 @@ test('спойлер показывает вероятности, сырой о�
 
 // Стадия 1 живёт в ui.js, но зависит только от app.js и jev.js.
 function loadStageOne(context) {
-  const start = ui.indexOf('let lastCloudSkip = null;');
+  const start = ui.indexOf('// ==================== СОВЕТ ВОПРОСОВ ====================');
   const end = ui.indexOf('async function findRelevantContext');
-  assert.ok(start > 0 && end > start, 'секция стадии 1 на месте');
+  assert.ok(start > 0 && end > start, 'секция совета и стадии 1 на месте');
   vm.runInContext(ui.slice(start, end), context);
 }
+
+test('приветствие из совета гасит память: темы не поднимаем', async () => {
+  const { context, calls } = cloudHarness({}, async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      model: 'jev-1.14',
+      answers: {
+        greeting: { type: 'noul', noul: 0.86 },
+        clouds: { type: 'choice', choice: 'cloud_0', probabilities: { cloud_0: 0.55, cloud_1: 0.25, none: 0.2 } },
+      },
+      usage: { input_tokens: 200, output_tokens: 0 },
+    }),
+    text: async () => '',
+  }));
+  loadStageOne(context);
+  seedCloudsWithFacts(context, ['Работа', 'Собака']);
+
+  const result = await run(context, `prepareCloudContext('Доброе утро', [], { text: 'сейчас' })`);
+
+  assert.equal(result, null, 'светская реплика не тянет воспоминания');
+  assert.equal(run(context, 'lastCloudSkip.code'), 'greeting');
+  assert.match(run(context, 'lastCloudSkip.text'), /приветствие/);
+  assert.equal(calls.length, 1, 'один запрос на ход');
+});
 
 test('jev уверенно выбрал «ничего» — память не поднимается и досье не сжимается', async () => {
   const { context } = cloudHarness({}, cloudChoiceAnswer({ cloud_0: 0.15, cloud_1: 0.12, none: 0.73 }));
@@ -771,8 +807,8 @@ test('ошибка jev даёт понятную причину, а не мол�
 
   const result = await run(context, `prepareCloudContext('Что по работе?', [], { text: 'сейчас' })`);
   assert.equal(result, null);
-  assert.equal(run(context, 'lastCloudSkip.code'), 'error');
-  assert.match(run(context, 'lastCloudSkip.text'), /ошибка jev/);
+  assert.equal(run(context, 'lastCloudSkip.code'), 'no-council');
+  assert.match(run(context, 'lastCloudSkip.text'), /совет не ответил/);
 });
 
 test('спойлер объясняет режим одной темы и причину отказа', () => {

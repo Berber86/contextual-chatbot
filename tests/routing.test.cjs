@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 
 const jevSource = fs.readFileSync('jev.js', 'utf8');
+const councilSource = fs.readFileSync('council.js', 'utf8');
 const uiSource = fs.readFileSync('ui.js', 'utf8');
 const devServer = fs.readFileSync('dev-server.mjs', 'utf8');
 const indexHtml = fs.readFileSync('index.html', 'utf8');
@@ -55,6 +56,7 @@ function jevHarness(options = {}) {
   });
 
   vm.runInContext(jevSource, context);
+  vm.runInContext(councilSource, context);
   return { context, calls, values };
 }
 
@@ -143,7 +145,7 @@ test('границы трёх уровней: 0.5 и 0.8', () => {
   assert.equal(route(NaN), null, 'без оценки маршрута нет');
 });
 
-test('resolveMessageRoute собирает маршрут и не тащит в него текст ответа', async () => {
+test('совет собирает маршрут и не тащит в него текст ответа', async () => {
   const { context } = jevHarness({
     handler: async () => ({
       ok: true,
@@ -157,13 +159,13 @@ test('resolveMessageRoute собирает маршрут и не тащит в 
     }),
   });
 
-  const route = await run(context, 'resolveMessageRoute("Как мне объяснить это руководителю?", [])');
-  assert.equal(route.tier, 'hard');
-  assert.equal(route.model, 'hydra-gemini-pro');
-  assert.equal(route.source, 'jev');
-  assert.equal(route.score, 0.8);
-  assert.equal(Object.prototype.hasOwnProperty.call(route, 'text'), false, 'jev не приносит пользовательский текст');
-  assert.deepEqual(Object.keys(route).sort(), ['confidence', 'label', 'model', 'needsMemory', 'provider', 'score', 'source', 'tier']);
+  const plan = await run(context, 'resolveCouncil("Как мне объяснить это руководителю?", [], {})');
+  assert.equal(plan.route.tier, 'hard');
+  assert.equal(plan.route.model, 'hydra-gemini-pro');
+  assert.equal(plan.complexity, 0.8);
+  assert.equal(plan.needsMemory, 0.7);
+  assert.equal(Object.prototype.hasOwnProperty.call(plan.route, 'text'), false, 'jev не приносит пользовательский текст');
+  assert.deepEqual(Array.from(Object.keys(plan.route)).sort(), ['label', 'model', 'provider', 'score', 'tier']);
 });
 
 // ==================== ОТКАЗЫ ====================
@@ -172,8 +174,8 @@ test('сеть упала — маршрута нет, бот работает �
   const { context } = jevHarness({
     handler: async () => ({ ok: false, status: 503, text: async () => 'upstream down', json: async () => ({}) }),
   });
-  const route = await run(context, 'resolveMessageRoute("привет", [])');
-  assert.equal(route, null);
+  const plan = await run(context, 'resolveCouncil("привет", [], {})');
+  assert.equal(plan, null, 'без ответа — без решений');
   assert.equal(run(context, 'getSystemOneStats().errors') >= 1, true);
 });
 
@@ -189,8 +191,8 @@ test('таймаут не подвешивает ход: маршрут отбр
     }),
   });
   const started = Date.now();
-  const route = await run(context, 'resolveMessageRoute("привет", [], { timeoutMs: 60 })');
-  assert.equal(route, null);
+  const plan = await run(context, 'resolveCouncil("привет", [], { options: { timeoutMs: 60 } })');
+  assert.equal(plan, null);
   assert.equal(Date.now() - started < 1500, true, 'таймаут срабатывает быстро');
 });
 
@@ -203,7 +205,8 @@ test('мусор вместо вероятности — тоже отказ, а
       text: async () => '',
     }),
   });
-  assert.equal(await run(context, 'resolveMessageRoute("привет", [])'), null);
+  const plan = await run(context, 'resolveCouncil("привет", [], {})');
+  assert.equal(plan.route, null, 'мусор вместо оценки — маршрута нет, остальные решения живы');
 });
 
 // ==================== СВЯЗКА С ui.js ====================
@@ -257,17 +260,16 @@ test('лёгкий маршрут пробует бесплатный OpenRouter
 });
 
 test('маршрутизация включается только там, где есть платный провайдер, и отключается флагом', () => {
-  assert.match(uiSource, /function isComplexityRoutingAvailable\(\)/, 'есть гейт доступности');
+  assert.match(uiSource, /function isCouncilAvailable\(\)/, 'есть гейт доступности');
   assert.match(uiSource, /isSmartMode\(\) \|\| isFullHydraMode\(\)/, 'без Hydra маршрут не включается');
-  assert.match(uiSource, /isComplexityRoutingEnabled\(\)/, 'есть выключатель');
-  assert.match(uiSource, /const routePromise = typeof resolveTurnDecisions === 'function'/,
-    'решение считается параллельно стадии 1, а не перед ответом');
-  assert.match(uiSource, /resolveTurnDecisions\(userMessage, historyWithoutCurrent\)/,
+  assert.match(councilSource, /isComplexityRoutingEnabled\(\)/, 'есть выключатель');
+  assert.match(uiSource, /const council = typeof resolveTurnCouncil === 'function'/,
+    'ход получает решения до сборки контекста');
+  assert.match(uiSource, /await resolveTurnCouncil\(userMessage, historyWithoutCurrent\)/,
     'решение запрашивается по текущему сообщению');
-  assert.match(uiSource, /\n        : Promise\.resolve\(null\);/, 'без jev.js ход не падает');
-  assert.match(uiSource, /const turnPlan = routePromise === undefined \? null : await routePromise;/,
-    'к стадии 2 решение уже готово');
+  assert.match(uiSource, /const turnPlan = council;/, 'к стадии 2 решение уже готово');
   assert.match(uiSource, /turnRoute \? \{ route: turnRoute \} : \{\}/, 'маршрут уходит в стриминг');
+  assert.equal(uiSource.includes('selectCloudsForTurn'), false, 'второго запроса за ход нет');
 });
 
 test('System One подключён в страницу, в дев-сервер и в прод-прокси', () => {
@@ -285,7 +287,7 @@ test('System One подключён в страницу, в дев-сервер 
 test('решение по ходу приносит архетип и уместность вопроса из того же запроса', async () => {
   const { context, calls } = jevHarness();
 
-  const plan = await run(context, 'resolveTurnPlan("Хочу начать бегать, но не знаю с чего", [])');
+  const plan = await run(context, 'resolveCouncil("Хочу начать бегать, но не знаю с чего", [], {})');
 
   assert.equal(calls.length, 1, 'один запрос на ход');
   assert.equal(plan.archetypeKey, 'micro_plan');
@@ -314,8 +316,8 @@ test('порог вопроса 0.5: 0.49 — молчим, 0.5 — спраши
   const low = jevHarness({ handler: handlerFor(0.49) });
   const high = jevHarness({ handler: handlerFor(0.5) });
 
-  assert.equal((await run(low.context, 'resolveTurnPlan("ок", [])')).shouldAsk, false);
-  assert.equal((await run(high.context, 'resolveTurnPlan("ок", [])')).shouldAsk, true);
+  assert.equal((await run(low.context, 'resolveCouncil("ок", [], {})')).shouldAsk, false);
+  assert.equal((await run(high.context, 'resolveCouncil("ок", [], {})')).shouldAsk, true);
 });
 
 test('неизвестный или пропавший архетип не ломает ход: остаётся null и фолбэк', async () => {
@@ -336,34 +338,45 @@ test('неизвестный или пропавший архетип не ло�
     }),
   });
 
-  const plan = await run(context, 'resolveTurnPlan("ок", [])');
+  const plan = await run(context, 'resolveCouncil("ок", [], {})');
   assert.equal(plan.archetype, null);
   assert.equal(plan.archetypeKey, null);
   assert.equal(plan.route.tier, 'easy', 'остальные решения при этом живы');
 });
 
-test('архетипы в jev.js совпадают с прежними строками ui.js — промпт не меняется', () => {
-  const block = uiSource.slice(uiSource.indexOf('function pickResponseArchetype()'), uiSource.indexOf('function decideQuestionPolicyForThisTurn()'));
-  const legacy = Array.from(block.matchAll(/"([^"]+)"/g)).map(match => match[1]);
+test('архетипы в jev.js остались дословно прежними — промпт не меняется', () => {
+  const EXPECTED = [
+    'Answer-first: start with the useful answer immediately, then (optionally) add a short memory-based observation.',
+    'Reframe: offer an alternative interpretation using their traits/hypotheses, then give a concrete next step.',
+    'Options: propose 2–3 options with trade-offs; minimal fluff, maximal clarity.',
+    'Micro-plan: give a short plan (2–4 steps) tailored to what you know about them.',
+    'Reality-check: gently challenge or test an assumption, grounded in what you know about them.',
+    'Story/analogy: use a brief analogy that fits their known interests; keep it tight.',
+    "Connector: link their current message to something from their past or a pattern you've noticed.",
+    'Minimalist: a concise response that moves forward; no fluff, pure value.',
+  ];
   const { context } = jevHarness();
-  const current = run(context, 'Object.values(RESPONSE_ARCHETYPES)');
+  const current = Array.from(run(context, 'Object.values(RESPONSE_ARCHETYPES)'));
 
-  assert.equal(legacy.length, 8, 'в ui.js восемь архетипов');
-  assert.deepEqual(Array.from(current).sort(), legacy.slice().sort(),
+  assert.equal(current.length, 8);
+  assert.deepEqual(current.slice().sort(), EXPECTED.slice().sort(),
     'инструкции в промпт остались дословно прежними');
+  assert.equal(uiSource.includes('pickResponseArchetype'), false, 'случайного архетипа больше нет');
 });
 
-test('вопрос в конце ответа: ASK_ME важнее модели, модель важнее случая', () => {
+
+test('вопрос в конце ответа: ASK_ME важнее совета, совет важнее молчания', () => {
   assert.match(uiSource, /function decideTurnQuestionPolicy\(plan\)/, 'есть решатель');
   const body = uiSource.slice(uiSource.indexOf('function decideTurnQuestionPolicy(plan)'));
   const askMe = body.indexOf('askMeMode && isAskMeModeAvailable()');
-  const fromModel = body.indexOf("typeof plan.shouldAsk === 'boolean'");
-  const legacy = body.indexOf('return decideQuestionPolicyForThisTurn();');
-  assert.ok(askMe > 0 && fromModel > askMe && legacy > fromModel, 'порядок: ASK_ME → модель → случай');
+  const fromCouncil = body.indexOf("typeof plan.shouldAsk === 'boolean'");
+  const silence = body.indexOf("modeLabel: 'NONE'");
+  assert.ok(askMe > 0 && fromCouncil > askMe && silence > fromCouncil, 'порядок: ASK_ME → совет → молчание');
 
-  assert.match(uiSource, /const archetype = \(turnPlan && turnPlan\.archetype\) \|\| pickResponseArchetype\(\);/,
-    'без решения остаётся прежний случайный архетип');
+  assert.match(uiSource, /const archetype = \(turnPlan && turnPlan\.archetype\) \|\| '';/,
+    'без решения архетипа нет, случайности тоже');
   assert.match(uiSource, /const qp = typeof decideTurnQuestionPolicy === 'function'/,
     'политика вопроса берётся из решения');
-  assert.match(uiSource, /\n            : decideQuestionPolicyForThisTurn\(\);/, 'в срезе без решателя — прежний случай');
+  assert.equal(uiSource.includes('decideQuestionPolicyForThisTurn'), false, 'случайная политика удалена');
 });
+

@@ -2670,45 +2670,62 @@ async function streamResponse(messages, onChunk, onComplete, options = {}) {
     return await streamResponseOpenRouter(messages, onChunk, onComplete, options);
 }
 
-// ==================== МАРШРУТИЗАЦИЯ ПО СЛОЖНОСТИ ====================
-// Один дешёвый запрос к System One (jev / solar-decide) решает, какой моделью отвечать.
-// Любая проблема — null, и тогда работает прежний выбор модели. Ничего не ломаем.
+// ==================== СОВЕТ ВОПРОСОВ ====================
+// Решения хода принимает council.js одним запросом: маршрут, форма ответа,
+// уместность вопроса, тяжесть состояния, приветствие и темы памяти. Второго
+// вызова jev в ходу нет, случайных функций тоже.
 
-function isComplexityRoutingAvailable() {
-    if (typeof resolveMessageRoute !== 'function') return false;
-    if (typeof isComplexityRoutingEnabled === 'function' && !isComplexityRoutingEnabled()) return false;
-    // Без платного провайдера маршрут нечего менять: все уровни ушли бы в один и тот же OpenRouter.
-    return isSmartMode() || isFullHydraMode();
+function isCouncilAvailable() {
+    if (typeof resolveCouncil !== 'function') return false;
+    // Без платного провайдера маршрут менять не на что, но память и безопасность
+    // от этого не зависят — поэтому смотрим только на транспорт и режим.
+    const smart = typeof isSmartMode === 'function' ? isSmartMode() : true;
+    const fullHydra = typeof isFullHydraMode === 'function' ? isFullHydraMode() : false;
+    return smart || fullHydra;
 }
 
-async function resolveTurnDecisions(userMessage, history) {
-    if (!isComplexityRoutingAvailable()) return null;
-    try {
-        const plan = typeof resolveTurnPlan === 'function'
-            ? await resolveTurnPlan(userMessage, history)
-            : null;
-        if (!plan) return null;
-        const route = plan.route;
-        console.log('[Route] сложность ' + (plan.complexity === null ? '?' : plan.complexity.toFixed(2)) +
-            (route ? ' → ' + route.label + ' (' + route.provider + (route.model ? '/' + route.model : '') + ')' : ' → прежняя модель') +
-            (plan.archetypeKey ? ', архетип: ' + plan.archetypeKey : '') +
-            (plan.shouldAsk === null ? '' : ', вопрос: ' + (plan.shouldAsk ? 'да' : 'нет')));
-        return plan;
-    } catch (error) {
-        console.warn('[Route] решение по ходу не получено, работаем как раньше:', error.message);
-        return null;
+async function resolveTurnCouncil(userMessage, history) {
+    if (!isCouncilAvailable()) return null;
+    const clouds = typeof getCloudsForSelection === 'function'
+        ? Array.from(getCloudsForSelection())
+        : [];
+    const memoryEnabled = typeof isCloudMemoryEnabled === 'function' ? isCloudMemoryEnabled() : true;
+    const council = await resolveCouncil(userMessage, history, { clouds: memoryEnabled ? clouds : [] });
+    if (!council) return null;
+
+    logCouncil(council);
+    if (typeof window !== 'undefined') window.lastCouncil = council;
+    return council;
+}
+
+function logCouncil(council) {
+    const parts = [];
+    if (council.complexity !== null && council.complexity !== undefined) {
+        parts.push('сложность ' + council.complexity.toFixed(2));
     }
+    if (council.route) parts.push(council.route.label);
+    if (council.archetypeKey) parts.push('архетип ' + council.archetypeKey);
+    if (council.shouldAsk !== null && council.shouldAsk !== undefined) {
+        parts.push('вопрос ' + (council.shouldAsk ? 'да' : 'нет'));
+    }
+    if (council.safety && council.safety.level !== 'none') parts.push('состояние ' + council.safety.level);
+    if (council.greeting && council.greeting.isGreeting) parts.push('приветствие');
+    if (council.memory) {
+        parts.push('темы: ' + (council.memory.clouds.length ? council.memory.clouds.map(c => c.name).join(', ') : 'нет'));
+    }
+    console.log('[Council] ' + (parts.join(' · ') || 'без решений'));
 }
 
-// Вопрос в конце ответа: ASK_ME важнее модели, модель важнее случая.
+// Вопрос в конце ответа: ASK_ME важнее совета, совет важнее молчания.
+// Случайного «спросить с вероятностью 12%» больше нет — его заменил совет.
 function decideTurnQuestionPolicy(plan) {
     if (askMeMode && isAskMeModeAvailable()) {
         return { shouldAsk: true, probability: 0.85, modeLabel: 'ASK_ME' };
     }
     if (plan && typeof plan.shouldAsk === 'boolean') {
-        return { shouldAsk: plan.shouldAsk, probability: plan.askProbability, modeLabel: 'SYSTEM_ONE' };
+        return { shouldAsk: plan.shouldAsk, probability: plan.askProbability, modeLabel: 'COUNCIL' };
     }
-    return decideQuestionPolicyForThisTurn();
+    return { shouldAsk: false, probability: null, modeLabel: 'NONE' };
 }
 
 function createStreamingMessage() {
@@ -2744,33 +2761,9 @@ function finalizeStreamingMessage(element, content) {
     addToHistory('assistant', content);
 }
 
-// ==================== RESPONSE ARCHETYPES & QUESTION POLICY ====================
-function pickResponseArchetype() {
-    const archetypes = [
-        "Answer-first: start with the useful answer immediately, then (optionally) add a short memory-based observation.",
-        "Reframe: offer an alternative interpretation using their traits/hypotheses, then give a concrete next step.",
-        "Options: propose 2–3 options with trade-offs; minimal fluff, maximal clarity.",
-        "Micro-plan: give a short plan (2–4 steps) tailored to what you know about them.",
-        "Reality-check: gently challenge or test an assumption, grounded in what you know about them.",
-        "Story/analogy: use a brief analogy that fits their known interests; keep it tight.",
-        "Connector: link their current message to something from their past or a pattern you've noticed.",
-        "Minimalist: a concise response that moves forward; no fluff, pure value."
-    ];
-    return archetypes[Math.floor(Math.random() * archetypes.length)];
-}
-
-function decideQuestionPolicyForThisTurn() {
-    const askMode = askMeMode && isAskMeModeAvailable();
-    const probability = askMode ? 0.85 : 0.12;
-    const roll = Math.random();
-    const shouldAsk = roll < probability;
-    
-    return {
-        shouldAsk,
-        probability,
-        modeLabel: askMode ? "ASK_ME" : "STANDARD"
-    };
-}
+// ==================== ОТВЕТ И ВОПРОС ====================
+// Архетип ответа и уместность вопроса приходят из совета (council.js).
+// Прежние случайные функции удалены: поведение должно быть воспроизводимым.
 
 // ==================== GOAL COACHING BLOCK (🎯) ====================
 // Блок попадает в системный промпт основного ответа. Правила жёсткие и проверяются
@@ -2788,16 +2781,22 @@ function buildCoachingSupportBlock(level) {
         `Не диагностируй, не называй состояний, не обещай, что «само пройдёт», и не превращай это в коучинговый вопрос.${crisisLine}`;
 }
 
-function buildCoachingBlock(message, history) {
+function buildCoachingBlock(message, history, council) {
     try {
         if (typeof getActiveGoals !== 'function' || typeof getGoalsForPrompt !== 'function') return '';
         if (typeof isCoachingEnabled === 'function' && !isCoachingEnabled()) return '';
         if (getActiveGoals().length === 0) return '';
 
         // Дистресс и кризис гасят коучинг в коде, а не просьбой в промпте.
-        const distress = typeof detectUserDistress === 'function'
-            ? detectUserDistress(message)
-            : { level: 'none' };
+        // Основной сигнал — совет; регулярка остаётся вето: пропустить кризис
+        // из-за упавшей сети дороже, чем лишний раз поддержать человека.
+        const regexLevel = typeof detectUserDistress === 'function'
+            ? detectUserDistress(message).level
+            : 'none';
+        const councilLevel = (council && council.safety && council.safety.level) || 'none';
+        const rank = { none: 0, distress: 1, crisis: 2 };
+        const level = rank[regexLevel] >= rank[councilLevel] ? regexLevel : councilLevel;
+        const distress = { level };
         if (distress.level === 'crisis' || distress.level === 'distress') {
             return buildCoachingSupportBlock(distress.level);
         }
@@ -3019,7 +3018,7 @@ function noteCloudSkip(code, text, extra) {
     return null;
 }
 
-async function prepareCloudContext(userMessage, history, timeInfo) {
+async function prepareCloudContext(userMessage, history, timeInfo, council) {
     lastCloudSkip = null;
 
     if (typeof isCloudMemoryEnabled === 'function' && !isCloudMemoryEnabled()) {
@@ -3071,14 +3070,27 @@ async function prepareCloudContext(userMessage, history, timeInfo) {
         };
     }
 
-    if (typeof selectCloudsForTurn !== 'function') {
-        return noteCloudSkip('no-api', 'выбор тем не загрузился', { themes: totalThemes, withContent: clouds.length });
+    // Решение о темах приходит вместе с остальными решениями хода. Если сюда
+    // пришли без него (срез, тест, прямой вызов) — спрашиваем совет сами, но всё
+    // равно один раз: второго запроса за ход нет.
+    const plan = council === undefined && typeof resolveTurnCouncil === 'function'
+        ? await resolveTurnCouncil(userMessage, history)
+        : council;
+
+    if (!plan) {
+        return noteCloudSkip('no-council', 'совет не ответил — темы не выбирались',
+            { themes: totalThemes, withContent: clouds.length });
+    }
+
+    if (plan.greeting && plan.greeting.isGreeting) {
+        return noteCloudSkip('greeting', 'это приветствие — память не нужна',
+            { themes: totalThemes, withContent: clouds.length });
     }
 
     try {
-        const selection = await selectCloudsForTurn(userMessage, clouds, history);
+        const selection = plan.memory;
         if (!selection) {
-            return noteCloudSkip('no-selection', 'jev не ответил на вопросы о темах',
+            return noteCloudSkip('no-council', 'совет не спросил про темы', 
                 { themes: totalThemes, withContent: clouds.length });
         }
 
@@ -3125,7 +3137,7 @@ async function prepareCloudContext(userMessage, history, timeInfo) {
     }
 }
 
-async function findRelevantContext(userMessage, history) {
+async function findRelevantContext(userMessage, history, council) {
     const allFacts = getFactsForPrompt(false);
     const allTraits = getTraitsForPrompt(false);
     const allHypotheses = getHypothesesForPrompt(false);
@@ -3142,7 +3154,7 @@ async function findRelevantContext(userMessage, history) {
     const timeInfo = formatTimeContextForPrompt(timeContext);
 
     // Сначала облака: если они есть, сжатие всей памяти не нужно вовсе.
-    const cloudResult = await prepareCloudContext(userMessage, history, timeInfo);
+    const cloudResult = await prepareCloudContext(userMessage, history, timeInfo, council);
     if (cloudResult) return cloudResult;
 
     const totalContextLength = [allFacts, allTraits, allHypotheses, allTimeline, allSocial, gaps, style]
@@ -3242,10 +3254,12 @@ if (last && last.role === 'user' && (last.content || '').trim() === (userMessage
     // 2. STAGE 1: Сбор контекста + "Прокашливание"
     // Сложность считаем параллельно: маршрут не должен добавлять ожидание к ответу.
     // Если jev.js не загрузился, чат обязан работать как раньше.
-    const routePromise = typeof resolveTurnDecisions === 'function'
-        ? resolveTurnDecisions(userMessage, historyWithoutCurrent)
-        : Promise.resolve(null);
-    const contextResult = await findRelevantContext(userMessage, historyWithoutCurrent);
+    // Один вызов на ход: маршрут, форма ответа, вопрос, состояние, приветствие
+    // и темы памяти. Второго вызова jev в ходу нет.
+    const council = typeof resolveTurnCouncil === 'function'
+        ? await resolveTurnCouncil(userMessage, historyWithoutCurrent)
+        : null;
+    const contextResult = await findRelevantContext(userMessage, historyWithoutCurrent, council);
     
     // 3. STAGE 2: Генерация основного ответа
     // Превью «мыслей» убрано: статус-бар показывает общее «Анализирую контекст…»,
@@ -3257,14 +3271,16 @@ if (last && last.role === 'user' && (last.content || '').trim() === (userMessage
     try {
         const langName = getLanguageName();
 
-        // Решение по ходу (сложность, архетип, уместность вопроса) считалось параллельно стадии 1.
-        const turnPlan = routePromise === undefined ? null : await routePromise;
+        // Все решения пришли из совета до сборки контекста.
+        const turnPlan = council;
         const turnRoute = turnPlan && turnPlan.route ? turnPlan.route : null;
-        // Без решения остаются прежние случайные функции — поведение не хуже, чем было.
-        const archetype = (turnPlan && turnPlan.archetype) || pickResponseArchetype();
+        // Нет совета — нет архетипа: случайных функций больше нет, поведение
+        // просто остаётся нейтральным.
+        const archetype = (turnPlan && turnPlan.archetype) || '';
+        // typeof — страховка для срезов в тестах, где секции совета нет.
         const qp = typeof decideTurnQuestionPolicy === 'function'
             ? decideTurnQuestionPolicy(turnPlan)
-            : decideQuestionPolicyForThisTurn();
+            : { shouldAsk: false, probability: null, modeLabel: 'NONE' };
         
         // Добавляем текущее время в промпт
         const currentTimeInfo = contextResult.currentTime || 'Unknown';
@@ -3313,7 +3329,7 @@ if (last && last.role === 'user' && (last.content || '').trim() === (userMessage
         // и выключается кодом при признаках тяжёлого состояния. typeof — страховка
         // от рассинхрона с закэшированной версией файла.
         const coachingBlock = typeof buildCoachingBlock === 'function'
-            ? buildCoachingBlock(userMessage, historyWithoutCurrent)
+            ? buildCoachingBlock(userMessage, historyWithoutCurrent, council)
             : '';
 
         const systemPrompt = `${dictatedNote}Ты — персональный ИИ-ассистент, который ЗНАЕТ этого пользователя. Отвечай на ${langName}.
