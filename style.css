@@ -528,6 +528,29 @@ body.modal-open .chat-container {
     background: linear-gradient(135deg, #ff7089, #e75aa0);
 }
 
+.modal-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Убрать из памяти то, что пришло из фильмов и книг */
+.modal-clean {
+    background: transparent;
+    border: 1px solid var(--ui-border);
+    color: var(--ui-text-muted, #9aa4b2);
+    font-size: 13px;
+    cursor: pointer;
+    padding: 7px 12px;
+    border-radius: 6px;
+    white-space: nowrap;
+}
+
+.modal-clean:hover {
+    color: var(--ui-text);
+    border-color: var(--ui-accent);
+}
+
 /* ==================== MODAL TABS ==================== */
 .modal-tabs {
     display: flex;
@@ -1641,6 +1664,31 @@ body.server-mode .input-form {
     align-items: center;
     gap: 10px;
     margin-bottom: 10px;
+}
+
+/* Крестик удаления записи: память чистится и вручную тоже */
+.item-delete {
+    margin-left: auto;
+    background: transparent;
+    border: none;
+    color: var(--ui-faint, #7a8494);
+    font-size: 12px;
+    line-height: 1;
+    padding: 3px 7px;
+    border-radius: 5px;
+    cursor: pointer;
+    opacity: 0.5;
+}
+
+.item-delete:hover {
+    opacity: 1;
+    color: #ff7089;
+    background: rgba(255, 112, 137, 0.12);
+}
+
+.contact-delete {
+    align-self: center;
+    margin-left: 0;
 }
 
 .item-index {

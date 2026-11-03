@@ -54,13 +54,178 @@ function filterSocialItems(items, history) {
     if (!items || !Array.isArray(items)) return [];
     
     return items.filter(item => {
-        const validEvidence = filterUserEvidence(item.evidence, history);
+        const validEvidence = filterGroundedEvidence(item.evidence, history);
         if (validEvidence.length > 0) {
             item.evidence = validEvidence;
             return true;
         }
         return false;
     });
+}
+
+// ==================== FICTION GUARD ====================
+// Персонаж фильма, книги или игры — не человек из жизни пользователя.
+// Цитата при этом настоящая: «его младший брат погиб на войне» действительно
+// сказано пользователем, но сказано про героя, а не про себя. Поэтому одной
+// проверки «это слова пользователя» мало — нужна проверка, о чём эти слова.
+const FICTION_STRONG = /(фильм|кино|сериал|мультфильм|мультик|аниме|спектакл|персонаж|сюжет|кинокартин|\bmovie|\bfilm|\bseries\b|\bcharacter|\bplot\b|cartoon|anime)/i;
+// Слабые маркеры — только те, что почти не встречаются в обычной речи.
+// «Роман» (любовный) и «эпизод» (жизни) сюда не входят: они слишком часто
+// означают настоящие события.
+const FICTION_WEAK = /(пьес|повест|комикс|актёр|актер|актрис|режиссёр|режиссер|сценари|трейлер|\bnovel\b|\bactor|\bactress|\bdirector|\bscript\b|\btrailer\b|\bcomic)/i;
+const FIRST_PERSON = /(\bя\b|\bменя\b|\bмне\b|\bмной\b|\bмой\b|\bмоя\b|\bмоё\b|\bмое\b|\bмои\b|\bмоего\b|\bмоей\b|\bмоему\b|\bмоим\b|\bмоих\b|\bмы\b|\bнас\b|\bнам\b|у меня|\bi\b|\bme\b|\bmy\b|\bwe\b|\bus\b|\bour\b)/i;
+const THIRD_PERSON = /(^|[^а-яёa-z])(его|её|ее|их|his|her|their)\s/i;
+
+function normalizeForMatch(text) {
+    return String(text || '').toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').trim();
+}
+
+function stripPunctuation(text) {
+    return text.replace(/[.,!?;:'"«»()\[\]—–-]/g, '');
+}
+
+function userMessagesOf(history) {
+    return (history || []).filter(msg => msg && msg.role === 'user' && typeof msg.content === 'string');
+}
+
+// Сообщение пользователя, в котором прозвучала цитата. Если маркер вымысла
+// стоит в самом сообщении — этого достаточно; если в предыдущем, то только
+// сильный маркер (иначе «купил книгу» глушит соседнюю настоящую фразу).
+function fictionFrame(quote, history) {
+    const needle = stripPunctuation(normalizeForMatch(quote));
+    if (needle.length < 3) return null;
+    const msgs = userMessagesOf(history);
+    const idx = msgs.findIndex(msg => stripPunctuation(normalizeForMatch(msg.content)).includes(needle));
+    if (idx === -1) {
+        // Сообщение уже ушло из истории — судим по самой цитате.
+        const own = normalizeForMatch(quote);
+        const ownHit = own.match(FICTION_STRONG) || own.match(FICTION_WEAK);
+        return ownHit ? ownHit[0] : null;
+    }
+    return fictionFrameAt(msgs, idx);
+}
+
+function fictionFrameAt(msgs, idx) {
+    const own = normalizeForMatch(msgs[idx].content);
+    const ownHit = own.match(FICTION_STRONG) || own.match(FICTION_WEAK);
+    if (ownHit) return ownHit[0];
+    if (idx > 0) {
+        const prevHit = normalizeForMatch(msgs[idx - 1].content).match(FICTION_STRONG);
+        if (prevHit) return prevHit[0];
+    }
+    return null;
+}
+
+// Имя упомянуто в разговоре о фильме/книге/игре — значит это персонаж,
+// а не знакомый. Смотрим на каждое сообщение, где имя встретилось.
+function nameInFictionFrame(name, history) {
+    const needle = stripPunctuation(normalizeForMatch(name));
+    if (needle.length < 2) return null;
+    const msgs = userMessagesOf(history);
+    for (let i = 0; i < msgs.length; i++) {
+        if (!stripPunctuation(normalizeForMatch(msgs[i].content)).includes(needle)) continue;
+        const frame = fictionFrameAt(msgs, i);
+        if (frame) return frame;
+    }
+    return null;
+}
+
+// «Его брат погиб» — это не факт о пользователе: третье лицо без первого.
+function aboutSomeoneElse(quote) {
+    const text = String(quote || '');
+    if (FIRST_PERSON.test(text)) return false;
+    return THIRD_PERSON.test(normalizeForMatch(text));
+}
+
+/**
+ * Цитаты пользователя, которые действительно о нём и о его жизни:
+ * отсекает вымышленный мир и чужие родственники.
+ * options.aboutUser — требовать первое лицо или отсутствие третьего.
+ */
+function filterGroundedEvidence(evidence, history, options) {
+    const requireAboutUser = !!(options && options.aboutUser);
+    return filterUserEvidence(evidence, history).filter(quote => {
+        const frame = fictionFrame(quote, history);
+        if (frame) {
+            console.log(`[MEMORY] Отклонено как вымысел (${frame}):`, String(quote).slice(0, 60));
+            return false;
+        }
+        if (requireAboutUser && aboutSomeoneElse(quote)) {
+            console.log('[MEMORY] Отклонено: цитата про кого-то другого:', String(quote).slice(0, 60));
+            return false;
+        }
+        return true;
+    });
+}
+
+// ==================== ЧИСТКА ВЫМЫСЛА ====================
+// Извлечение уже успело записать персонажей в память — их надо убрать.
+// Решение принимается только по сохранённым цитатам: если все цитаты записи
+// пришли из разговора о вымысле (или говорят о чужом родственнике), запись
+// уходит. Записи без цитат не трогаем — доказательств против них нет.
+
+function isFictionItem(item, history) {
+    const evidence = Array.isArray(item && item.evidence) ? item.evidence : [];
+    if (!evidence.length) return false;
+    return evidence.every(quote => fictionFrame(quote, history) || aboutSomeoneElse(quote));
+}
+
+function isFictionContact(contact, history) {
+    if (nameInFictionFrame(contact.name, history)) return true;
+    const items = [...(contact.facts || []), ...(contact.traits || []), ...(contact.interactions || [])];
+    const evidence = items.flatMap(item => (Array.isArray(item.evidence) ? item.evidence : []));
+    if (!evidence.length) return false;
+    return evidence.every(quote => fictionFrame(quote, history) || aboutSomeoneElse(quote));
+}
+
+function findFictionPollution() {
+    const empty = { facts: [], traits: [], events: [], contacts: [] };
+    const history = typeof getChatHistory === 'function' ? getChatHistory() : [];
+    if (!history || !history.length) return empty;
+
+    const facts = getFactsData().facts.filter(f => !f.superseded && isFictionItem(f, history));
+    const traits = getTraitsData().traits.filter(t => !t.superseded && isFictionItem(t, history));
+    const events = getTimelineData().events.filter(e => !e.superseded && isFictionItem(e, history));
+    const contacts = getSocialData().contacts.filter(c => isFictionContact(c, history));
+
+    return { facts, traits, events, contacts };
+}
+
+function purgeFictionPollution(found) {
+    const report = { facts: 0, traits: 0, events: 0, contacts: 0 };
+    const ids = list => new Set((list || []).map(item => item.id));
+
+    if (found.facts.length) {
+        const data = getFactsData();
+        const doomed = ids(found.facts);
+        data.facts = data.facts.map(f => doomed.has(f.id) ? { ...f, superseded: true, supersededReason: 'fiction' } : f);
+        setFactsData(data);
+        report.facts = found.facts.length;
+    }
+    if (found.traits.length) {
+        const data = getTraitsData();
+        const doomed = ids(found.traits);
+        data.traits = data.traits.map(t => doomed.has(t.id) ? { ...t, superseded: true, supersededReason: 'fiction' } : t);
+        setTraitsData(data);
+        report.traits = found.traits.length;
+    }
+    if (found.events.length) {
+        const data = getTimelineData();
+        const doomed = ids(found.events);
+        data.events = data.events.map(e => doomed.has(e.id) ? { ...e, superseded: true, supersededReason: 'fiction' } : e);
+        setTimelineData(data);
+        report.events = found.events.length;
+    }
+    if (found.contacts.length) {
+        const data = getSocialData();
+        const doomed = ids(found.contacts);
+        data.contacts = data.contacts.filter(c => !doomed.has(c.id));
+        setSocialData(data);
+        report.contacts = found.contacts.length;
+    }
+
+    console.log('[MEMORY] Убрано как вымысел:', JSON.stringify(report));
+    return report;
 }
 
 // ==================== FACTS EXTRACTION & INTEGRATION ====================
@@ -114,6 +279,7 @@ Extract concrete, specific facts about the user:
 5. TO SAVE SPACE: You CAN combine 2-3 related minor existing facts into one broader, comprehensive fact.
    - Set "combinesFactIndices": [1, 3] to mark those old facts as superseded.
 6. Don't duplicate existing facts.
+7. FICTION: if the user discusses a film, series, book or game, characters are NOT the user. Never turn "his brother died in the war" into a fact about the user. A fact needs evidence where the user speaks about their own life (I / my / we).
 
 === CONFIDENCE LEVELS ===
 • "high" — explicit, clear statement
@@ -481,7 +647,7 @@ function integrateFactsData(newFacts, currentData, history) {
     console.log('[FACTS] Integrating', newFacts.length, 'new facts');
     
     for (const newFact of newFacts) {
-        const validEvidence = filterUserEvidence(newFact.evidence, history);
+        const validEvidence = filterGroundedEvidence(newFact.evidence, history, { aboutUser: true });
         console.log(`[FACTS] Evidence validation: ${newFact.evidence?.length || 0} → ${validEvidence.length}`);
         
         // Обработка combinesFactIndices (Объединение мелких фактов)
@@ -725,7 +891,7 @@ function integrateTraitsData(newTraits, currentData, history) {
     console.log('[TRAITS] Integrating', newTraits.length, 'new traits');
     
     for (const newTrait of newTraits) {
-        const validEvidence = filterUserEvidence(newTrait.evidence, history);
+        const validEvidence = filterGroundedEvidence(newTrait.evidence, history, { aboutUser: true });
         console.log(`[TRAITS] Evidence validation: ${newTrait.evidence?.length || 0} → ${validEvidence.length}`);
         
         // Обработка combines
@@ -964,7 +1130,7 @@ function integrateTimelineData(newEvents, currentData, history) {
     console.log('[TIMELINE] Integrating', newEvents.length, 'new events');
     
     for (const newEvent of newEvents) {
-        const validEvidence = filterUserEvidence(newEvent.evidence, history);
+        const validEvidence = filterGroundedEvidence(newEvent.evidence, history, { aboutUser: true });
         console.log(`[TIMELINE] Evidence validation: ${newEvent.evidence?.length || 0} → ${validEvidence.length}`);
         
         // Обработка supersedes
@@ -1132,6 +1298,7 @@ Extract ALL information about people the user mentions:
 === CRITICAL RULES ===
 • Extract info ONLY from what USER said, not assistant
 • Each fact/trait/interaction must have DIRECT QUOTE from USER — copy-paste exactly
+• FICTION IS NOT A CONTACT. Characters from films, series, books, games, memes and stories are not people in the user's life. If the conversation is about a plot, do NOT create contacts for its characters or their relatives. A person is real only when the user speaks about them as someone of their own life: «мой брат», «мы с Сашей», «у меня есть знакомый».
 • Match people intelligently:
   - "дочка", "daughter", "дочь" = same person if relation is family
   - "wife", "жена", "супруга" = same person  
@@ -1201,6 +1368,14 @@ function integrateSocialData(newContacts, history) {
         
         if (totalValidItems === 0) {
             console.log('[SOCIAL] Contact skipped - no valid user evidence:', newContact.name);
+            continue;
+        }
+
+        // Персонаж фильма или книги — не знакомый. Проверяем по имени: если оно
+        // всплыло в разговоре о вымысле, контакт не создаём.
+        const fiction = nameInFictionFrame(newContact.name, history);
+        if (fiction) {
+            console.log(`[SOCIAL] Contact skipped - персонаж (${fiction}):`, newContact.name);
             continue;
         }
         
