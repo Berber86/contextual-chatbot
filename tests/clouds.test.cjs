@@ -620,3 +620,61 @@ test('тем не может быть больше лимита', () => {
   assert.equal(run(context, "ensureCloud('Лишняя')"), null, 'сверх лимита тема не создаётся');
   assert.equal(run(context, 'getClouds().length'), run(context, 'CLOUD_CONFIG.maxClouds'));
 });
+
+test('jev отдаёт сырой ответ, вопросы и порог для отладки', async () => {
+  const { context } = cloudHarness({}, cloudAnswer({}));
+  seedCloudsWithFacts(context, ['Работа', 'Собака']);
+  const clouds = Array.from(run(context, 'getCloudsForSelection()'));
+
+  const selection = await run(context, `selectCloudsForTurn("Что по работе?", ${JSON.stringify(clouds)}, [])`);
+  assert.equal(selection.threshold, 0.45);
+  assert.equal(selection.maxSelected, 4);
+  assert.ok(selection.raw && typeof selection.raw === 'object', 'сырые answers сохранены');
+  assert.ok(selection.questions && Object.keys(selection.questions).length === 2, 'вопросы тоже сохранены');
+});
+
+test('спойлер показывает вероятности, сырой ответ и блок промпта', () => {
+  const page = fs.readFileSync('ui.js', 'utf8');
+  const start = page.indexOf('// ==================== JEV SPOILER ====================');
+  const end = page.indexOf('// ==================== TWO-STAGE RESPONSE ARCHITECTURE ====================');
+  assert.ok(start > 0 && end > start, 'секция спойлера на месте');
+
+  const context = vm.createContext({
+    console: { log() {}, warn() {}, error() {} },
+    escapeHtml: text => String(text == null ? '' : text)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'),
+    getClouds: () => [],
+  });
+  vm.runInContext(page.slice(start, end), context);
+
+  const html = vm.runInContext(`buildJevSpoiler({
+    source: 'clouds',
+    picked: ['Работа'],
+    themes: [{ id: 'c1', name: 'Работа', probability: 0.62 }, { id: 'c2', name: 'Собака', probability: 0.21 }],
+    threshold: 0.45,
+    maxSelected: 4,
+    model: 'jev-1.14',
+    raw: { cloud_c1: { type: 'noul', noul: 0.62 } },
+    questions: { cloud_c1: { type: 'noul' } },
+    block: '=== ПАМЯТЬ: ПОДНЯТЫЕ ОБЛАКА ===\\nФакты: работает в Сбере',
+    turn: { complexity: 0.72, routeLabel: 'GLM 5.2', archetype: 'options', askProbability: 0.61 }
+  })`, context);
+
+  assert.match(html, /^<details class="jev-spoiler">/, 'это раскрывающийся спойлер');
+  assert.match(html, /Что шепнул jev/);
+  assert.match(html, /Работа/);
+  assert.match(html, /0\.62/);
+  assert.match(html, /class="jev-theme hit"/, 'поднятая тема отмечена');
+  assert.match(html, /Собака/);
+  assert.match(html, /Сырой ответ jev/);
+  assert.match(html, /noul/);
+  assert.match(html, /Что ушло в промпт/);
+  assert.match(html, /ПОДНЯТЫЕ ОБЛАКА/);
+  assert.match(html, /сложность 0\.72/);
+
+  const fallback = vm.runInContext(`buildJevSpoiler({ source: 'compression', picked: [], themes: [], block: 'досье' })`, context);
+  assert.match(fallback, /работало сжатие досье/);
+
+  assert.match(page, /lastJevDebug = buildJevDebug\(contextResult, contextBlock, turnPlan\)/, 'stage 2 запоминает отладку');
+  assert.match(page, /appendJevSpoiler\(element\)/, 'спойлер добавляется к готовому ответу');
+});
