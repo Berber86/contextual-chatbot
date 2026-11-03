@@ -313,54 +313,93 @@ async function resolveTurnPlan(message, history, options) {
 }
 
 // ==================== ВЫБОР ОБЛАКОВ ПАМЯТИ ====================
-// Облако — тема (работа, хобби, здоровье, собака). Одна реплика может задевать
-// несколько тем, поэтому спрашиваем noul по каждому облаку: поднимать или нет.
-
-const CLOUD_SELECT_THRESHOLD = 0.45;
+// Облако — тема (работа, хобби, здоровье, собака). Раньше спрашивали noul на
+// каждую тему: 24 темы = 24 вопроса из 32 доступных, и на всё остальное в ходу
+// оставалось восемь. Теперь темы спрашиваются одним вопросом типа choice:
+// ответ — распределение по темам, из которого видно и «какая нужнее всего»,
+// и «какие ещё близкие». Один слот вместо N, и распределение вместо N
+// независимых бросков, которые надо калибровать по отдельности.
+const CLOUD_SELECT_THRESHOLD = 0.10;   // абсолютный пол: ниже — это шум, а не тема
+const CLOUD_RELATIVE_CUT = 0.4;        // тема берётся, если её вероятность ≥ 40% от лучшей
 const CLOUD_MAX_SELECTED = 4;
+const CLOUD_NONE_OPTION = 'none';
+const CLOUD_NONE_STOP = 0.5;           // «ничего не нужно» так уверенно — память не поднимаем
+
+// Ключ варианта — позиция в списке: id облака может содержать что угодно,
+// а стабильность ключей нужна только внутри одного запроса.
+function cloudOptionKey(index) {
+    return 'cloud_' + index;
+}
+
+function describeCloud(cloud) {
+    const counts = cloud.counts || {};
+    const contents = [
+        counts.facts ? `фактов ${counts.facts}` : '',
+        counts.traits ? `черт ${counts.traits}` : '',
+        counts.events ? `событий ${counts.events}` : '',
+        counts.contacts ? `людей ${counts.contacts}` : '',
+        counts.hypotheses ? `гипотез ${counts.hypotheses}` : ''
+    ].filter(Boolean).join(', ');
+    const samples = Array.isArray(cloud.samples) ? cloud.samples.filter(Boolean).slice(0, 3) : [];
+    return [
+        cloud.name,
+        cloud.summary,
+        samples.length ? `например: ${samples.join('; ')}` : '',
+        contents ? `(${contents})` : ''
+    ].filter(Boolean).join(' — ');
+}
 
 function buildCloudQuestions(clouds) {
     const list = (Array.isArray(clouds) ? clouds : [])
         .filter(cloud => cloud && cloud.id && cloud.name)
-        .slice(0, SYSTEMONE_CONFIG.maxQuestions);
-    const questions = {};
-    for (const cloud of list) {
-        const counts = cloud.counts || {};
-        const contents = [
-            counts.facts ? `фактов ${counts.facts}` : '',
-            counts.traits ? `черт ${counts.traits}` : '',
-            counts.events ? `событий ${counts.events}` : '',
-            counts.contacts ? `людей ${counts.contacts}` : '',
-            counts.hypotheses ? `гипотез ${counts.hypotheses}` : ''
-        ].filter(Boolean).join(', ');
-        const samples = Array.isArray(cloud.samples) ? cloud.samples.filter(Boolean).slice(0, 3) : [];
-        const description = [
-            cloud.name,
-            cloud.summary,
-            samples.length ? `например: ${samples.join('; ')}` : '',
-            contents ? `(${contents})` : ''
-        ].filter(Boolean).join(' — ');
-        questions[cloudQuestionName(cloud.id)] = {
-            type: 'noul',
-            instructions: `Поднять облако памяти «${description}», чтобы ответить на сообщение? ` +
-                'Отвечай «да», только если тема облака действительно нужна для этого ответа, ' +
-                'а не просто упомянута одним словом.',
-            criteria: {
-                true: 'Без этого облака ответ будет хуже или потеряет важный контекст',
-                false: 'Тема не нужна: ответ можно дать без этих воспоминаний'
-            }
-        };
-    }
-    return questions;
+        .slice(0, 254);   // 255 вариантов — предел choice, один слот уходит под «ничего»
+    if (list.length === 0) return {};
+
+    const criteria = {};
+    list.forEach((cloud, index) => {
+        criteria[cloudOptionKey(index)] = describeCloud(cloud);
+    });
+    criteria[CLOUD_NONE_OPTION] = 'Ни одна тема не нужна: без воспоминаний ответ будет не хуже';
+
+    return {
+        clouds: {
+            type: 'choice',
+            instructions:
+                'Какая тема памяти нужнее всего, чтобы ответить на это сообщение? ' +
+                'Выбери одну — распределение покажет и остальные близкие темы. ' +
+                'Если ни одна не нужна, выбери «ничего».',
+            criteria
+        }
+    };
 }
 
-// Имя вопроса — валидный ключ: id облака может содержать что угодно, поэтому хешируем.
-function cloudQuestionName(cloudId) {
-    let hash = 0;
-    for (let index = 0; index < String(cloudId).length; index++) {
-        hash = (hash * 31 + String(cloudId).charCodeAt(index)) | 0;
-    }
-    return 'cloud_' + Math.abs(hash);
+/**
+ * Из распределения по темам — список тем для поднятия.
+ * Чистая функция: её и проверяют тесты, без сети.
+ * Берём темы не ниже 40% от лучшей (и не ниже абсолютного пола), максимум 4.
+ * Если модель уверенно говорит «ничего не нужно» — не берём ни одной.
+ */
+function pickCloudsFromDistribution(list, probabilities, noneProbability) {
+    const ranked = (Array.isArray(list) ? list : [])
+        .map(cloud => ({
+            id: cloud.id,
+            name: cloud.name,
+            probability: Number(probabilities && probabilities[cloud.id])
+        }))
+        .filter(item => Number.isFinite(item.probability))
+        .sort((a, b) => b.probability - a.probability);
+
+    if (ranked.length === 0) return [];
+
+    const none = Number.isFinite(Number(noneProbability)) ? Number(noneProbability) : 0;
+    if (none >= CLOUD_NONE_STOP && none >= ranked[0].probability) return [];
+
+    const cut = Math.max(CLOUD_SELECT_THRESHOLD, ranked[0].probability * CLOUD_RELATIVE_CUT);
+    const picked = ranked.filter(item => item.probability >= cut).slice(0, CLOUD_MAX_SELECTED);
+
+    // Пусто при живых вероятностях — берём лучшую: память в этом приложении
+    // важнее строгости порога, иначе ход уйдёт в дорогое сжатие досье.
+    return picked.length ? picked : [ranked[0]];
 }
 
 async function selectCloudsForTurn(message, clouds, history, options) {
@@ -376,29 +415,30 @@ async function selectCloudsForTurn(message, clouds, history, options) {
             .map(item => ({ role: item.role, text: String(item.content || '').slice(0, 300) }))
     };
 
-    const result = await systemOne(state, buildCloudQuestions(list), options || {});
+    const questions = buildCloudQuestions(list);
+    const result = await systemOne(state, questions, options || {});
     const answers = result.answers || {};
+    const answer = answers.clouds || {};
+    const rawProbabilities = answer.probabilities || {};
 
-    const picked = [];
     const probabilities = {};
-    for (const cloud of list) {
-        const answer = answers[cloudQuestionName(cloud.id)];
-        const probability = clampProbability(answer && answer.noul);
-        if (probability === null) continue;
-        probabilities[cloud.id] = probability;
-        if (probability >= CLOUD_SELECT_THRESHOLD) {
-            picked.push({ id: cloud.id, name: cloud.name, probability });
-        }
-    }
+    list.forEach((cloud, index) => {
+        const probability = clampProbability(rawProbabilities[cloudOptionKey(index)]);
+        if (probability !== null) probabilities[cloud.id] = probability;
+    });
+    const noneProbability = clampProbability(rawProbabilities[CLOUD_NONE_OPTION]) || 0;
 
-    picked.sort((a, b) => b.probability - a.probability);
+    const picked = pickCloudsFromDistribution(list, probabilities, noneProbability);
+
     return {
-        clouds: picked.slice(0, CLOUD_MAX_SELECTED),
+        clouds: picked,
         probabilities,
+        noneProbability,
         model: result.model,
         threshold: CLOUD_SELECT_THRESHOLD,
         maxSelected: CLOUD_MAX_SELECTED,
-        questions: buildCloudQuestions(list),
+        relativeCut: CLOUD_RELATIVE_CUT,
+        questions,
         // Сырой ответ модели — для отладки в интерфейсе, в логику не идёт.
         raw: answers
     };
@@ -445,4 +485,5 @@ if (typeof window !== 'undefined') {
     window.setSystemOneProvider = setSystemOneProvider;
     window.setComplexityRoutingEnabled = setComplexityRoutingEnabled;
     window.pickRouteByComplexity = pickRouteByComplexity;
+    window.pickCloudsFromDistribution = pickCloudsFromDistribution;
 }

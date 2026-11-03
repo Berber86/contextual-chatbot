@@ -182,59 +182,83 @@ const cloudAnswer = (probabilities) => async () => ({
   text: async () => '',
 });
 
-test('выбор облаков: один запрос, noul на каждое облако, порог 0.45', async () => {
-  const { context, calls } = cloudHarness({}, async (url, init) => {
-    const names = Object.keys(JSON.parse(init.body).questions);
-    const answers = {};
-    names.forEach((name, index) => { answers[name] = { type: 'noul', noul: index === 0 ? 0.9 : index === 1 ? 0.44 : 0.2 }; });
-    return {
-      ok: true,
-      status: 200,
-      json: async () => ({ answers, usage: { input_tokens: 300, output_tokens: 0 } }),
-      text: async () => '',
-    };
-  });
+// Ответ демо-jev на вопрос о темах: распределение по вариантам choice.
+const cloudChoiceAnswer = (probabilities) => async () => ({
+  ok: true,
+  status: 200,
+  json: async () => ({
+    model: 'jev-1.14',
+    answers: { clouds: { type: 'choice', choice: 'cloud_0', confidence: 0.7, probabilities } },
+    usage: { input_tokens: 300, output_tokens: 0 },
+  }),
+  text: async () => '',
+});
+
+test('выбор облаков: один вопрос choice на все темы вместо noul на каждую', async () => {
+  const { context, calls } = cloudHarness({}, cloudChoiceAnswer({
+    cloud_0: 0.62, cloud_1: 0.14, cloud_2: 0.05, none: 0.19,
+  }));
 
   seedCloudsWithFacts(context, ['Работа', 'Собака', 'Япония']);
-  run(context, 'ensureCloud("Работа", "офис")');
   const clouds = run(context, 'getCloudsForSelection().map(c => ({ id: c.id, name: c.name, counts: c.counts }))');
 
   const selection = await run(context, `selectCloudsForTurn("Что посоветуешь по работе?", ${JSON.stringify(Array.from(clouds))}, [])`);
 
   assert.equal(calls.length, 1, 'один запрос на ход');
-  assert.equal(Object.keys(calls[0].body.questions).length, 3, 'по вопросу на облако');
-  Object.values(calls[0].body.questions).forEach(question => assert.equal(question.type, 'noul'));
-  assert.equal(selection.clouds.length, 1, '0.44 не дотянуло до порога 0.45');
+  const questions = calls[0].body.questions;
+  assert.equal(Object.keys(questions).length, 1, 'одна тема — один слот, а не отдельный вопрос');
+  assert.equal(questions.clouds.type, 'choice');
+  assert.equal(Object.keys(questions.clouds.criteria).length, 4, 'три темы плюс «ничего»');
+  assert.ok(questions.clouds.criteria.none, 'вариант «ничего не нужно» на месте');
+
+  assert.equal(selection.clouds.length, 1, '0.14 меньше 40% от 0.62 — не поднимаем');
   assert.equal(selection.clouds[0].name, 'Работа');
+  assert.equal(selection.threshold, 0.1);
+  assert.equal(Object.keys(selection.probabilities).length, 3, 'вероятности есть у всех тем');
 });
 
 test('выбор облаков: не больше четырёх, самые вероятные первыми', async () => {
-  const probabilities = [0.9, 0.8, 0.7, 0.6, 0.55];
-  let counter = 0;
-  const { context } = cloudHarness({}, async (url, init) => {
-    const names = Object.keys(JSON.parse(init.body).questions);
-    const answers = {};
-    // Имя вопроса — хеш id, поэтому вероятности выдаём по фактическому порядку.
-    names.forEach((name, index) => { answers[name] = { type: 'noul', noul: probabilities[index] }; });
-    counter++;
-    return {
-      ok: true,
-      status: 200,
-      json: async () => ({ answers, usage: { input_tokens: 300, output_tokens: 0 } }),
-      text: async () => '',
-    };
-  });
+  const { context } = cloudHarness({}, cloudChoiceAnswer({
+    cloud_0: 0.35, cloud_1: 0.3, cloud_2: 0.25, cloud_3: 0.2, cloud_4: 0.1, none: 0.05,
+  }));
 
   seedCloudsWithFacts(context, ['A', 'B', 'C', 'D', 'E']);
   const clouds = Array.from(run(context, 'getCloudsForSelection().map(c => ({ id: c.id, name: c.name, counts: c.counts }))'));
   assert.equal(clouds.length, 5);
 
   const selection = await run(context, `selectCloudsForTurn("тест", ${JSON.stringify(clouds)}, [])`);
-  assert.equal(counter, 1);
   assert.equal(selection.clouds.length, 4, 'пятое облако отсекается');
   for (let index = 1; index < selection.clouds.length; index++) {
     assert.ok(selection.clouds[index - 1].probability >= selection.clouds[index].probability, 'по убыванию');
   }
+});
+
+test('все темы укладываются в один слот из 32', () => {
+  const { context } = cloudHarness();
+  for (let index = 0; index < 14; index++) run(context, `ensureCloud(${JSON.stringify('Тема ' + index)})`);
+  const clouds = Array.from(run(context, 'getClouds().map(c => ({ id: c.id, name: c.name }))'));
+  assert.equal(clouds.length, 14, 'четырнадцать созданных тем');
+
+  const questions = run(context, `buildCloudQuestions(${JSON.stringify(clouds)})`);
+  assert.equal(Object.keys(questions).length, 1, 'одно место, а не четырнадцать');
+  assert.equal(Object.keys(questions.clouds.criteria).length, 15, 'по варианту на тему плюс «ничего»');
+  assert.equal(questions.clouds.type, 'choice');
+});
+
+test('«ничего не нужно» перебивает темы, а плоское распределение не тянет всё подряд', () => {
+  const { context } = cloudHarness();
+  const list = [
+    { id: 'a', name: 'A' }, { id: 'b', name: 'B' }, { id: 'c', name: 'C' },
+  ];
+
+  const none = run(context, `pickCloudsFromDistribution(${JSON.stringify(list)}, {a: 0.2, b: 0.1, c: 0.05}, 0.62)`);
+  assert.equal(none.length, 0, 'модель уверенно сказала «память не нужна»');
+
+  const flat = run(context, `pickCloudsFromDistribution(${JSON.stringify(list)}, {a: 0.04, b: 0.04, c: 0.04}, 0.04)`);
+  assert.equal(flat.length, 1, 'шум не превращается в три темы — берём лучшую');
+
+  const close = run(context, `pickCloudsFromDistribution(${JSON.stringify(list)}, {a: 0.5, b: 0.3, c: 0.1}, 0.1)`);
+  assert.equal(close.map(item => item.id).join(','), 'a,b', 'близкая к лучшей тема тоже поднимается');
 });
 
 test('выбор облаков: одна тема — не повод для запроса, ошибка — откат', async () => {
@@ -434,10 +458,11 @@ test('в вопрос jev попадают примеры содержимого
 
   const questions = Array.from(run(context, `Object.values(buildCloudQuestions(${JSON.stringify(cloud ? [cloud] : [])}))`));
   assert.equal(questions.length, 1);
-  assert.match(questions[0].instructions, /Работа/);
-  assert.match(questions[0].instructions, /например:/);
+  const described = questions[0].criteria.cloud_0;
+  assert.match(described, /Работа/);
+  assert.match(described, /например:/);
   // Промпт остаётся компактным: одна тема — одна короткая строка.
-  assert.ok(questions[0].instructions.length < 600, 'инструкция вопроса не разрастается');
+  assert.ok(described.length < 600, 'описание темы не разрастается');
 });
 
 test('вкладка показывает темы, а по клику — записи внутри', () => {
@@ -630,10 +655,11 @@ test('jev отдаёт сырой ответ, вопросы и порог дл�
   const clouds = Array.from(run(context, 'getCloudsForSelection()'));
 
   const selection = await run(context, `selectCloudsForTurn("Что по работе?", ${JSON.stringify(clouds)}, [])`);
-  assert.equal(selection.threshold, 0.45);
+  assert.equal(selection.threshold, 0.1);
   assert.equal(selection.maxSelected, 4);
+  assert.equal(selection.relativeCut, 0.4);
   assert.ok(selection.raw && typeof selection.raw === 'object', 'сырые answers сохранены');
-  assert.ok(selection.questions && Object.keys(selection.questions).length === 2, 'вопросы тоже сохранены');
+  assert.ok(selection.questions && Object.keys(selection.questions).length === 1, 'вопросы тоже сохранены');
 });
 
 test('спойлер показывает вероятности, сырой ответ и блок промпта', () => {
@@ -678,6 +704,13 @@ test('спойлер показывает вероятности, сырой о�
   const fallback = vm.runInContext(`buildJevSpoiler({ source: 'compression', picked: [], themes: [], block: 'досье' })`, context);
   assert.match(fallback, /работало сжатие досье/);
 
+  const notNeeded = vm.runInContext(`buildJevSpoiler({
+    source: 'clouds', notNeeded: true, picked: [], themes: [{ id: 'c1', name: 'Работа', probability: 0.15 }],
+    threshold: 0.1, relativeCut: 0.4, maxSelected: 4, model: 'jev-1.14', block: ''
+  })`, context);
+  assert.match(notNeeded, /Память не нужна — jev так решил/, 'пустой выбор подписан как решение');
+  assert.match(notNeeded, /память не поднималась/);
+
   assert.match(page, /lastJevDebug = buildJevDebug\(contextResult, contextBlock, turnPlan\)/, 'stage 2 запоминает отладку');
   assert.match(page, /appendJevSpoiler\(element\)/, 'спойлер добавляется к готовому ответу');
 });
@@ -689,6 +722,19 @@ function loadStageOne(context) {
   assert.ok(start > 0 && end > start, 'секция стадии 1 на месте');
   vm.runInContext(ui.slice(start, end), context);
 }
+
+test('jev уверенно выбрал «ничего» — память не поднимается и досье не сжимается', async () => {
+  const { context } = cloudHarness({}, cloudChoiceAnswer({ cloud_0: 0.15, cloud_1: 0.12, none: 0.73 }));
+  loadStageOne(context);
+  seedCloudsWithFacts(context, ['Работа', 'Собака']);
+
+  const result = await run(context, `prepareCloudContext('Как дела?', [], { text: 'сейчас' })`);
+  assert.equal(result && result.source, 'clouds');
+  assert.equal(result.notNeeded, true, 'это решение модели, а не отказ');
+  assert.equal(result.cloudContext, '', 'контекст пустой — сжатия нет');
+
+  assert.equal(result.jev && typeof result.jev.noneProbability, 'number', 'причина видна в отладке');
+});
 
 test('одна тема с записями поднимается напрямую, без jev', async () => {
   const { context, calls } = cloudHarness({}, cloudAnswer({}));

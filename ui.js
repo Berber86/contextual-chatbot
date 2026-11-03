@@ -2892,10 +2892,12 @@ function buildJevDebug(contextResult, contextBlock, turnPlan) {
             : (contextResult && contextResult.compressed ? 'compression' : 'raw'),
         skip: typeof lastCloudSkip !== 'undefined' ? lastCloudSkip : null,
         single: Boolean(contextResult && contextResult.single),
+        notNeeded: Boolean(contextResult && contextResult.notNeeded),
         picked: (contextResult && contextResult.cloudNames) || [],
         themes,
         threshold: jev ? jev.threshold : null,
         maxSelected: jev ? jev.maxSelected : null,
+        relativeCut: jev && Number.isFinite(Number(jev.relativeCut)) ? Number(jev.relativeCut) : null,
         model: (jev && jev.model) || (turnPlan && turnPlan.model) || null,
         raw: jev ? jev.raw : null,
         questions: jev ? jev.questions : null,
@@ -2918,26 +2920,33 @@ function buildJevSpoiler(debug) {
         ? (debug.source === 'compression'
             ? 'jev не выбирал темы — работало сжатие досье'
             : 'jev не выбирал темы — память короткая')
-        : (debug.single
-            ? 'Тема одна — jev не спрашивали'
-            : (debug.picked.length ? 'Что шепнул jev' : 'jev не поднял ни одной темы'));
+        : (debug.notNeeded
+            ? 'Память не нужна — jev так решил'
+            : (debug.single
+                ? 'Тема одна — jev не спрашивали'
+                : (debug.picked.length ? 'Что шепнул jev' : 'jev не поднял ни одной темы')));
 
     // Когда облака не работали, модель из строки решения по ходу не должна
     // выглядеть как «модель, которая выбирала темы».
     const meta = isClouds
-        ? (debug.single ? 'одна тема · без jev' : `${debug.picked.length} тем · ${debug.model || 'модель?'}`)
+        ? (debug.notNeeded
+            ? 'память не поднималась'
+            : (debug.single ? 'одна тема · без jev' : `${debug.picked.length} тем · ${debug.model || 'модель?'}`))
         : 'выбор тем не работал';
 
+    // Тем может быть много: показываем верхушку, остальное — счётчиком.
+    const shown = debug.themes.slice(0, 10);
+    const hidden = debug.themes.length - shown.length;
     const themes = debug.themes.length
-        ? debug.themes.map(theme => {
+        ? shown.map(theme => {
             const hit = debug.picked.includes(theme.name);
             return `<span class="jev-theme${hit ? ' hit' : ''}">${hit ? '✓ ' : ''}${escapeHtml(theme.name)} <b>${theme.probability.toFixed(2)}</b></span>`;
-        }).join('')
+        }).join('') + (hidden > 0 ? `<span class="jev-none">и ещё ${hidden} тем</span>` : '')
         : '<span class="jev-none">вероятностей нет</span>';
 
     const thresholdLine = debug.threshold == null
         ? 'порог —'
-        : `порог ${debug.threshold} · до ${debug.maxSelected} тем`;
+        : `порог ${debug.threshold}${debug.relativeCut ? ` · ≥${Math.round(debug.relativeCut * 100)}% от лучшей` : ''} · до ${debug.maxSelected} тем`;
 
     const raw = debug.raw ? escapeHtml(JSON.stringify(debug.raw, null, 2)) : 'облака не выбирались';
     const questions = debug.questions ? escapeHtml(JSON.stringify(debug.questions, null, 2)) : 'вопросы не отправлялись';
@@ -3078,12 +3087,17 @@ async function prepareCloudContext(userMessage, history, timeInfo) {
         console.log('[Clouds] Подняты: ' + (names.length ? names.join(', ') : 'ничего'));
 
         if (!ids.length) {
+            // Модель уверенно выбрала «ничего не нужно»: это решение, а не сбой.
+            // Сжатие досье в таком случае не запускаем — иначе платим за него зря.
+            const none = Number.isFinite(Number(selection.noneProbability)) ? Number(selection.noneProbability) : null;
+            console.log('[Clouds] jev решил, что память не нужна' + (none === null ? '' : ` (none ${none.toFixed(2)})`));
             return {
                 compressed: false,
                 cloudContext: '',
                 cloudIds: [],
                 cloudNames: [],
                 source: 'clouds',
+                notNeeded: true,
                 currentTime: timeInfo,
                 jev: selection
             };

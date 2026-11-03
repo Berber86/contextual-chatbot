@@ -311,7 +311,9 @@ const CLOUD_CONFIG = {
     nameLimit: 40,
     summaryLimit: 200,
     itemsPerCategory: 12,     // сколько записей категории попадёт в промпт на облако
-    selectThreshold: 0.45,    // порог вероятности «поднять облако»
+    // Выбор тем живёт в jev.js: один вопрос choice на все темы, порог 0.10
+    // и «≥40% от лучшей». Здесь остаются только пределы раскладки.
+    selectThreshold: 0.10,    // абсолютный пол вероятности «поднять облако»
     maxSelected: 4,
     miscId: 'cloud_misc',
     miscName: 'Разное',

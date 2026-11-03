@@ -264,9 +264,23 @@ function handleSystemOne(req, res, body) {
         const fallback = Number((0.15 + (hash % 46) / 100).toFixed(2));
         if (!question || question.type === 'noul') {
             answers[name] = { type: 'noul', noul: overlap ? 0.71 : fallback, confidence: 0.6 };
-        } else if (question.type === 'choice' && Array.isArray(question.criteria)) {
-            const first = question.criteria[0];
-            answers[name] = { type: 'choice', choice: first, confidence: 0.55, probabilities: { [first]: 0.55 } };
+        } else if (question.type === 'choice') {
+            // Выбор из многих вариантов (облака памяти): распределение по совпадению
+            // слов с сообщением, остальным — маленькие псевдо-вероятности.
+            const entries = Array.isArray(question.criteria)
+                ? question.criteria.map((text, index) => [String(index), text])
+                : Object.entries(question.criteria || {});
+            if (entries.length === 0) continue;
+            const weights = entries.map(([key, text]) => {
+                const hit = Array.from(stems(String(text))).some(stem => messageStems.has(stem));
+                const hash = Array.from(key).reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
+                return [key, hit ? 0.45 : 0.02 + (hash % 7) / 100];
+            });
+            const total = weights.reduce((sum, [, weight]) => sum + weight, 0) || 1;
+            const probabilities = {};
+            weights.forEach(([key, weight]) => { probabilities[key] = Number((weight / total).toFixed(3)); });
+            const best = weights.slice().sort((a, b) => b[1] - a[1])[0][0];
+            answers[name] = { type: 'choice', choice: best, confidence: 0.6, probabilities };
         }
     }
 
