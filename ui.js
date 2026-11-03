@@ -2775,6 +2775,112 @@ function buildCoachingBlock(message, history) {
 }
 // ==================== END GOAL COACHING BLOCK ====================
 
+// ==================== JEV SPOILER ====================
+// Временная отладка: под готовым ответом показываем, что именно прислал jev
+// и какой блок памяти ушёл в промпт. Ничего не меняет, живёт только в DOM.
+let lastJevDebug = null;
+
+function buildJevDebug(contextResult, contextBlock, turnPlan) {
+    if (!contextResult && !turnPlan) return null;
+
+    const jev = contextResult && contextResult.jev ? contextResult.jev : null;
+    const probabilities = jev && jev.probabilities ? jev.probabilities : {};
+    const namesById = {};
+    if (typeof getClouds === 'function') {
+        try {
+            getClouds().forEach(cloud => { namesById[cloud.id] = cloud.name; });
+        } catch (error) {
+            // облака не прочитались — покажем id как есть
+        }
+    }
+
+    const themes = Object.keys(probabilities)
+        .map(id => ({ id, name: namesById[id] || id, probability: Number(probabilities[id]) }))
+        .filter(theme => Number.isFinite(theme.probability))
+        .sort((a, b) => b.probability - a.probability);
+
+    return {
+        at: Date.now(),
+        source: contextResult && contextResult.source
+            ? contextResult.source
+            : (contextResult && contextResult.compressed ? 'compression' : 'raw'),
+        picked: (contextResult && contextResult.cloudNames) || [],
+        themes,
+        threshold: jev ? jev.threshold : null,
+        maxSelected: jev ? jev.maxSelected : null,
+        model: (jev && jev.model) || (turnPlan && turnPlan.model) || null,
+        raw: jev ? jev.raw : null,
+        questions: jev ? jev.questions : null,
+        block: contextBlock || '',
+        turn: turnPlan ? {
+            complexity: turnPlan.complexity,
+            routeLabel: turnPlan.route ? turnPlan.route.label : null,
+            archetype: turnPlan.archetypeKey,
+            askProbability: turnPlan.askProbability
+        } : null
+    };
+}
+
+function buildJevSpoiler(debug) {
+    if (!debug) return '';
+
+    const isClouds = debug.source === 'clouds';
+    const title = isClouds
+        ? 'Что шепнул jev'
+        : (debug.source === 'compression'
+            ? 'jev не выбирал темы — работало сжатие досье'
+            : 'jev не выбирал темы — память короткая');
+
+    const meta = isClouds
+        ? `${debug.picked.length} тем · ${debug.model || 'модель?'}`
+        : (debug.model ? String(debug.model) : 'без jev');
+
+    const themes = debug.themes.length
+        ? debug.themes.map(theme => {
+            const hit = debug.picked.includes(theme.name);
+            return `<span class="jev-theme${hit ? ' hit' : ''}">${hit ? '✓ ' : ''}${escapeHtml(theme.name)} <b>${theme.probability.toFixed(2)}</b></span>`;
+        }).join('')
+        : '<span class="jev-none">вероятностей нет</span>';
+
+    const thresholdLine = debug.threshold == null
+        ? 'порог —'
+        : `порог ${debug.threshold} · до ${debug.maxSelected} тем`;
+
+    const raw = debug.raw ? escapeHtml(JSON.stringify(debug.raw, null, 2)) : 'облака не выбирались';
+    const questions = debug.questions ? escapeHtml(JSON.stringify(debug.questions, null, 2)) : 'вопросы не отправлялись';
+    const block = debug.block ? escapeHtml(debug.block) : '(пусто)';
+
+    const turn = debug.turn
+        ? `<div class="jev-turn">Решение по ходу: сложность ${debug.turn.complexity == null ? '—' : debug.turn.complexity.toFixed(2)}` +
+          ` · ${escapeHtml(debug.turn.routeLabel || 'маршрут не выбран')}` +
+          ` · архетип ${escapeHtml(debug.turn.archetype || '—')}` +
+          ` · вопрос ${debug.turn.askProbability == null ? '—' : debug.turn.askProbability.toFixed(2)}</div>`
+        : '';
+
+    return `<details class="jev-spoiler">
+        <summary><span class="jev-spoiler-title">🌀 ${escapeHtml(title)}</span><span class="jev-spoiler-meta">${escapeHtml(meta)}</span></summary>
+        <div class="jev-spoiler-body">
+            <div class="jev-spoiler-row"><span>Модель</span><b>${escapeHtml(String(debug.model || '—'))}</b></div>
+            <div class="jev-spoiler-row"><span>Условие</span><b>${escapeHtml(thresholdLine)}</b></div>
+            <div class="jev-themes">${themes}</div>
+            ${turn}
+            <div class="jev-label">Что ушло в промпт</div>
+            <pre class="jev-pre">${block}</pre>
+            <details class="jev-nested"><summary>Сырой ответ jev</summary><pre class="jev-pre">${raw}</pre></details>
+            <details class="jev-nested"><summary>Вопросы, которые задавали</summary><pre class="jev-pre">${questions}</pre></details>
+        </div>
+    </details>`;
+}
+
+function appendJevSpoiler(element) {
+    if (!element || !lastJevDebug) return;
+    try {
+        element.insertAdjacentHTML('beforeend', buildJevSpoiler(lastJevDebug));
+    } catch (error) {
+        console.warn('[Jev] Спойлер не отрисовался:', error.message);
+    }
+}
+
 // ==================== TWO-STAGE RESPONSE ARCHITECTURE ====================
 
 function selectGapForQuestion() {
@@ -2825,7 +2931,8 @@ async function prepareCloudContext(userMessage, history, timeInfo) {
                 cloudIds: [],
                 cloudNames: [],
                 source: 'clouds',
-                currentTime: timeInfo
+                currentTime: timeInfo,
+                jev: selection
             };
         }
 
@@ -2838,7 +2945,8 @@ async function prepareCloudContext(userMessage, history, timeInfo) {
             cloudIds: ids,
             cloudNames: names,
             source: 'clouds',
-            currentTime: timeInfo
+            currentTime: timeInfo,
+            jev: selection
         };
     } catch (error) {
         console.warn('[Clouds] Выбор облаков не удался, работаем по-старому:', error.message);
@@ -3001,6 +3109,13 @@ if (last && last.role === 'user' && (last.content || '').trim() === (userMessage
             contextBlock = `\n=== CONTEXT ===\nFacts: ${contextResult.facts || '(none)'}\nTraits: ${contextResult.traits || '(none)'}`;
         }
         
+        // Отладка: запоминаем, что прислал jev и что ушло в промпт.
+        // typeof — страховка для тестовых срезов без секции спойлера.
+        if (typeof buildJevDebug === 'function') {
+            lastJevDebug = buildJevDebug(contextResult, contextBlock, turnPlan);
+            if (typeof window !== 'undefined') window.lastJevDebug = lastJevDebug;
+        }
+
         let questionRule = qp.shouldAsk ?
             '\nМожешь закончить ОДНИМ вопросом к пользователю, если это уместно.' :
             '\nНе задавай вопросов в этом ответе.';
@@ -3712,6 +3827,9 @@ function finalizeStreamingMessage(element, content) {
     if (goalDraft.text && typeof window.renderGoalStepDraftButton === 'function') {
         window.renderGoalStepDraftButton(element, goalDraft.text);
     }
+
+    // Спойлер с сырым ответом jev — только в DOM, история не меняется.
+    if (typeof appendJevSpoiler === 'function') appendJevSpoiler(element);
     
     addToHistory('assistant', content, timestamp);
 }

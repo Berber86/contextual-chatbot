@@ -395,7 +395,12 @@ async function selectCloudsForTurn(message, clouds, history, options) {
     return {
         clouds: picked.slice(0, CLOUD_MAX_SELECTED),
         probabilities,
-        model: result.model
+        model: result.model,
+        threshold: CLOUD_SELECT_THRESHOLD,
+        maxSelected: CLOUD_MAX_SELECTED,
+        questions: buildCloudQuestions(list),
+        // Сырой ответ модели — для отладки в интерфейсе, в логику не идёт.
+        raw: answers
     };
 }
 

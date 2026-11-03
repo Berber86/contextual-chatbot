@@ -9680,3 +9680,119 @@ body.server-mode .input-form {
     font-size: 13px;
     line-height: 1.5;
 }
+
+/* ==================== JEV SPOILER (временная отладка) ==================== */
+.jev-spoiler {
+    margin-top: 12px;
+    border: 1px dashed var(--ui-border, rgba(255, 255, 255, 0.18));
+    border-radius: 12px;
+    background: var(--ui-surface, rgba(255, 255, 255, 0.03));
+    font-size: 12.5px;
+}
+
+.jev-spoiler > summary {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 8px 12px;
+    color: var(--ui-muted);
+    cursor: pointer;
+    list-style: none;
+}
+
+.jev-spoiler > summary::-webkit-details-marker {
+    display: none;
+}
+
+.jev-spoiler[open] > summary {
+    border-bottom: 1px solid var(--ui-border, rgba(255, 255, 255, 0.08));
+}
+
+.jev-spoiler-title {
+    color: var(--ui-text);
+    font-weight: 600;
+}
+
+.jev-spoiler-meta {
+    margin-left: auto;
+    font-size: 11.5px;
+}
+
+.jev-spoiler-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px 12px;
+}
+
+.jev-spoiler-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    color: var(--ui-muted);
+}
+
+.jev-spoiler-row b {
+    color: var(--ui-text);
+    font-weight: 600;
+}
+
+.jev-themes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.jev-theme {
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--ui-border, rgba(255, 255, 255, 0.12));
+    color: var(--ui-muted);
+    font-size: 12px;
+}
+
+.jev-theme.hit {
+    border-color: var(--ui-accent, #6c8cff);
+    background: rgba(108, 140, 255, 0.14);
+    color: var(--ui-text);
+}
+
+.jev-none {
+    color: var(--ui-muted);
+}
+
+.jev-label {
+    margin-top: 4px;
+    color: var(--ui-muted);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.jev-pre {
+    margin: 0;
+    padding: 10px;
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.35);
+    color: #cfd4e0;
+    font: 11.5px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 320px;
+    overflow: auto;
+}
+
+.jev-nested > summary {
+    color: var(--ui-muted);
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.jev-nested[open] > summary {
+    margin-bottom: 6px;
+}
+
+.jev-turn {
+    color: var(--ui-muted);
+    font-size: 12px;
+}
