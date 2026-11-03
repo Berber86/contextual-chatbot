@@ -1446,6 +1446,90 @@ function renderKnowledgeTabHeader(tab) {
     `;
 }
 
+// ==================== РУЧНОЕ УДАЛЕНИЕ ====================
+// Автоматика ошибается в обе стороны, поэтому у каждой записи и каждого
+// контакта есть крестик: то, что попало в память зря, убирается вручную.
+function deleteMemoryItem(type, id) {
+    const labels = { fact: 'факт', trait: 'черту', event: 'событие' };
+    if (!labels[type]) return;
+    if (!confirm(`Удалить эту запись? Она перестанет попадать в контекст.`)) return;
+
+    const mark = item => (item.id === id
+        ? { ...item, superseded: true, supersededReason: 'manual', updatedAt: getMessageCounter() }
+        : item);
+
+    if (type === 'fact') {
+        const data = getFactsData();
+        data.facts = data.facts.map(mark);
+        setFactsData(data);
+        if (typeof renderFactsList === 'function') renderFactsList();
+    } else if (type === 'trait') {
+        const data = getTraitsData();
+        data.traits = data.traits.map(mark);
+        setTraitsData(data);
+        if (typeof renderTraitsList === 'function') renderTraitsList();
+    } else if (type === 'event') {
+        const data = getTimelineData();
+        data.events = data.events.map(mark);
+        setTimelineData(data);
+        if (typeof renderTimelineList === 'function') renderTimelineList();
+    }
+}
+
+function deleteContact(id) {
+    const data = getSocialData();
+    const contact = data.contacts.find(c => c.id === id);
+    if (!contact) return;
+    if (!confirm(`Удалить контакт «${contact.name}» из памяти?`)) return;
+
+    data.contacts = data.contacts.filter(c => c.id !== id);
+    setSocialData(data);
+    selectedItemId = null;
+    renderSocialList();
+}
+
+// ==================== ЧИСТКА ВЫМЫСЛА ====================
+// Персонажи фильмов и книг попадали в память как знакомые: цитата настоящая,
+// но сказана про героя. Извлечение уже не пропускает такое, а здесь можно
+// разобрать то, что успело записаться.
+function describeFictionFound(found) {
+    const short = text => String(text || '').slice(0, 70);
+    const lines = [];
+    if (found.contacts.length) {
+        lines.push('Люди: ' + found.contacts.map(contact => contact.name).join(', '));
+    }
+    found.facts.slice(0, 6).forEach(fact => lines.push('• ' + short(fact.text)));
+    found.traits.slice(0, 4).forEach(trait => lines.push('• ' + short(trait.text)));
+    found.events.slice(0, 4).forEach(event => lines.push('• ' + short(event.text)));
+    return lines;
+}
+
+function runFictionCleanup() {
+    if (typeof findFictionPollution !== 'function' || typeof purgeFictionPollution !== 'function') return;
+
+    const found = findFictionPollution();
+    const total = found.facts.length + found.traits.length + found.events.length + found.contacts.length;
+
+    if (!total) {
+        alert('Вымысла не нашёл: у каждой записи есть цитата о твоей настоящей жизни.');
+        return;
+    }
+
+    const lines = describeFictionFound(found);
+    if (total > lines.length) lines.push(`…и ещё ${total - lines.length} записей`);
+    if (!confirm(`Похоже на вымысел — герои и события не из твоей жизни:\n\n${lines.join('\n')}\n\nУбрать эти записи?`)) return;
+
+    const report = purgeFictionPollution(found);
+    const parts = [];
+    if (report.contacts) parts.push(`людей ${report.contacts}`);
+    if (report.facts) parts.push(`фактов ${report.facts}`);
+    if (report.traits) parts.push(`черт ${report.traits}`);
+    if (report.events) parts.push(`событий ${report.events}`);
+    alert(`Убрано: ${parts.join(', ')}.`);
+
+    if (typeof currentTab !== 'undefined' && currentTab !== 'clouds') switchTab(currentTab);
+}
+
 // ==================== MEMORY CLOUDS TAB ====================
 // Вкладка только показывает результат фоновой стадии разбора: имена тем,
 // описания и количество записей здесь не редактируются вручную — этим
@@ -1873,6 +1957,7 @@ function renderStructuredItem(item, index, type) {
                 <span class="item-index">[${index}]</span>
                 <span class="confidence-badge">${conf}</span>
                 ${timestamp ? `<span class="item-timestamp">${escapeHtml(timestamp)}</span>` : ''}
+                <button class="item-delete" onclick="deleteMemoryItem('${type}', '${item.id}')" title="Удалить запись">✕</button>
             </div>
             <div class="item-text">${escapeHtml(item.text)}</div>
             ${evidenceHtml}
@@ -1961,6 +2046,7 @@ function renderSocialList() {
                             <span class="contact-stats">📊 ${factsCount} facts, ${traitsCount} traits</span>
                         </div>
                     </div>
+                    <button class="item-delete contact-delete" onclick="event.stopPropagation(); deleteContact('${contact.id}')" title="Удалить контакт">✕</button>
                     <span class="expand-icon">▼</span>
                 </div>
                 <div class="social-contact-details">
