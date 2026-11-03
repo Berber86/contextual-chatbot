@@ -2818,7 +2818,8 @@ function buildJevDebug(contextResult, contextBlock, turnPlan) {
             complexity: turnPlan.complexity,
             routeLabel: turnPlan.route ? turnPlan.route.label : null,
             archetype: turnPlan.archetypeKey,
-            askProbability: turnPlan.askProbability
+            askProbability: turnPlan.askProbability,
+            model: turnPlan.model || null
         } : null
     };
 }
@@ -2835,11 +2836,11 @@ function buildJevSpoiler(debug) {
             ? 'Тема одна — jev не спрашивали'
             : (debug.picked.length ? 'Что шепнул jev' : 'jev не поднял ни одной темы'));
 
-    const meta = debug.single
-        ? 'одна тема · без jev'
-        : (isClouds
-            ? `${debug.picked.length} тем · ${debug.model || 'модель?'}`
-            : (debug.model ? String(debug.model) : 'без jev'));
+    // Когда облака не работали, модель из строки решения по ходу не должна
+    // выглядеть как «модель, которая выбирала темы».
+    const meta = isClouds
+        ? (debug.single ? 'одна тема · без jev' : `${debug.picked.length} тем · ${debug.model || 'модель?'}`)
+        : 'выбор тем не работал';
 
     const themes = debug.themes.length
         ? debug.themes.map(theme => {
@@ -2860,16 +2861,22 @@ function buildJevSpoiler(debug) {
         ? `<div class="jev-turn">Решение по ходу: сложность ${debug.turn.complexity == null ? '—' : debug.turn.complexity.toFixed(2)}` +
           ` · ${escapeHtml(debug.turn.routeLabel || 'маршрут не выбран')}` +
           ` · архетип ${escapeHtml(debug.turn.archetype || '—')}` +
-          ` · вопрос ${debug.turn.askProbability == null ? '—' : debug.turn.askProbability.toFixed(2)}</div>`
+          ` · вопрос ${debug.turn.askProbability == null ? '—' : debug.turn.askProbability.toFixed(2)}` +
+          `${debug.turn.model ? ` · модель решения ${escapeHtml(String(debug.turn.model))}` : ''}</div>`
         : '';
+
+    // Для облачного пути — модель выбора, порог и вероятности тем.
+    // Для старого пути этих данных нет вовсе: показываем только причину.
+    const cloudRows = isClouds
+        ? `<div class="jev-spoiler-row"><span>Модель выбора</span><b>${escapeHtml(String(debug.model || '—'))}</b></div>
+           <div class="jev-spoiler-row"><span>Условие</span><b>${escapeHtml(thresholdLine)}</b></div>
+           <div class="jev-themes">${themes}</div>`
+        : `<div class="jev-spoiler-row"><span>Почему не облака</span><b>${escapeHtml(debug.skip ? debug.skip.text : 'причина не записана (старая сборка?)')}</b></div>`;
 
     return `<details class="jev-spoiler">
         <summary><span class="jev-spoiler-title">🌀 ${escapeHtml(title)}</span><span class="jev-spoiler-meta">${escapeHtml(meta)}</span></summary>
         <div class="jev-spoiler-body">
-            <div class="jev-spoiler-row"><span>Модель</span><b>${escapeHtml(String(debug.model || '—'))}</b></div>
-            <div class="jev-spoiler-row"><span>Условие</span><b>${escapeHtml(thresholdLine)}</b></div>
-            ${debug.skip ? `<div class="jev-spoiler-row"><span>Почему не облака</span><b>${escapeHtml(debug.skip.text)}</b></div>` : ''}
-            <div class="jev-themes">${themes}</div>
+            ${cloudRows}
             ${turn}
             <div class="jev-label">Что ушло в промпт</div>
             <pre class="jev-pre">${block}</pre>

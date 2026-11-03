@@ -753,6 +753,19 @@ test('спойлер объясняет режим одной темы и при
   assert.match(skipped, /работало сжатие досье/);
   assert.match(skipped, /Почему не облака/);
   assert.match(skipped, /всего тем: 5/);
+  assert.match(skipped, /выбор тем не работал/, 'в шапке нет намёка на выбор тем');
+  assert.equal(skipped.includes('Модель выбора'), false, 'на старом пути нет строки «модель выбора»');
+  assert.equal(skipped.includes('вероятностей нет'), false, 'и пустых вероятностей тоже');
+
+  const noReason = vm.runInContext(`buildJevSpoiler({ source: 'compression', picked: [], themes: [], block: 'досье' })`, context);
+  assert.match(noReason, /причина не записана/, 'старая сборка честно себя выдаёт');
+
+  const withTurn = vm.runInContext(`buildJevSpoiler({
+    source: 'clouds', picked: ['Работа'], themes: [{ id: 'c1', name: 'Работа', probability: 0.7 }],
+    threshold: 0.45, maxSelected: 4, model: 'jev-1.14', block: 'факт',
+    turn: { complexity: 0.77, routeLabel: 'GLM 5.2', archetype: 'connector', askProbability: 0.58, model: 'jev-1.14' }
+  })`, context);
+  assert.match(withTurn, /модель решения jev-1\.14/);
 
   const empty = vm.runInContext(`buildJevSpoiler({ source: 'clouds', picked: [], themes: [], block: '' })`, context);
   assert.match(empty, /jev не поднял ни одной темы/);
