@@ -2804,6 +2804,8 @@ function buildJevDebug(contextResult, contextBlock, turnPlan) {
         source: contextResult && contextResult.source
             ? contextResult.source
             : (contextResult && contextResult.compressed ? 'compression' : 'raw'),
+        skip: typeof lastCloudSkip !== 'undefined' ? lastCloudSkip : null,
+        single: Boolean(contextResult && contextResult.single),
         picked: (contextResult && contextResult.cloudNames) || [],
         themes,
         threshold: jev ? jev.threshold : null,
@@ -2825,15 +2827,19 @@ function buildJevSpoiler(debug) {
     if (!debug) return '';
 
     const isClouds = debug.source === 'clouds';
-    const title = isClouds
-        ? 'Что шепнул jev'
-        : (debug.source === 'compression'
+    const title = !isClouds
+        ? (debug.source === 'compression'
             ? 'jev не выбирал темы — работало сжатие досье'
-            : 'jev не выбирал темы — память короткая');
+            : 'jev не выбирал темы — память короткая')
+        : (debug.single
+            ? 'Тема одна — jev не спрашивали'
+            : (debug.picked.length ? 'Что шепнул jev' : 'jev не поднял ни одной темы'));
 
-    const meta = isClouds
-        ? `${debug.picked.length} тем · ${debug.model || 'модель?'}`
-        : (debug.model ? String(debug.model) : 'без jev');
+    const meta = debug.single
+        ? 'одна тема · без jev'
+        : (isClouds
+            ? `${debug.picked.length} тем · ${debug.model || 'модель?'}`
+            : (debug.model ? String(debug.model) : 'без jev'));
 
     const themes = debug.themes.length
         ? debug.themes.map(theme => {
@@ -2862,6 +2868,7 @@ function buildJevSpoiler(debug) {
         <div class="jev-spoiler-body">
             <div class="jev-spoiler-row"><span>Модель</span><b>${escapeHtml(String(debug.model || '—'))}</b></div>
             <div class="jev-spoiler-row"><span>Условие</span><b>${escapeHtml(thresholdLine)}</b></div>
+            ${debug.skip ? `<div class="jev-spoiler-row"><span>Почему не облака</span><b>${escapeHtml(debug.skip.text)}</b></div>` : ''}
             <div class="jev-themes">${themes}</div>
             ${turn}
             <div class="jev-label">Что ушло в промпт</div>
@@ -2901,24 +2908,77 @@ function selectGapForQuestion() {
 // Вместо сжатия всей памяти в досье поднимаем только темы, которые нужны для ответа.
 // Облако — кластер (работа, здоровье, собака): jev отвечает «да/нет» по каждому.
 // Любая проблема — null, и тогда работает прежний путь со сжатием.
+// Причина отказа запоминается в lastCloudSkip и видна в спойлере под ответом.
+
+let lastCloudSkip = null;
+
+function noteCloudSkip(code, text, extra) {
+    lastCloudSkip = Object.assign({ code, text, at: Date.now() }, extra || {});
+    return null;
+}
 
 async function prepareCloudContext(userMessage, history, timeInfo) {
-    if (typeof isCloudMemoryEnabled === 'function' && !isCloudMemoryEnabled()) return null;
-    if (typeof getCloudsForSelection !== 'function') return null;
-    if (typeof selectCloudsForTurn !== 'function') return null;
+    lastCloudSkip = null;
+
+    if (typeof isCloudMemoryEnabled === 'function' && !isCloudMemoryEnabled()) {
+        return noteCloudSkip('flag-off', 'выбор тем выключен в настройках');
+    }
+    if (typeof getCloudsForSelection !== 'function' || typeof buildCloudContext !== 'function') {
+        return noteCloudSkip('no-api', 'код облаков не загрузился (старая сборка?)');
+    }
 
     let clouds = [];
     try {
         clouds = getCloudsForSelection();
+        // Пустые темы — следы неудачных разборов; чистим их, но только если
+        // они реально есть: prune читает все хранилища памяти.
+        if (typeof pruneEmptyClouds === 'function' && typeof getClouds === 'function'
+            && clouds.length < getClouds().length) {
+            pruneEmptyClouds();
+        }
     } catch (error) {
-        return null;
+        return noteCloudSkip('clouds-error', 'не удалось прочитать темы: ' + error.message);
     }
-    // Одно облако — это вся память целиком, выбор ничего не даёт.
-    if (!Array.isArray(clouds) || clouds.length < 2) return null;
+
+    const totalThemes = typeof getClouds === 'function' ? getClouds().length : clouds.length;
+
+    if (!Array.isArray(clouds) || !clouds.length) {
+        return noteCloudSkip('no-clouds',
+            `нет ни одной темы с записями (всего тем: ${totalThemes})`,
+            { themes: totalThemes, withContent: 0 });
+    }
+
+    // Одна тема с содержимым — это и есть вся память: спрашивать jev не о чем,
+    // берём её напрямую. Раньше такой аккаунт уходил в сжатие досье.
+    if (clouds.length === 1) {
+        const only = clouds[0];
+        const singleContext = buildCloudContext([only.id]);
+        if (!singleContext) {
+            return noteCloudSkip('empty-context', 'в единственной теме нет записей', { themes: totalThemes, withContent: 1 });
+        }
+        console.log('[Clouds] Тема одна — берём без jev: ' + only.name);
+        return {
+            compressed: true,
+            cloudContext: singleContext,
+            cloudIds: [only.id],
+            cloudNames: [only.name],
+            source: 'clouds',
+            single: true,
+            currentTime: timeInfo,
+            jev: null
+        };
+    }
+
+    if (typeof selectCloudsForTurn !== 'function') {
+        return noteCloudSkip('no-api', 'выбор тем не загрузился', { themes: totalThemes, withContent: clouds.length });
+    }
 
     try {
         const selection = await selectCloudsForTurn(userMessage, clouds, history);
-        if (!selection) return null;
+        if (!selection) {
+            return noteCloudSkip('no-selection', 'jev не ответил на вопросы о темах',
+                { themes: totalThemes, withContent: clouds.length });
+        }
 
         const ids = selection.clouds.map(cloud => cloud.id);
         const names = selection.clouds.map(cloud => cloud.name);
@@ -2936,8 +2996,11 @@ async function prepareCloudContext(userMessage, history, timeInfo) {
             };
         }
 
-        const context = typeof buildCloudContext === 'function' ? buildCloudContext(ids) : '';
-        if (!context) return null;
+        const context = buildCloudContext(ids);
+        if (!context) {
+            return noteCloudSkip('empty-context', 'в поднятых темах нечего показывать',
+                { themes: totalThemes, withContent: clouds.length });
+        }
 
         return {
             compressed: true,
@@ -2950,7 +3013,8 @@ async function prepareCloudContext(userMessage, history, timeInfo) {
         };
     } catch (error) {
         console.warn('[Clouds] Выбор облаков не удался, работаем по-старому:', error.message);
-        return null;
+        return noteCloudSkip('error', 'ошибка jev: ' + error.message,
+            { themes: totalThemes, withContent: clouds.length });
     }
 }
 

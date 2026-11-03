@@ -653,7 +653,9 @@ function getCloudsForSelection() {
             },
             total: factCount + traitCount + eventCount + contactCount + hypothesisCount + gapCount
         };
-    }).filter(cloud => cloud.total > 0 || cloud.id === CLOUD_CONFIG.miscId);
+    // Только темы с записями: пустые (в том числе пустое «Разное») — не темы,
+    // иначе один аккаунт с одной реальной темой считался бы «двумя».
+    }).filter(cloud => cloud.total > 0);
 }
 
 // Содержимое одного облака для просмотра в интерфейсе. Только чтение:
