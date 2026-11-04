@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Memory Chatbot - Удобная Выгрузка</title>
+    <style>
+        :root {
+            --bg-color: #1a1a2e;
+            --panel-bg: #16213e;
+            --text-main: #e0e0e0;
+            --accent: #0088cc; /* Цвет Telegram */
+            --accent-hover: #0077b3;
+            --success: #4ade80;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 500px;
+            width: 100%;
+            background: var(--panel-bg);
+            padding: 30px;
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            text-align: center;
+        }
+
+        .header h1 {
+            margin: 0 0 10px 0;
+            color: #fff;
+            font-size: 1.5em;
+        }
+
+        .stats-box {
+            background: rgba(255,255,255,0.05);
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            font-size: 0.9em;
+            color: #aaa;
+        }
+
+        .step {
+            background: rgba(0, 136, 204, 0.1);
+            border-left: 4px solid var(--accent);
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 0 8px 8px 0;
+            text-align: left;
+            line-height: 1.5;
+        }
+
+        .btn {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 16px 20px;
+            font-size: 1.1em;
+            font-weight: bold;
+            border-radius: 10px;
+            cursor: pointer;
+            width: 100%;
+            margin-bottom: 15px;
+            transition: 0.2s;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .btn:hover { background: var(--accent-hover); transform: translateY(-2px); }
+        .btn.success { background: var(--success); color: #000; }
+        
+        .btn-outline {
+            background: transparent;
+            border: 1px solid rgba(255,255,255,0.2);
+            color: #aaa;
+        }
+        .btn-outline:hover { background: rgba(255,255,255,0.05); color: #fff; }
+
+        #shareBtn { display: none; } /* Скрыта по умолчанию, покажем если браузер поддерживает */
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <h1>✈️ Отправка памяти бота</h1>
+        <p>Инструмент для передачи контекста разработчику</p>
+    </div>
+
+    <div id="mainContent">
+        <div class="stats-box">⏳ Собираю данные...</div>
+    </div>
+</div>
+
+<script>
+    const EXPORT_TARGETS = [
+        'chatbot_chat_history', 'chatbot_knowledge_facts', 
+        'chatbot_knowledge_traits', 'chatbot_knowledge_timeline', 
+        'chatbot_hypotheses', 'chatbot_social_connections', 
+        'chatbot_knowledge_gaps', 'chatbot_communication_style'
+    ];
+
+    let fullExportString = "";
+    let exportFile = null;
+
+    function init() {
+        const extractedData = {};
+        let totalSize = 0;
+
+        EXPORT_TARGETS.forEach(key => {
+            const rawData = localStorage.getItem(key);
+            if (rawData) {
+                try {
+                    extractedData[key] = JSON.parse(rawData);
+                } catch (e) {
+                    extractedData[key] = rawData;
+                }
+                totalSize += rawData.length;
+            }
+        });
+
+        if (Object.keys(extractedData).length === 0) {
+            document.getElementById('mainContent').innerHTML = `
+                <div class="step" style="border-color: #ff4444; background: rgba(255,0,0,0.1);">
+                    ❌ Нет данных для выгрузки. Похоже, вы открыли ссылку не в том браузере, где общались с ботом.
+                </div>`;
+            return;
+        }
+
+        // Превращаем всё в красивую строку
+        fullExportString = JSON.stringify(extractedData, null, 2);
+        
+        // Создаем файл в памяти (для кнопки Поделиться)
+        const blob = new Blob([fullExportString], { type: "application/json" });
+        exportFile = new File([blob], `memory_export_${new Date().toISOString().slice(0,10)}.json`, { type: "application/json" });
+
+        const kbSize = (totalSize / 1024).toFixed(1);
+
+        renderUI(kbSize);
+    }
+
+    function renderUI(kbSize) {
+        let html = `
+            <div class="stats-box">
+                ✅ Собрано данных: <b>${kbSize} КБ</b><br>
+                (Пароли и ключи исключены)
+            </div>
+            
+            <div class="step">
+                <b>Способ 1: Буфер обмена (ПК и Смартфоны)</b><br>
+                Нажмите кнопку ниже, затем откройте переписку с разработчиком в Telegram и нажмите "Вставить". Telegram сам превратит текст в файл!
+            </div>
+            <button class="btn" id="copyBtn" onclick="copyToClipboard()">
+                📋 Скопировать всё в буфер
+            </button>
+
+            <button class="btn" id="shareBtn" onclick="shareToApp()">
+                📲 Поделиться в Telegram (Способ 2)
+            </button>
+
+            <button class="btn btn-outline" onclick="downloadFile()">
+                💾 Просто скачать файл на устройство
+            </button>
+        `;
+
+        document.getElementById('mainContent').innerHTML = html;
+
+        // Проверяем, поддерживает ли телефон нативную отправку файлов
+        if (navigator.canShare && navigator.canShare({ files: [exportFile] })) {
+            document.getElementById('shareBtn').style.display = 'flex';
+        }
+    }
+
+    async function copyToClipboard() {
+        const btn = document.getElementById('copyBtn');
+        try {
+            await navigator.clipboard.writeText(fullExportString);
+            btn.innerHTML = "✅ Скопировано! Идите в Telegram и Вставляйте!";
+            btn.classList.add("success");
+            setTimeout(() => {
+                btn.innerHTML = "📋 Скопировать всё в буфер";
+                btn.classList.remove("success");
+            }, 5000);
+        } catch (err) {
+            alert("Не удалось скопировать. Попробуйте скачать файл.");
+        }
+    }
+
+    async function shareToApp() {
+        try {
+            await navigator.share({
+                title: 'Экспорт памяти бота',
+                text: 'Привет! Вот выгрузка памяти бота.',
+                files: [exportFile]
+            });
+        } catch (err) {
+            console.log("Пользователь отменил отправку или произошла ошибка.");
+        }
+    }
+
+    function downloadFile() {
+        const url = URL.createObjectURL(exportFile);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = exportFile.name;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    window.onload = init;
+</script>
+
+</body>
+</html>
