@@ -639,6 +639,18 @@ async function runCloudConsolidation(options = {}) {
     }
 }
 
+// Относительная дата принадлежит сообщению-доказательству, а не моменту,
+// когда фоновая аналитика успела обработать историю.
+function getEvidenceSaidAt(evidence, history) {
+    const quote = String(evidence || '').trim();
+    if (!quote) return null;
+    const source = (Array.isArray(history) ? history : []).find(message =>
+        message && message.role === 'user' && String(message.content || '').trim() === quote);
+    if (!source || !source.timestamp || source.timestamp === 'legacy_version') return null;
+    const date = new Date(source.timestamp);
+    return Number.isNaN(date.getTime()) ? null : source.timestamp;
+}
+
 function integrateFactsData(newFacts, currentData, history) {
     const messageCount = getMessageCounter();
     const timestamp = Date.now();
@@ -693,7 +705,10 @@ function integrateFactsData(newFacts, currentData, history) {
                     const existingEvidence = data.facts[realIdx].evidence || [];
                     data.facts[realIdx].evidence = [...new Set([...existingEvidence, ...validEvidence])].slice(0, LIMITS.evidencePerItem);
                     data.facts[realIdx].updatedAt = messageCount;
-                    data.facts[realIdx].timestamp = timestamp;
+                    data.facts[realIdx].lastConfirmedAt = timestamp;
+                    if (!data.facts[realIdx].saidAt && data.facts[realIdx].timestamp && data.facts[realIdx].timestamp !== 'legacy_version') {
+                        data.facts[realIdx].saidAt = data.facts[realIdx].timestamp;
+                    }
                     
                     if (data.facts[realIdx].evidence.length >= 2 && data.facts[realIdx].confidence === 'low') {
                         data.facts[realIdx].confidence = 'medium';
@@ -727,6 +742,7 @@ function integrateFactsData(newFacts, currentData, history) {
             continue;
         }
         
+        const saidAt = getEvidenceSaidAt(validEvidence[0], history) || timestamp;
         const fact = {
             id: generateId('fact'),
             text: newFact.text,
@@ -734,7 +750,9 @@ function integrateFactsData(newFacts, currentData, history) {
             confidence: newFact.confidence || 'medium',
             createdAt: messageCount,
             updatedAt: messageCount,
-            timestamp: timestamp,
+            timestamp: saidAt,
+            saidAt,
+            lastConfirmedAt: timestamp,
             superseded: false
         };
         
@@ -1021,7 +1039,9 @@ async function extractTimelineInformation(history) {
 
     const dialogText = history.map(msg => {
         const speaker = msg.role === 'user' ? 'User' : 'Assistant';
-        return `${speaker}: ${msg.content}`;
+        const date = msg.timestamp && msg.timestamp !== 'legacy_version' ? new Date(msg.timestamp) : null;
+        const recordedAt = date && !Number.isNaN(date.getTime()) ? date.toISOString() : 'unknown';
+        return `[recorded: ${recordedAt}] ${speaker}: ${msg.content}`;
     }).join('\n\n');
 
     const currentData = getTimelineData();
@@ -1031,7 +1051,8 @@ async function extractTimelineInformation(history) {
     if (existingEvents.length > 0) {
         existingEventsList = existingEvents.map((e, i) => {
             const dateStr = e.date?.exact || e.date?.description || 'no date';
-            return `${i + 1}. [${e.type}] "${e.text}" (${dateStr})`;
+            const saidAt = e.saidAt || e.timestamp || 'unknown';
+            return `${i + 1}. [${e.type}] "${e.text}" (${dateStr}; said at: ${saidAt})`;
         }).join('\n');
     }
 
@@ -1067,9 +1088,12 @@ Extract life events, ongoing periods, and future plans:
    - "exact": "2024-03-15" — if specific date mentioned
    - "description": "в детстве", "пару лет назад", "в следующем году" — for vague references
    - "precision": "exact" | "approximate" | "vague"
-5. For periods: set "ongoing": true if still happening ("I work at..." = ongoing)
-6. If updates existing event → set "updatesEventIndex"
-7. If contradicts/outdates existing → set "supersedesEventIndex"
+5. Every dialogue message has a [recorded: ...] timestamp. Resolve relative dates from the USER evidence message timestamp, never from extraction time.
+   Example: [recorded: 2025-06-16T12:00:00.000Z] User: «Завтра еду в Москву» → date: {exact: "2025-06-17", description: "завтра", precision: "exact"}.
+   Preserve the original relative phrase in description even when exact is resolved. If resolution is ambiguous, leave exact null.
+6. For periods: set "ongoing": true if still happening ("I work at..." = ongoing)
+7. If updates existing event → set "updatesEventIndex"
+8. If contradicts/outdates existing → set "supersedesEventIndex"
 
 === DATE EXAMPLES ===
 • "I started in 2020" → date: {exact: "2020", precision: "approximate"}
@@ -1159,7 +1183,10 @@ function integrateTimelineData(newEvents, currentData, history) {
                     const existingEvidence = data.events[realIdx].evidence || [];
                     data.events[realIdx].evidence = [...new Set([...existingEvidence, ...validEvidence])].slice(0, LIMITS.evidencePerItem);
                     data.events[realIdx].updatedAt = messageCount;
-                    data.events[realIdx].timestamp = timestamp;
+                    data.events[realIdx].lastConfirmedAt = timestamp;
+                    if (!data.events[realIdx].saidAt && data.events[realIdx].timestamp && data.events[realIdx].timestamp !== 'legacy_version') {
+                        data.events[realIdx].saidAt = data.events[realIdx].timestamp;
+                    }
                     
                     if (newEvent.date?.exact && !data.events[realIdx].date?.exact) {
                         data.events[realIdx].date = newEvent.date;
@@ -1194,6 +1221,7 @@ function integrateTimelineData(newEvents, currentData, history) {
             continue;
         }
         
+        const saidAt = getEvidenceSaidAt(validEvidence[0], history) || timestamp;
         const event = {
             id: generateId('event'),
             text: newEvent.text,
@@ -1205,7 +1233,9 @@ function integrateTimelineData(newEvents, currentData, history) {
             confidence: newEvent.confidence || 'medium',
             createdAt: messageCount,
             updatedAt: messageCount,
-            timestamp: timestamp,
+            timestamp: saidAt,
+            saidAt,
+            lastConfirmedAt: timestamp,
             superseded: false
         };
         

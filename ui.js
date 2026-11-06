@@ -3054,6 +3054,12 @@ async function prepareCloudContext(userMessage, history, timeInfo, council) {
     if (clouds.length === 1) {
         const only = clouds[0];
         const singleContext = buildCloudContext([only.id]);
+        const singleCore = typeof buildAlwaysOnCoreContext === 'function'
+            ? buildAlwaysOnCoreContext({
+                excludeCloudIds: [only.id],
+                includeHypotheses: !(council && council.safety && ['distress', 'crisis'].includes(council.safety.level))
+            })
+            : '';
         if (!singleContext) {
             return noteCloudSkip('empty-context', 'в единственной теме нет записей', { themes: totalThemes, withContent: 1 });
         }
@@ -3065,6 +3071,7 @@ async function prepareCloudContext(userMessage, history, timeInfo, council) {
             cloudNames: [only.name],
             source: 'clouds',
             single: true,
+            coreContext: singleCore,
             currentTime: timeInfo,
             jev: null
         };
@@ -3115,7 +3122,13 @@ async function prepareCloudContext(userMessage, history, timeInfo, council) {
             };
         }
 
-        const context = buildCloudContext(ids);
+        const context = buildCloudContext(ids, selection.clouds);
+        const coreContext = typeof buildAlwaysOnCoreContext === 'function'
+            ? buildAlwaysOnCoreContext({
+                excludeCloudIds: ids,
+                includeHypotheses: !(plan.safety && ['distress', 'crisis'].includes(plan.safety.level))
+            })
+            : '';
         if (!context) {
             return noteCloudSkip('empty-context', 'в поднятых темах нечего показывать',
                 { themes: totalThemes, withContent: clouds.length });
@@ -3126,7 +3139,9 @@ async function prepareCloudContext(userMessage, history, timeInfo, council) {
             cloudContext: context,
             cloudIds: ids,
             cloudNames: names,
+            lateralCloudIds: selection.clouds.filter(cloud => cloud.role === 'lateral_bridge').map(cloud => cloud.id),
             source: 'clouds',
+            coreContext,
             currentTime: timeInfo,
             jev: selection
         };
@@ -3287,8 +3302,11 @@ if (last && last.role === 'user' && (last.content || '').trim() === (userMessage
         
         let contextBlock;
         if (contextResult.source === 'clouds' && typeof contextResult.cloudContext === 'string') {
+            const coreBlock = contextResult.cloudContext && contextResult.coreContext
+                ? `=== 🧠 ЯДРО ЛИЧНОСТИ И СТИЛЬ ===\n${contextResult.coreContext}\n\n`
+                : '';
             contextBlock = contextResult.cloudContext
-                ? `\n=== ПАМЯТЬ: ПОДНЯТЫЕ ОБЛАКА ===\n${contextResult.cloudContext}\n`
+                ? `\n=== ПАМЯТЬ ===\n${coreBlock}=== ПАМЯТЬ: ПОДНЯТЫЕ ОБЛАКА ===\n${contextResult.cloudContext}\n`
                 : `\n=== ПАМЯТЬ ===\nДля этого ответа память не поднималась: тема не требует воспоминаний.\n`;
         } else if (contextResult.compressed && contextResult.fullContext) {
             contextBlock = `\n=== ПОДГОТОВЛЕННЫЙ КОНТЕКСТ ===\n${contextResult.fullContext}\n`;

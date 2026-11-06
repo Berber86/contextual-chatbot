@@ -97,6 +97,64 @@ function seedCloudsWithFacts(context, names) {
   return clouds;
 }
 
+// ==================== ВРЕМЯ ЗАПИСИ ПАМЯТИ ====================
+
+test('событие получает timestamp сообщения-доказательства, а не время фонового разбора', () => {
+  const { context, values } = consolidationHarness(() => ({}));
+  const saidAt = Date.UTC(2025, 5, 16, 12, 0, 0);
+  run(context, `globalThis.__timeHistory = [{ role: 'user', content: 'Завтра еду в Москву', timestamp: ${saidAt} }]`);
+  run(context, `integrateTimelineData([{
+    text: 'Поездка в Москву', type: 'plan',
+    date: { exact: '2025-06-17', description: 'завтра', precision: 'exact' },
+    evidence: ['Завтра еду в Москву'], confidence: 'high',
+    updatesEventIndex: null, supersedesEventIndex: null
+  }], getTimelineData(), globalThis.__timeHistory)`);
+
+  const timelineKey = run(context, 'STORAGE_KEYS.timeline');
+  const event = JSON.parse(values.get(timelineKey)).events[0];
+  assert.equal(event.timestamp, saidAt);
+  assert.equal(event.saidAt, saidAt);
+  assert.equal(event.date.exact, '2025-06-17');
+  assert.equal(event.date.description, 'завтра');
+  assert.notEqual(event.lastConfirmedAt, saidAt, 'техническое подтверждение хранится отдельно');
+});
+
+test('новое подтверждение не переносит старое «завтра» на дату подтверждения', () => {
+  const { context, values } = consolidationHarness(() => ({}));
+  const saidAt = Date.UTC(2025, 5, 16, 12, 0, 0);
+  const confirmedAt = Date.UTC(2025, 5, 17, 9, 0, 0);
+  run(context, `setTimelineData({ events: [{
+    id: 'trip', text: 'Завтра еду в Москву', type: 'plan',
+    date: { exact: '2025-06-17', description: 'завтра', precision: 'exact' },
+    evidence: ['Завтра еду в Москву'], confidence: 'high',
+    createdAt: 1, updatedAt: 1, timestamp: ${saidAt}, saidAt: ${saidAt},
+    superseded: false
+  }], legacy_text: '' })`);
+  run(context, `globalThis.__timeHistory = [{ role: 'user', content: 'Да, всё ещё еду в Москву', timestamp: ${confirmedAt} }]`);
+  run(context, `integrateTimelineData([{
+    text: 'Поездка в Москву', type: 'plan', date: { description: 'завтра' },
+    evidence: ['Да, всё ещё еду в Москву'], confidence: 'high',
+    updatesEventIndex: 1, supersedesEventIndex: null
+  }], getTimelineData(), globalThis.__timeHistory)`);
+
+  const timelineKey = run(context, 'STORAGE_KEYS.timeline');
+  const event = JSON.parse(values.get(timelineKey)).events[0];
+  assert.equal(event.timestamp, saidAt);
+  assert.equal(event.saidAt, saidAt);
+  assert.ok(event.lastConfirmedAt > saidAt);
+});
+
+test('промпт извлечения видит дату реплики и правило разрешения «завтра»', async () => {
+  const { context, calls } = consolidationHarness(() => ({ events: [] }));
+  const saidAt = Date.UTC(2025, 5, 16, 12, 0, 0);
+  await run(context, `extractTimelineInformation([{
+    role: 'user', content: 'Завтра еду в Москву', timestamp: ${saidAt}
+  }])`);
+  assert.match(calls[0], /2025-06-16T12:00:00\.000Z/);
+  assert.match(calls[0], /2025-06-17/);
+  assert.match(calls[0], /never from extraction time/);
+});
+
 // ==================== СЛОЙ ОБЛАКОВ ====================
 
 test('облако создаётся один раз: регистр, ё и лишние пробелы не плодят дубли', () => {
@@ -151,6 +209,97 @@ test('контекст собирается только из выбранных
   assert.equal(run(context, `buildCloudContext(["cloud_нет_такого"])`), '');
 });
 
+test('облачный контекст сохраняет время высказывания и смысл относительной даты', () => {
+  const { context } = cloudHarness();
+  const timestamp = Date.UTC(2025, 5, 16, 12, 0, 0);
+  run(context, 'const travel = ensureCloud("Поездки");');
+  const cloudId = run(context, 'travel.id');
+  run(context, `setTimelineData({ events: [{
+    id: 'trip_moscow',
+    text: 'Завтра еду в Москву',
+    type: 'plan',
+    date: { exact: '2025-06-17', description: 'завтра', precision: 'exact' },
+    timestamp: ${timestamp},
+    saidAt: ${timestamp},
+    cloud: ${JSON.stringify(cloudId)},
+    confidence: 'high',
+    superseded: false
+  }], legacy_text: '' })`);
+
+  const text = run(context, 'buildCloudContext([travel.id])');
+  const recorded = run(context, `formatTimestamp(${timestamp})`);
+  assert.match(text, /Завтра еду в Москву/);
+  assert.match(text, /\[plan\]/);
+  assert.match(text, /2025-06-17/);
+  assert.match(text, /исходная формулировка: «завтра»/);
+  assert.ok(text.includes(`[recorded: ${recorded}]`), 'модель получает опору 16.06.2025, а не только текущую дату');
+});
+
+test('облачный контекст не скрывает LEGACY и время записи факта', () => {
+  const { context } = cloudHarness();
+  const timestamp = Date.UTC(2025, 5, 16, 12, 0, 0);
+  run(context, 'const travel = ensureCloud("Поездки");');
+  run(context, `setTimelineData({ events: [{
+    id: 'old_trip', text: 'Завтра еду в Москву', type: 'plan',
+    date: { description: 'завтра' }, timestamp: 'legacy_version',
+    cloud: travel.id, superseded: false
+  }], legacy_text: '' })`);
+  seedMemory(context, [{
+    id: 'dated_fact', text: 'Билет куплен на завтра', confidence: 'high',
+    timestamp, saidAt: timestamp, cloud: run(context, 'travel.id'), superseded: false,
+  }]);
+
+  const text = run(context, 'buildCloudContext([travel.id])');
+  const recorded = run(context, `formatTimestamp(${timestamp})`);
+  assert.match(text, /\[LEGACY\]/);
+  assert.ok(text.includes(`Билет куплен на завтра (high) [recorded: ${recorded}]`));
+});
+
+test('Always-On Core ограничен, содержит стиль и не дублирует записи поднятого облака', () => {
+  const { context } = cloudHarness();
+  run(context, `localStorage.setItem(STORAGE_KEYS.style, 'Прямо и без канцелярита');
+    const work = ensureCloud('Работа');`);
+  const traits = Array.from({ length: 8 }, (_, index) => ({
+    id: `trait_${index}`, text: `Черта ${index}`, confidence: index === 0 ? 'verified' : 'high',
+    evidence: index < 6 ? ['подтверждение'] : [], timestamp: index + 1,
+    cloud: index === 0 ? run(context, 'work.id') : null, superseded: false,
+  }));
+  run(context, `setTraitsData({ traits: ${JSON.stringify(traits)}, legacy_text: '' })`);
+  run(context, `setHypothesesData({ hypotheses: [
+    { id: 'h1', text: 'Рабочая гипотеза', confidence: 'high', cloud: work.id },
+    { id: 'h2', text: 'Сквозная гипотеза', confidence: 'medium' }
+  ] })`);
+
+  const core = run(context, 'buildAlwaysOnCoreContext({ excludeCloudIds: [work.id] })');
+  assert.match(core, /Прямо и без канцелярита/);
+  assert.doesNotMatch(core, /Черта 0/, 'черта уже видна в облаке и не дублируется');
+  assert.doesNotMatch(core, /Рабочая гипотеза/);
+  assert.match(core, /Сквозная гипотеза/);
+  assert.match(core, /Гипотезы \(предположения, не факты\)/);
+  assert.ok((core.match(/Черта /g) || []).length <= 5);
+  assert.ok(core.length <= run(context, 'CORE_MEMORY_CONFIG.maxTotalChars'));
+
+  const withoutHypotheses = run(context, 'buildAlwaysOnCoreContext({ includeHypotheses: false })');
+  assert.doesNotMatch(withoutHypotheses, /Сквозная гипотеза/);
+});
+
+test('латеральное облако попадает в отдельную зону, а прямое остаётся фокусом', () => {
+  const { context } = cloudHarness();
+  run(context, `const work = ensureCloud('Работа'); const dog = ensureCloud('Собака');`);
+  seedMemory(context, [
+    { id: 'work_fact', text: 'Работает техлидом', confidence: 'high', cloud: run(context, 'work.id'), superseded: false },
+    { id: 'dog_fact', text: 'Учил Бобика короткими подходами', confidence: 'high', cloud: run(context, 'dog.id'), superseded: false },
+  ]);
+  const text = run(context, `buildCloudContext([work.id, dog.id], [
+    { id: work.id, role: 'anchor' }, { id: dog.id, role: 'lateral_bridge' }
+  ])`);
+  assert.match(text, /🎯 ПРЯМОЙ КОНТЕКСТ ТЕМЫ/);
+  assert.match(text, /🌊 БОКОВОЕ ЗРЕНИЕ: ТОЛЬКО ДЛЯ АНАЛОГИЙ/);
+  assert.match(text, /Не пересказывай их/);
+  assert.ok(text.indexOf('Работает техлидом') < text.indexOf('🌊'));
+  assert.ok(text.indexOf('Учил Бобика') > text.indexOf('🌊'));
+});
+
 test('список для выбора считает содержимое и не показывает пустые облака', () => {
   const { context } = cloudHarness();
   run(context, 'ensureCloud("Работа"); ensureCloud("Пустое");');
@@ -202,7 +351,7 @@ const cloudChoiceAnswer = (probabilities) => async () => ({
   text: async () => '',
 });
 
-test('выбор облаков: один вопрос choice на все темы вместо noul на каждую', async () => {
+test('выбор облаков: прямой и латеральный choice на все темы вместо noul на каждую', async () => {
   const { context, calls } = cloudHarness({}, cloudChoiceAnswer({
     cloud_0: 0.62, cloud_1: 0.14, cloud_2: 0.05, none: 0.19,
   }));
@@ -214,7 +363,7 @@ test('выбор облаков: один вопрос choice на все тем
 
   assert.equal(calls.length, 1, 'один запрос на ход');
   const questions = calls[0].body.questions;
-  assert.equal(Object.keys(questions).length, 8, 'весь совет: маршрут, состояние, приветствие и темы');
+  assert.equal(Object.keys(questions).length, 10, 'весь совет: маршрут, состояние, приветствие и два контура памяти');
   assert.equal(questions.clouds.type, 'choice', 'темы — один слот, а не вопрос на каждую');
   assert.equal(Object.keys(questions.clouds.criteria).length, 4, 'три темы плюс «ничего»');
   ['complexity', 'archetype', 'ask_question', 'distress', 'crisis', 'greeting'].forEach(name => {
@@ -244,14 +393,14 @@ test('выбор облаков: не больше четырёх, самые в
   }
 });
 
-test('все темы укладываются в один слот из 32', () => {
+test('все темы укладываются в два choice-слота из 32', () => {
   const { context } = cloudHarness();
   for (let index = 0; index < 14; index++) run(context, `ensureCloud(${JSON.stringify('Тема ' + index)})`);
   const clouds = Array.from(run(context, 'getClouds().map(c => ({ id: c.id, name: c.name }))'));
   assert.equal(clouds.length, 14, 'четырнадцать созданных тем');
 
   const questions = run(context, `buildCloudQuestions(${JSON.stringify(clouds)})`);
-  assert.equal(Object.keys(questions).length, 1, 'одно место, а не четырнадцать');
+  assert.equal(Object.keys(questions).length, 3, 'прямой choice, уместность и латеральный choice');
   assert.equal(Object.keys(questions.clouds.criteria).length, 15, 'по варианту на тему плюс «ничего»');
   assert.equal(questions.clouds.type, 'choice');
 });
@@ -270,6 +419,17 @@ test('«ничего не нужно» перебивает темы, а пло�
 
   const close = run(context, `pickCloudsFromDistribution(${JSON.stringify(list)}, {a: 0.5, b: 0.3, c: 0.1}, 0.1)`);
   assert.equal(close.map(item => item.id).join(','), 'a,b', 'близкая к лучшей тема тоже поднимается');
+});
+
+test('латеральный выбор пропускает primary и требует уместности ассоциации', () => {
+  const { context } = cloudHarness();
+  const list = [{ id: 'work', name: 'Работа' }, { id: 'dog', name: 'Собака' }, { id: 'wood', name: 'Столярка' }];
+  const probabilities = { work: 0.6, dog: 0.3, wood: 0.08 };
+  const picked = run(context, `pickLateralCloudFromDistribution(${JSON.stringify(list)}, ${JSON.stringify(probabilities)}, 0.02, ['work'], 0.7)`);
+  assert.equal(picked.id, 'dog');
+  assert.equal(picked.role, 'lateral_bridge');
+  assert.equal(run(context, `pickLateralCloudFromDistribution(${JSON.stringify(list)}, ${JSON.stringify(probabilities)}, 0.02, ['work'], 0.44)`), null);
+  assert.equal(run(context, `pickLateralCloudFromDistribution(${JSON.stringify(list)}, ${JSON.stringify(probabilities)}, 0.9, ['work'], 0.7)`), null);
 });
 
 test('выбор облаков: одна тема — не повод для запроса, ошибка — откат', async () => {
@@ -308,6 +468,8 @@ test('стадия 1 сначала пробует облака, и только
 test('стадия 2 получает облачный контекст, а не досье', () => {
   assert.match(ui, /contextResult\.source === 'clouds'/, 'облачный путь опознаётся');
   assert.match(ui, /=== ПАМЯТЬ: ПОДНЯТЫЕ ОБЛАКА ===/, 'заголовок блока');
+  assert.match(ui, /=== 🧠 ЯДРО ЛИЧНОСТИ И СТИЛЬ ===/, 'сквозное ядро подключается к облакам');
+  assert.match(ui, /contextResult\.coreContext/, 'ядро попадает в системный промпт');
   assert.match(ui, /память не поднималась: тема не требует воспоминаний/, 'честный пустой случай');
 });
 
@@ -468,7 +630,7 @@ test('в вопрос jev попадают примеры содержимого
   assert.ok(Array.isArray(cloud.samples) && cloud.samples.length > 0, 'выборка содержимого есть');
 
   const questions = Array.from(run(context, `Object.values(buildCloudQuestions(${JSON.stringify(cloud ? [cloud] : [])}))`));
-  assert.equal(questions.length, 1);
+  assert.equal(questions.length, 3);
   const described = questions[0].criteria.cloud_0;
   assert.match(described, /Работа/);
   assert.match(described, /например:/);
@@ -670,7 +832,7 @@ test('jev отдаёт сырой ответ, вопросы и порог дл�
   assert.equal(selection.maxSelected, 4);
   assert.equal(selection.relativeCut, 0.4);
   assert.ok(selection.raw && typeof selection.raw === 'object', 'сырые answers сохранены');
-  assert.ok(selection.questions && Object.keys(selection.questions).length === 1, 'вопросы тоже сохранены');
+  assert.ok(selection.questions && Object.keys(selection.questions).length === 3, 'вопросы двух контуров тоже сохранены');
 });
 
 test('спойлер показывает вероятности, сырой ответ и блок промпта', () => {
@@ -733,6 +895,34 @@ function loadStageOne(context) {
   assert.ok(start > 0 && end > start, 'секция совета и стадии 1 на месте');
   vm.runInContext(ui.slice(start, end), context);
 }
+
+test('стадия 1 собирает Core, фокус и латеральное облако в одном ходу', async () => {
+  const { context, calls } = cloudHarness({}, async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      model: 'jev-1.14',
+      answers: {
+        clouds: { type: 'choice', probabilities: { cloud_0: 0.8, cloud_1: 0.1, cloud_2: 0.05, none: 0.05 } },
+        need_lateral: { type: 'noul', noul: 0.82 },
+        lateral_cloud: { type: 'choice', probabilities: { cloud_0: 0.7, cloud_1: 0.2, cloud_2: 0.08, none: 0.02 } },
+      },
+      usage: { input_tokens: 300, output_tokens: 0 },
+    }),
+    text: async () => '',
+  }));
+  loadStageOne(context);
+  seedCloudsWithFacts(context, ['Работа', 'Собака', 'Столярка']);
+  run(context, `localStorage.setItem(STORAGE_KEYS.style, 'Тепло и коротко')`);
+
+  const result = await run(context, `prepareCloudContext('Проще самому, чем учить джуна', [], { text: 'сейчас' })`);
+  assert.equal(calls.length, 1);
+  assert.match(result.coreContext, /Тепло и коротко/);
+  assert.match(result.cloudContext, /🎯 ПРЯМОЙ КОНТЕКСТ ТЕМЫ/);
+  assert.match(result.cloudContext, /🌊 БОКОВОЕ ЗРЕНИЕ/);
+  assert.match(result.cloudContext, /Собака/);
+  assert.equal(result.lateralCloudIds.length, 1);
+});
 
 test('приветствие из совета гасит память: темы не поднимаем', async () => {
   const { context, calls } = cloudHarness({}, async () => ({
