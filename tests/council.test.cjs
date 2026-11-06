@@ -131,7 +131,7 @@ test('нет тем — нет вопроса о темах, остальные 
 
 test('сбой латерального запроса повторяет совет без неё и сохраняет прямые темы', async () => {
   const { context, calls } = harness({ handler: async (url, init, count) => {
-    if (count === 1) return { ok: false, status: 504, json: async () => ({}), text: async () => 'timeout' };
+    if (count === 1) return { ok: false, status: 503, json: async () => ({}), text: async () => 'upstream unavailable' };
     return {
       ok: true,
       status: 200,
@@ -168,6 +168,27 @@ test('при полном сбое совета причина доступна 
   assert.equal(error.stage, 'request');
   assert.match(error.message, /основной: systemone HTTP 503/);
   assert.match(error.message, /запасной: systemone HTTP 503/);
+});
+
+test('таймаут не повторяется вторым долгим запросом и подписан явно', async () => {
+  const { context, calls } = harness({
+    handler: (url, init) => new Promise((resolve, reject) => {
+      init.signal.addEventListener('abort', () => {
+        const error = new Error('signal is aborted without reason');
+        error.name = 'AbortError';
+        reject(error);
+      });
+    }),
+  });
+  const plan = await run(context, `resolveCouncil("тест", [], {
+    clouds: ${JSON.stringify(clouds)}, options: { timeoutMs: 40 }
+  })`);
+  assert.equal(plan, null);
+  assert.equal(calls.length, 1, 'таймаут не удваивает ожидание запасным запросом');
+  const error = run(context, 'getLastCouncilError()');
+  assert.equal(error.stage, 'request');
+  assert.match(error.message, /systemone timeout/);
+  assert.match(error.message, /Hydra не ответила/);
 });
 
 test('без сети совет молчит и не роняет ход', async () => {

@@ -22,6 +22,12 @@ function getLastCouncilError() {
     return lastCouncilError;
 }
 
+function isCouncilTimeout(error) {
+    const message = String(error && error.message ? error.message : error || '');
+    return (error && (error.name === 'AbortError' || error.name === 'TimeoutError')) ||
+        /timeout|таймаут|aborted|HTTP 504/i.test(message);
+}
+
 function setLastCouncilError(stage, error) {
     lastCouncilError = {
         stage,
@@ -321,9 +327,9 @@ async function resolveCouncil(message, history, ctx) {
         return decisions;
     } catch (error) {
         console.warn('[Council] совет не получен:', error.message);
-        // Латеральная ассоциация — необязательное улучшение. Если запрос с ней
-        // не прошёл, основной маршрут и прямые облака обязаны продолжить работу.
-        if (context.clouds && context.clouds.length >= 2 && !context.disableLateral) {
+        // Латеральная ассоциация — необязательное улучшение. При обычной ошибке
+        // API повторяем без неё. После таймаута второй долгий запрос лишь удвоит ожидание.
+        if (!isCouncilTimeout(error) && context.clouds && context.clouds.length >= 2 && !context.disableLateral) {
             try {
                 const fallbackContext = { ...context, disableLateral: true };
                 const decisions = await request(fallbackContext);
