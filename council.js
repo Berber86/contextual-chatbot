@@ -216,6 +216,19 @@ const COUNCIL_LENSES = {
                 : null;
             if (lateral && picked.length) picked.push(lateral);
 
+            const serendipity = picked.length > 0 && picked.length < CLOUD_MAX_SELECTED &&
+                    typeof pickSerendipityCloudFromDistribution === 'function'
+                ? pickSerendipityCloudFromDistribution(clouds, probabilities, picked.map(cloud => cloud.id), {
+                    enabled: Boolean(ctx && ctx.insightMode),
+                    chance: ctx && ctx.serendipityChance,
+                    random: ctx && ctx.serendipityRandom
+                })
+                : null;
+            if (serendipity) picked.push(serendipity);
+
+            const leaderProbability = primary.length ? primary[0].probability : 0;
+            const residualMass = Math.max(0.05, 1 - leaderProbability - noneProbability);
+            const neighborCut = Math.max(CLOUD_NEIGHBOR_MIN_PROBABILITY, residualMass * CLOUD_RESIDUAL_RATIO);
             const questions = COUNCIL_LENSES.memory.questions(ctx) || {};
             return {
                 clouds: picked,
@@ -225,9 +238,14 @@ const COUNCIL_LENSES = {
                 lateralProbabilities,
                 lateralNoneProbability,
                 lateralEnabled: picked.some(cloud => cloud.role === 'lateral_bridge'),
+                serendipityEnabled: Boolean(ctx && ctx.insightMode),
+                serendipityTriggered: Boolean(serendipity),
                 threshold: CLOUD_SELECT_THRESHOLD,
                 maxSelected: CLOUD_MAX_SELECTED,
-                relativeCut: CLOUD_RELATIVE_CUT,
+                residualMass,
+                neighborCut,
+                residualRatio: CLOUD_RESIDUAL_RATIO,
+                serendipityChance: SERENDIPITY_CHANCE,
                 questions,
                 raw: { clouds: answer, need_lateral: answers.need_lateral || {}, lateral_cloud: lateralAnswer }
             };
@@ -266,8 +284,10 @@ function applyCouncilAnswers(answers, ctx) {
     // Прямая память остаётся доступной, латеральный канал гасим кодом.
     const safety = decisions.safety || COUNCIL_LENSES.safety.fallback;
     if (decisions.memory && (safety.level === 'distress' || safety.level === 'crisis')) {
-        decisions.memory.clouds = decisions.memory.clouds.filter(cloud => cloud.role !== 'lateral_bridge');
+        decisions.memory.clouds = decisions.memory.clouds.filter(cloud =>
+            cloud.role !== 'lateral_bridge' && cloud.role !== 'serendipity');
         decisions.memory.lateralEnabled = false;
+        decisions.memory.serendipityTriggered = false;
         decisions.memory.lateralDisabledReason = 'safety';
     }
 
