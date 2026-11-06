@@ -265,6 +265,8 @@ const CLOUD_RELATIVE_CUT = 0.4;        // тема берётся, если её
 const CLOUD_MAX_SELECTED = 4;
 const CLOUD_NONE_OPTION = 'none';
 const CLOUD_NONE_STOP = 0.5;           // «ничего не нужно» так уверенно — память не поднимаем
+const LATERAL_NEED_THRESHOLD = 0.45;   // ниже — ассоциация будет искусственной
+const LATERAL_CLOUD_MIN_PROBABILITY = 0.15;
 
 // Ключ варианта — позиция в списке: id облака может содержать что угодно,
 // а стабильность ключей нужна только внутри одного запроса.
@@ -306,9 +308,28 @@ function buildCloudQuestions(clouds) {
         clouds: {
             type: 'choice',
             instructions:
-                'Какая тема памяти нужнее всего, чтобы ответить на это сообщение? ' +
+                'Какая тема памяти нужнее всего, чтобы ответить на это сообщение ПО СУЩЕСТВУ? ' +
                 'Выбери одну — распределение покажет и остальные близкие темы. ' +
                 'Если ни одна не нужна, выбери «ничего».',
+            criteria
+        },
+        need_lateral: {
+            type: 'noul',
+            instructions:
+                'Выиграет ли ответ от нетривиальной параллели, метафоры или эмоциональной опоры ' +
+                'из ДРУГОЙ сферы жизни человека? Для простого технического или фактического вопроса ' +
+                'и для тяжёлого кризисного состояния сторонняя ассоциация не нужна.',
+            criteria: {
+                true: 'Человек рефлексирует, застрял, устал или ищет другой взгляд — точная параллель может помочь',
+                false: 'Нужен прямой ответ по задаче либо сторонняя тема будет навязчивой и неуместной'
+            }
+        },
+        lateral_cloud: {
+            type: 'choice',
+            instructions:
+                'Какая ДРУГАЯ тема, не буквальная тема вопроса, лучше всего даст точную аналогию, ' +
+                'контраст или опору на прошлый опыт? Не выбирай тему только потому, что она прямо ' +
+                'относится к сообщению. Если уместной сторонней темы нет, выбери «ничего».',
             criteria
         }
     };
@@ -341,6 +362,28 @@ function pickCloudsFromDistribution(list, probabilities, noneProbability) {
     // Пусто при живых вероятностях — берём лучшую: память в этом приложении
     // важнее строгости порога, иначе ход уйдёт в дорогое сжатие досье.
     return picked.length ? picked : [ranked[0]];
+}
+
+// Латеральная тема — опциональная ассоциация, а не обязательное второе облако.
+// Прямые темы исключаем: если JEV совпал с primary, просто берётся следующий кандидат.
+function pickLateralCloudFromDistribution(list, probabilities, noneProbability, excludedIds, needProbability) {
+    const need = Number(needProbability);
+    if (!Number.isFinite(need) || need < LATERAL_NEED_THRESHOLD) return null;
+    const excluded = new Set(Array.isArray(excludedIds) ? excludedIds : []);
+    const ranked = (Array.isArray(list) ? list : [])
+        .filter(cloud => cloud && !excluded.has(cloud.id))
+        .map(cloud => ({
+            id: cloud.id,
+            name: cloud.name,
+            probability: Number(probabilities && probabilities[cloud.id])
+        }))
+        .filter(item => Number.isFinite(item.probability))
+        .sort((a, b) => b.probability - a.probability);
+    if (!ranked.length) return null;
+    const none = Number.isFinite(Number(noneProbability)) ? Number(noneProbability) : 0;
+    if (none >= CLOUD_NONE_STOP && none >= ranked[0].probability) return null;
+    if (ranked[0].probability < LATERAL_CLOUD_MIN_PROBABILITY) return null;
+    return { ...ranked[0], role: 'lateral_bridge' };
 }
 
 // ==================== ФЛАГИ И НАБЛЮДАЕМОСТЬ ====================

@@ -56,27 +56,67 @@ const clouds = [
 
 const run = (context, expression) => vm.runInContext(expression, context);
 
-test('совет спрашивает всё одним запросом: восемь вопросов из тридцати двух', async () => {
+test('совет спрашивает всё одним запросом: десять вопросов из тридцати двух', async () => {
   const { context, calls } = harness();
 
   const plan = await run(context, `resolveCouncil("Что посоветуешь по работе?", [], { clouds: ${JSON.stringify(clouds)} })`);
 
   assert.equal(calls.length, 1, 'один запрос на весь ход');
   const questions = calls[0].body.questions;
-  assert.equal(Object.keys(questions).length, 8);
+  assert.equal(Object.keys(questions).length, 10);
   for (const name of ['complexity', 'needs_memory', 'archetype', 'ask_question']) {
     assert.equal(questions[name].type !== undefined, true, `маршрут: ${name}`);
   }
   assert.equal(questions.distress.type, 'noul', 'состояние');
   assert.equal(questions.crisis.type, 'noul', 'кризис');
   assert.equal(questions.greeting.type, 'noul', 'приветствие');
-  assert.equal(questions.clouds.type, 'choice', 'темы — один слот');
+  assert.equal(questions.clouds.type, 'choice', 'прямые темы — один слот');
+  assert.equal(questions.need_lateral.type, 'noul', 'уместность ассоциации');
+  assert.equal(questions.lateral_cloud.type, 'choice', 'латеральная тема — отдельный слот');
 
   assert.equal(plan.route.tier, 'medium', 'сложность 4.5 из 10 → средний уровень');
   assert.equal(plan.archetypeKey, 'answer_first');
   assert.equal(plan.shouldAsk, false);
   assert.equal(plan.memory.clouds.length, 1);
   assert.equal(plan.memory.clouds[0].name, 'Работа');
+});
+
+test('латеральная линза добавляет одну другую тему без второго запроса', async () => {
+  const { context, calls } = harness({ answers: {
+    need_lateral: { type: 'noul', noul: 0.8 },
+    lateral_cloud: { type: 'choice', choice: 'cloud_0', probabilities: { cloud_0: 0.7, cloud_1: 0.25, none: 0.05 } },
+  } });
+  const plan = await run(context, `resolveCouncil("Застрял с обучением джуна", [], { clouds: ${JSON.stringify(clouds)} })`);
+  assert.equal(calls.length, 1);
+  assert.equal(plan.memory.clouds.length, 2);
+  assert.equal(plan.memory.clouds[0].role, 'anchor');
+  assert.equal(plan.memory.clouds[1].name, 'Собака', 'primary повторно не поднимается');
+  assert.equal(plan.memory.clouds[1].role, 'lateral_bridge');
+  assert.equal(plan.memory.lateralEnabled, true);
+});
+
+test('решение «прямая память не нужна» не обходится через латеральный канал', async () => {
+  const { context } = harness({ answers: {
+    clouds: { type: 'choice', probabilities: { cloud_0: 0.1, cloud_1: 0.05, none: 0.85 } },
+    need_lateral: { type: 'noul', noul: 0.9 },
+    lateral_cloud: { type: 'choice', probabilities: { cloud_1: 0.9, none: 0.1 } },
+  } });
+  const plan = await run(context, `resolveCouncil("Как дела?", [], { clouds: ${JSON.stringify(clouds)} })`);
+  assert.equal(plan.memory.clouds.length, 0);
+  assert.equal(plan.memory.lateralEnabled, false);
+});
+
+test('distress гасит латеральную ассоциацию кодом, но оставляет прямую память', async () => {
+  const { context } = harness({ answers: {
+    distress: { type: 'noul', noul: 0.9 },
+    need_lateral: { type: 'noul', noul: 0.9 },
+    lateral_cloud: { type: 'choice', probabilities: { cloud_1: 0.9, none: 0.1 } },
+  } });
+  const plan = await run(context, `resolveCouncil("Мне очень плохо", [], { clouds: ${JSON.stringify(clouds)} })`);
+  assert.equal(plan.safety.level, 'distress');
+  assert.equal(plan.memory.clouds.some(cloud => cloud.role === 'lateral_bridge'), false);
+  assert.equal(plan.memory.clouds[0].role, 'anchor');
+  assert.equal(plan.memory.lateralDisabledReason, 'safety');
 });
 
 test('нет тем — нет вопроса о темах, остальные решения живы', async () => {
@@ -107,7 +147,7 @@ test('флаг маршрута выключает только свою лин�
   assert.ok(calls[0].body.questions.distress, 'состояние спрашивается всё равно');
   assert.ok(calls[0].body.questions.clouds, 'темы тоже');
   assert.equal(plan.route, null);
-  assert.equal(Object.keys(calls[0].body.questions).length, 4, 'состояние, кризис, приветствие, темы');
+  assert.equal(Object.keys(calls[0].body.questions).length, 6, 'состояние, приветствие и три вопроса памяти');
 });
 
 test('состояние: кризис важнее дистресса, обычный ход — none', async () => {

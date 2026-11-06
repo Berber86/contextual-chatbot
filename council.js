@@ -33,7 +33,7 @@ const COUNCIL_CONFIG = {
 
 // ==================== ЛИНЗЫ ====================
 // Порядок линз = порядок вопросов в запросе. Он же фиксирует бюджет:
-// 4 + 2 + 1 + 1 = 8 вопросов из 32 доступных.
+// 4 + 2 + 1 + 3 = 10 вопросов из 32 доступных.
 
 // Выключатель маршрута гасит линзу целиком: и вопросы, и разбор ответов.
 // Иначе выключенный флаг всё равно двигал бы выбор модели.
@@ -148,7 +148,7 @@ const COUNCIL_LENSES = {
         fallback: { probability: null, isGreeting: false }
     },
 
-    // Темы памяти: один вопрос choice на все темы (см. jev.js).
+    // Темы памяти: прямой choice, уместность ассоциации и латеральный choice.
     memory: {
         questions(ctx) {
             const clouds = (ctx && Array.isArray(ctx.clouds)) ? ctx.clouds : [];
@@ -164,24 +164,50 @@ const COUNCIL_LENSES = {
             const clamp = typeof clampProbability === 'function' ? clampProbability : value => Number(value);
 
             const probabilities = {};
+            const lateralProbabilities = {};
+            const lateralAnswer = answers.lateral_cloud || {};
+            const rawLateralProbabilities = lateralAnswer.probabilities || {};
             clouds.forEach((cloud, index) => {
-                const probability = clamp(rawProbabilities[cloudOptionKey(index)]);
+                const key = cloudOptionKey(index);
+                const probability = clamp(rawProbabilities[key]);
                 if (probability !== null) probabilities[cloud.id] = probability;
+                const lateralProbability = clamp(rawLateralProbabilities[key]);
+                if (lateralProbability !== null) lateralProbabilities[cloud.id] = lateralProbability;
             });
             const noneProbability = clamp(rawProbabilities[CLOUD_NONE_OPTION]) || 0;
-            const picked = typeof pickCloudsFromDistribution === 'function'
+            const lateralNoneProbability = clamp(rawLateralProbabilities[CLOUD_NONE_OPTION]) || 0;
+            const needLateral = clamp(answers.need_lateral && answers.need_lateral.noul);
+            const primary = typeof pickCloudsFromDistribution === 'function'
                 ? pickCloudsFromDistribution(clouds, probabilities, noneProbability)
                 : [];
+            const picked = primary.map((cloud, index) => ({
+                ...cloud,
+                role: index === 0 ? 'anchor' : 'semantic_neighbor'
+            }));
+            const lateral = typeof pickLateralCloudFromDistribution === 'function'
+                ? pickLateralCloudFromDistribution(
+                    clouds,
+                    lateralProbabilities,
+                    lateralNoneProbability,
+                    picked.map(cloud => cloud.id),
+                    needLateral)
+                : null;
+            if (lateral && picked.length) picked.push(lateral);
 
+            const questions = COUNCIL_LENSES.memory.questions(ctx) || {};
             return {
                 clouds: picked,
                 probabilities,
                 noneProbability,
+                needLateral,
+                lateralProbabilities,
+                lateralNoneProbability,
+                lateralEnabled: picked.some(cloud => cloud.role === 'lateral_bridge'),
                 threshold: CLOUD_SELECT_THRESHOLD,
                 maxSelected: CLOUD_MAX_SELECTED,
                 relativeCut: CLOUD_RELATIVE_CUT,
-                questions: { clouds: (COUNCIL_LENSES.memory.questions(ctx) || {}).clouds },
-                raw: { clouds: answer }
+                questions,
+                raw: { clouds: answer, need_lateral: answers.need_lateral || {}, lateral_cloud: lateralAnswer }
             };
         },
         fallback: null
@@ -212,6 +238,15 @@ function applyCouncilAnswers(answers, ctx) {
         if (typeof lens.apply !== 'function') continue;
         const value = lens.apply(answers || {}, ctx);
         decisions[name] = value === undefined ? (lens.fallback === undefined ? null : lens.fallback) : value;
+    }
+
+    // При тяжёлом состоянии человеку нужна поддержка, а не метафора из хобби.
+    // Прямая память остаётся доступной, латеральный канал гасим кодом.
+    const safety = decisions.safety || COUNCIL_LENSES.safety.fallback;
+    if (decisions.memory && (safety.level === 'distress' || safety.level === 'crisis')) {
+        decisions.memory.clouds = decisions.memory.clouds.filter(cloud => cloud.role !== 'lateral_bridge');
+        decisions.memory.lateralEnabled = false;
+        decisions.memory.lateralDisabledReason = 'safety';
     }
 
     // Решение совета = плоская форма, которую ждёт остальной код.

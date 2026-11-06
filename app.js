@@ -684,6 +684,59 @@ function cloudItemsText(items, render) {
     return slice.map(render).join('\n');
 }
 
+// Сквозная оптика личности не должна исчезать внутри одной темы. Ядро
+// компактное и независимое; записи, уже показанные в поднятом облаке, не дублируем.
+const CORE_MEMORY_CONFIG = {
+    maxTraits: 5,
+    maxHypotheses: 3,
+    maxItemChars: 220,
+    maxStyleChars: 600,
+    maxTotalChars: 1800
+};
+
+function rankCoreMemoryItem(item) {
+    const confidence = CONFIDENCE_LEVELS.indexOf(item && item.confidence);
+    const evidence = item && Array.isArray(item.evidence) ? item.evidence.length : 0;
+    const timestamp = item && Number(item.saidAt || item.timestamp);
+    return {
+        confidence: confidence < 0 ? 0 : confidence,
+        evidence,
+        timestamp: Number.isFinite(timestamp) ? timestamp : 0
+    };
+}
+
+function selectCoreMemoryItems(items, limit, excludedCloudIds) {
+    return (Array.isArray(items) ? items : [])
+        .filter(item => item && !item.superseded && String(item.text || '').trim())
+        .filter(item => !excludedCloudIds.some(id => itemInCloud(item, id)))
+        .map((item, index) => ({ item, index, rank: rankCoreMemoryItem(item) }))
+        .sort((a, b) =>
+            b.rank.confidence - a.rank.confidence ||
+            b.rank.evidence - a.rank.evidence ||
+            b.rank.timestamp - a.rank.timestamp ||
+            a.index - b.index)
+        .slice(0, limit)
+        .map(({ item }) => String(item.text).trim().slice(0, CORE_MEMORY_CONFIG.maxItemChars));
+}
+
+function buildAlwaysOnCoreContext(options = {}) {
+    const excludedCloudIds = Array.isArray(options.excludeCloudIds) ? options.excludeCloudIds : [];
+    const includeHypotheses = options.includeHypotheses !== false;
+    const style = String(localStorage.getItem(STORAGE_KEYS.style) || '').trim()
+        .slice(0, CORE_MEMORY_CONFIG.maxStyleChars);
+    const traits = selectCoreMemoryItems(getTraitsData().traits, CORE_MEMORY_CONFIG.maxTraits, excludedCloudIds);
+    const hypotheses = includeHypotheses
+        ? selectCoreMemoryItems(getHypothesesData().hypotheses, CORE_MEMORY_CONFIG.maxHypotheses, excludedCloudIds)
+        : [];
+    const blocks = [];
+    if (style) blocks.push(`Стиль общения:\n${style}`);
+    if (traits.length) blocks.push(`Сквозные черты:\n${traits.map((text, index) => `${index + 1}. ${text}`).join('\n')}`);
+    if (hypotheses.length) {
+        blocks.push(`Гипотезы (предположения, не факты):\n${hypotheses.map((text, index) => `${index + 1}. ${text}`).join('\n')}`);
+    }
+    return blocks.join('\n\n').slice(0, CORE_MEMORY_CONFIG.maxTotalChars);
+}
+
 // Контекст выбранных облаков для стадии 2. Пустая строка — облаков нет.
 function cloudItemKey(item) {
     return String(item.id || item.text || item.topic || '');
@@ -705,10 +758,13 @@ function countUniqueCloudItems() {
     return seen.size;
 }
 
-function buildCloudContext(cloudIds) {
+function buildCloudContext(cloudIds, selection = []) {
     const order = Array.isArray(cloudIds) ? cloudIds : [];
     if (!order.length) return '';
 
+    const roles = new Map((Array.isArray(selection) ? selection : [])
+        .filter(item => item && item.id)
+        .map(item => [item.id, item.role || 'anchor']));
     const all = getClouds();
     const clouds = order.map(id => all.find(cloud => cloud.id === id)).filter(Boolean);
     if (!clouds.length) return '';
@@ -733,7 +789,8 @@ function buildCloudContext(cloudIds) {
         const parts = [];
 
         const factItems = pickFor(facts, cloud);
-        const factText = cloudItemsText(factItems, (fact, index) => `${index + 1}. ${fact.text} (${fact.confidence})`);
+        const factText = cloudItemsText(factItems, (fact, index) =>
+            `${index + 1}. ${fact.text} (${fact.confidence})${formatMemoryTimeTag(fact)}`);
         markRendered(factItems);
         if (factText) parts.push(`Факты:\n${factText}`);
 
@@ -743,7 +800,11 @@ function buildCloudContext(cloudIds) {
         if (traitText) parts.push(`Черты:\n${traitText}`);
 
         const eventItems = pickFor(events, cloud);
-        const eventText = cloudItemsText(eventItems, (event, index) => `${index + 1}. ${event.text}`);
+        const eventText = cloudItemsText(eventItems, (event, index) => {
+            const date = formatTimelineDateForPrompt(event);
+            const type = event.type ? ` [${event.type}]` : '';
+            return `${index + 1}. ${event.text}${type}${date ? ` [дата события: ${date}]` : ''}${formatMemoryTimeTag(event)}`;
+        });
         markRendered(eventItems);
         if (eventText) parts.push(`Хронология:\n${eventText}`);
 
@@ -765,11 +826,24 @@ function buildCloudContext(cloudIds) {
         markRendered(gapItems);
         if (gapText) parts.push(`Чего бот ещё не знает:\n${gapText}`);
 
-        if (!parts.length) return '';
-        return `=== ОБЛАКО «${cloud.name}» ===\n${parts.join('\n\n')}`;
+        if (!parts.length) return null;
+        return {
+            role: roles.get(cloud.id) || 'anchor',
+            text: `=== ОБЛАКО «${cloud.name}» ===\n${parts.join('\n\n')}`
+        };
     }).filter(Boolean);
 
-    return blocks.join('\n\n');
+    const direct = blocks.filter(block => block.role !== 'lateral_bridge').map(block => block.text);
+    const lateral = blocks.filter(block => block.role === 'lateral_bridge').map(block => block.text);
+    if (!lateral.length) return direct.join('\n\n');
+
+    const sections = [];
+    if (direct.length) sections.push(`=== 🎯 ПРЯМОЙ КОНТЕКСТ ТЕМЫ ===\n${direct.join('\n\n')}`);
+    sections.push(`=== 🌊 БОКОВОЕ ЗРЕНИЕ: ТОЛЬКО ДЛЯ АНАЛОГИЙ ===\n` +
+        `Эти факты НЕ относятся к вопросу напрямую. Не пересказывай их и не переводи разговор на них. ` +
+        `Используй только если из них получается точная и уместная метафора, параллель или опора; иначе полностью игнорируй этот блок.\n` +
+        lateral.join('\n\n'));
+    return sections.join('\n\n');
 }
 
 // Компактный список облаков для промптов извлечения памяти.
@@ -987,6 +1061,26 @@ function formatTimestamp(ts) {
     }
 }
 
+// Время исходного высказывания — неизменяемая опора для относительных дат.
+// lastConfirmedAt/updatedAt описывают более поздние подтверждения и не должны
+// менять смысл слов «завтра», «вчера» или «через неделю» в старой записи.
+function getMemorySaidAt(item) {
+    return item && (item.saidAt || item.timestamp) ? (item.saidAt || item.timestamp) : null;
+}
+
+function formatMemoryTimeTag(item) {
+    const saidAt = getMemorySaidAt(item);
+    if (!saidAt || saidAt === 'legacy_version') return ' [LEGACY]';
+    return ` [recorded: ${formatTimestamp(saidAt)}]`;
+}
+
+function formatTimelineDateForPrompt(event) {
+    const exact = event && event.date && event.date.exact;
+    const description = event && event.date && event.date.description;
+    if (exact && description && exact !== description) return `${exact} (исходная формулировка: «${description}»)`;
+    return exact || description || '';
+}
+
 function generateId(prefix) {
     return `${prefix}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
@@ -1068,7 +1162,7 @@ function getFactsForPrompt(filtered = false) {
     
     return active.map((f, i) => {
         const evidence = f.evidence?.length > 0 ? ` [evidence: "${f.evidence[0]}"]` : '';
-        const timeTag = f.timestamp === 'legacy_version' ? ' [LEGACY]' : ` [recorded: ${formatTimestamp(f.timestamp)}]`;
+        const timeTag = formatMemoryTimeTag(f);
         return `${i + 1}. ${f.text} (${f.confidence})${timeTag}${evidence}`;
     }).join('\n');
 }
@@ -1249,11 +1343,8 @@ function getTimelineForPrompt() {
     }
     
     return active.map(e => {
-        let dateStr = '';
-        if (e.date?.exact) dateStr = e.date.exact;
-        else if (e.date?.description) dateStr = e.date.description;
-        
-        const timeTag = e.timestamp === 'legacy_version' ? ' [LEGACY]' : ` [recorded: ${formatTimestamp(e.timestamp)}]`;
+        let dateStr = formatTimelineDateForPrompt(e);
+        const timeTag = formatMemoryTimeTag(e);
         if (e.ongoing) dateStr += ' (ongoing)';
         if (e.type === 'plan') dateStr += ' [PLAN]';
         
