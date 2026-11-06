@@ -6,6 +6,9 @@ const DEFAULT_MODEL = 'jev-1.14';
 const ALLOWED_TYPES = new Set(['noul', 'choice', 'score']);
 const MAX_QUESTIONS = 32;
 
+// Браузер ждёт 25 с: serverless-функция не должна завершаться раньше него.
+export const maxDuration = 30;
+
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -41,7 +44,7 @@ export default async function handler(req, res) {
 
     const payload = { model, state: body.state, questions };
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 6500);
+    const timer = setTimeout(() => controller.abort(), 20000);
 
     try {
         const started = Date.now();

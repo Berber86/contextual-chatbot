@@ -17,7 +17,7 @@ const SYSTEMONE_CONFIG = {
         solar: { id: 'solar-decide', label: 'Solar Decide', inputPerMillion: 1.00 }
     },
     maxQuestions: 32,
-    timeoutMs: 5000,
+    timeoutMs: 25000,
     cacheSize: 200,
     // Границы трёх уровней сложности (решение пользователя).
     thresholds: { medium: 0.5, hard: 0.8 },
@@ -104,7 +104,11 @@ async function systemOne(state, questions, options = {}) {
 
     const controller = typeof AbortController === 'function' ? new AbortController() : null;
     const timeoutMs = options.timeoutMs || SYSTEMONE_CONFIG.timeoutMs;
-    const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+    let timedOut = false;
+    const timer = controller ? setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+    }, timeoutMs) : null;
 
     systemOneStats.calls++;
     systemOneStats.byProvider[provider] = (systemOneStats.byProvider[provider] || 0) + 1;
@@ -138,6 +142,11 @@ async function systemOne(state, questions, options = {}) {
         return result;
     } catch (error) {
         systemOneStats.errors++;
+        if (timedOut) {
+            const timeoutError = new Error(`systemone timeout: Hydra не ответила за ${Math.round(timeoutMs / 1000)} с`);
+            timeoutError.name = 'TimeoutError';
+            throw timeoutError;
+        }
         throw error;
     } finally {
         if (timer) clearTimeout(timer);
