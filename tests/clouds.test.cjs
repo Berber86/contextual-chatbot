@@ -999,6 +999,7 @@ test('ошибка jev даёт понятную причину, а не мол�
   assert.equal(result, null);
   assert.equal(run(context, 'lastCloudSkip.code'), 'no-council');
   assert.match(run(context, 'lastCloudSkip.text'), /совет не ответил/);
+  assert.match(run(context, 'lastCloudSkip.text'), /systemone HTTP 500/, 'в спойлер попадает реальная причина');
 });
 
 test('спойлер объясняет режим одной темы и причину отказа', () => {

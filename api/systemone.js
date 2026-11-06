@@ -41,7 +41,7 @@ export default async function handler(req, res) {
 
     const payload = { model, state: body.state, questions };
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 4000);
+    const timer = setTimeout(() => controller.abort(), 6500);
 
     try {
         const started = Date.now();

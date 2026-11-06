@@ -16,6 +16,21 @@
 // значениях (без архетипа, без вопроса, без памяти). Это не «старый путь», а
 // отсутствие решения: прежние случайные функции удалены намеренно.
 
+let lastCouncilError = null;
+
+function getLastCouncilError() {
+    return lastCouncilError;
+}
+
+function setLastCouncilError(stage, error) {
+    lastCouncilError = {
+        stage,
+        message: String(error && error.message ? error.message : error || 'неизвестная ошибка').slice(0, 500),
+        at: Date.now()
+    };
+    if (typeof window !== 'undefined') window.lastCouncilError = lastCouncilError;
+}
+
 const COUNCIL_CONFIG = {
     // Пороги живут в коде: пока нет журнала исходов, калибровать нечего.
     thresholds: {
@@ -153,7 +168,8 @@ const COUNCIL_LENSES = {
         questions(ctx) {
             const clouds = (ctx && Array.isArray(ctx.clouds)) ? ctx.clouds : [];
             if (clouds.length < 2 || typeof buildCloudQuestions !== 'function') return {};
-            return buildCloudQuestions(clouds);
+            const questions = buildCloudQuestions(clouds);
+            return ctx && ctx.disableLateral ? { clouds: questions.clouds } : questions;
         },
         apply(answers, ctx) {
             const clouds = (ctx && Array.isArray(ctx.clouds)) ? ctx.clouds : [];
@@ -277,27 +293,56 @@ function buildCouncilState(message, history) {
  */
 async function resolveCouncil(message, history, ctx) {
     const clean = String(message == null ? '' : message).trim();
-    if (!clean || typeof systemOne !== 'function') return null;
-
-    const context = ctx || {};
-    let questions;
-    try {
-        questions = buildCouncilQuestions(context);
-    } catch (error) {
-        console.warn('[Council] вопросы не собрались:', error.message);
+    lastCouncilError = null;
+    if (typeof window !== 'undefined') window.lastCouncilError = null;
+    if (!clean || typeof systemOne !== 'function') {
+        setLastCouncilError('setup', 'System One не загружен или сообщение пустое');
         return null;
     }
-    if (Object.keys(questions).length === 0) return null;
 
-    try {
-        const result = await systemOne(buildCouncilState(clean, history), questions, context.options || {});
-        const decisions = applyCouncilAnswers(result.answers || {}, context);
+    const context = ctx || {};
+    const state = buildCouncilState(clean, history);
+    const request = async requestContext => {
+        const questions = buildCouncilQuestions(requestContext);
+        if (Object.keys(questions).length === 0) return null;
+        const result = await systemOne(state, questions, requestContext.options || {});
+        const decisions = applyCouncilAnswers(result.answers || {}, requestContext);
         decisions.model = result.model || null;
         decisions.questions = questions;
         decisions.raw = result.answers || {};
         return decisions;
+    };
+
+    try {
+        const decisions = await request(context);
+        if (!decisions) {
+            setLastCouncilError('questions', 'не удалось собрать ни одного вопроса');
+        }
+        return decisions;
     } catch (error) {
-        console.warn('[Council] совет не получен, ход пойдёт без решений:', error.message);
+        console.warn('[Council] совет не получен:', error.message);
+        // Латеральная ассоциация — необязательное улучшение. Если запрос с ней
+        // не прошёл, основной маршрут и прямые облака обязаны продолжить работу.
+        if (context.clouds && context.clouds.length >= 2 && !context.disableLateral) {
+            try {
+                const fallbackContext = { ...context, disableLateral: true };
+                const decisions = await request(fallbackContext);
+                if (decisions) {
+                    decisions.degraded = { reason: 'lateral-unavailable', message: error.message };
+                    if (decisions.memory) {
+                        decisions.memory.lateralEnabled = false;
+                        decisions.memory.lateralDisabledReason = 'request-fallback';
+                    }
+                    console.warn('[Council] работает запасной совет без латеральной линзы');
+                    return decisions;
+                }
+            } catch (fallbackError) {
+                setLastCouncilError('request', `основной: ${error.message}; запасной: ${fallbackError.message}`);
+                console.warn('[Council] запасной совет тоже не получен:', fallbackError.message);
+                return null;
+            }
+        }
+        setLastCouncilError('request', error);
         return null;
     }
 }
@@ -305,6 +350,7 @@ async function resolveCouncil(message, history, ctx) {
 // Пороги и линзы видны снаружи: это часть контракта, а не внутренняя деталь.
 if (typeof window !== 'undefined') {
     window.COUNCIL_CONFIG = COUNCIL_CONFIG;
+    window.getLastCouncilError = getLastCouncilError;
     window.resolveCouncil = resolveCouncil;
     window.buildCouncilQuestions = buildCouncilQuestions;
 }
