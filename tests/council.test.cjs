@@ -129,6 +129,47 @@ test('нет тем — нет вопроса о темах, остальные 
   assert.equal(plan.route.tier, 'medium', 'маршрут посчитан');
 });
 
+test('сбой латерального запроса повторяет совет без неё и сохраняет прямые темы', async () => {
+  const { context, calls } = harness({ handler: async (url, init, count) => {
+    if (count === 1) return { ok: false, status: 504, json: async () => ({}), text: async () => 'timeout' };
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        model: 'jev-1.14',
+        answers: {
+          complexity: { type: 'score', score: 4.5 },
+          clouds: { type: 'choice', probabilities: { cloud_0: 0.8, cloud_1: 0.1, none: 0.1 } },
+        },
+        usage: {},
+      }),
+      text: async () => '',
+    };
+  } });
+  const plan = await run(context, `resolveCouncil("Что по работе?", [], { clouds: ${JSON.stringify(clouds)} })`);
+  assert.equal(calls.length, 2, 'один повтор без необязательной линзы');
+  assert.ok(calls[0].body.questions.lateral_cloud);
+  assert.equal(calls[1].body.questions.lateral_cloud, undefined);
+  assert.equal(calls[1].body.questions.need_lateral, undefined);
+  assert.equal(Object.keys(calls[1].body.questions).length, 8);
+  assert.equal(plan.memory.clouds[0].name, 'Работа');
+  assert.equal(plan.memory.lateralEnabled, false);
+  assert.equal(plan.memory.lateralDisabledReason, 'request-fallback');
+  assert.equal(plan.degraded.reason, 'lateral-unavailable');
+});
+
+test('при полном сбое совета причина доступна для спойлера', async () => {
+  const { context } = harness({
+    handler: async () => ({ ok: false, status: 503, json: async () => ({}), text: async () => 'upstream down' }),
+  });
+  const plan = await run(context, `resolveCouncil("тест", [], { clouds: ${JSON.stringify(clouds)} })`);
+  assert.equal(plan, null);
+  const error = run(context, 'getLastCouncilError()');
+  assert.equal(error.stage, 'request');
+  assert.match(error.message, /основной: systemone HTTP 503/);
+  assert.match(error.message, /запасной: systemone HTTP 503/);
+});
+
 test('без сети совет молчит и не роняет ход', async () => {
   const { context } = harness({
     handler: async () => ({ ok: false, status: 503, json: async () => ({}), text: async () => 'down' }),

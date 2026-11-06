@@ -2685,7 +2685,12 @@ function isCouncilAvailable() {
 }
 
 async function resolveTurnCouncil(userMessage, history) {
-    if (!isCouncilAvailable()) return null;
+    if (!isCouncilAvailable()) {
+        if (typeof setLastCouncilError === 'function') {
+            setLastCouncilError('availability', 'совет недоступен в текущем режиме провайдера');
+        }
+        return null;
+    }
     const clouds = typeof getCloudsForSelection === 'function'
         ? Array.from(getCloudsForSelection())
         : [];
@@ -3085,8 +3090,10 @@ async function prepareCloudContext(userMessage, history, timeInfo, council) {
         : council;
 
     if (!plan) {
-        return noteCloudSkip('no-council', 'совет не ответил — темы не выбирались',
-            { themes: totalThemes, withContent: clouds.length });
+        const councilError = typeof getLastCouncilError === 'function' ? getLastCouncilError() : null;
+        const reason = councilError && councilError.message ? `: ${councilError.message}` : '';
+        return noteCloudSkip('no-council', `совет не ответил — темы не выбирались${reason}`,
+            { themes: totalThemes, withContent: clouds.length, councilError });
     }
 
     if (plan.greeting && plan.greeting.isGreeting) {

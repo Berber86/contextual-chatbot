@@ -17,7 +17,7 @@ const SYSTEMONE_CONFIG = {
         solar: { id: 'solar-decide', label: 'Solar Decide', inputPerMillion: 1.00 }
     },
     maxQuestions: 32,
-    timeoutMs: 2500,
+    timeoutMs: 5000,
     cacheSize: 200,
     // Границы трёх уровней сложности (решение пользователя).
     thresholds: { medium: 0.5, hard: 0.8 },
