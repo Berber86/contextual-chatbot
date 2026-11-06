@@ -24,7 +24,7 @@ function harness({ answers, handler, storage = {} } = {}) {
     distress: { type: 'noul', noul: 0.1 },
     crisis: { type: 'noul', noul: 0.02 },
     greeting: { type: 'noul', noul: 0.08 },
-    clouds: { type: 'choice', choice: 'cloud_0', probabilities: { cloud_0: 0.6, cloud_1: 0.2, none: 0.2 } },
+    clouds: { type: 'choice', choice: 'cloud_0', probabilities: { cloud_0: 0.6, cloud_1: 0.03, none: 0.2 } },
     ...(answers || {}),
   };
 
@@ -95,6 +95,44 @@ test('латеральная линза добавляет одну другую
   assert.equal(plan.memory.lateralEnabled, true);
 });
 
+test('Serendipity работает только в Insight Mode и добавляет одну отдельную тему', async () => {
+  const answers = {
+    clouds: { type: 'choice', probabilities: { cloud_0: 0.9, cloud_1: 0.03, cloud_2: 0.025, none: 0.045 } },
+  };
+  const enabled = harness({ answers });
+  const plan = await run(enabled.context, `resolveCouncil("Застрял", [], {
+    clouds: ${JSON.stringify(clouds)}, insightMode: true,
+    serendipityRandom: (() => { const rolls = [0.29, 0]; return () => rolls.shift(); })()
+  })`);
+  assert.equal(plan.memory.clouds.length, 2);
+  assert.equal(plan.memory.clouds[0].role, 'anchor');
+  assert.equal(plan.memory.clouds[1].name, 'Собака');
+  assert.equal(plan.memory.clouds[1].role, 'serendipity');
+  assert.equal(plan.memory.serendipityTriggered, true);
+
+  const disabled = harness({ answers });
+  const plain = await run(disabled.context, `resolveCouncil("Застрял", [], {
+    clouds: ${JSON.stringify(clouds)}, insightMode: false, serendipityRandom: () => 0
+  })`);
+  assert.equal(plain.memory.clouds.length, 1);
+  assert.equal(plain.memory.serendipityTriggered, false);
+});
+
+test('Serendipity не дублирует Lateral Lens', async () => {
+  const { context } = harness({ answers: {
+    clouds: { type: 'choice', probabilities: { cloud_0: 0.9, cloud_1: 0.03, cloud_2: 0.025, none: 0.045 } },
+    need_lateral: { type: 'noul', noul: 0.8 },
+    lateral_cloud: { type: 'choice', probabilities: { cloud_0: 0.1, cloud_1: 0.8, cloud_2: 0.05, none: 0.05 } },
+  } });
+  const plan = await run(context, `resolveCouncil("Застрял", [], {
+    clouds: ${JSON.stringify(clouds)}, insightMode: true,
+    serendipityRandom: (() => { const rolls = [0.1, 0]; return () => rolls.shift(); })()
+  })`);
+  assert.equal(plan.memory.clouds.map(cloud => cloud.role).join(','), 'anchor,lateral_bridge,serendipity');
+  assert.equal(plan.memory.clouds[1].name, 'Собака');
+  assert.equal(plan.memory.clouds[2].name, 'Япония', 'уже выбранная латеральная тема исключена');
+});
+
 test('решение «прямая память не нужна» не обходится через латеральный канал', async () => {
   const { context } = harness({ answers: {
     clouds: { type: 'choice', probabilities: { cloud_0: 0.1, cloud_1: 0.05, none: 0.85 } },
@@ -106,15 +144,19 @@ test('решение «прямая память не нужна» не обхо
   assert.equal(plan.memory.lateralEnabled, false);
 });
 
-test('distress гасит латеральную ассоциацию кодом, но оставляет прямую память', async () => {
+test('distress гасит латеральную ассоциацию и Serendipity, но оставляет прямую память', async () => {
   const { context } = harness({ answers: {
     distress: { type: 'noul', noul: 0.9 },
     need_lateral: { type: 'noul', noul: 0.9 },
     lateral_cloud: { type: 'choice', probabilities: { cloud_1: 0.9, none: 0.1 } },
   } });
-  const plan = await run(context, `resolveCouncil("Мне очень плохо", [], { clouds: ${JSON.stringify(clouds)} })`);
+  const plan = await run(context, `resolveCouncil("Мне очень плохо", [], {
+    clouds: ${JSON.stringify(clouds)}, insightMode: true, serendipityRandom: () => 0
+  })`);
   assert.equal(plan.safety.level, 'distress');
   assert.equal(plan.memory.clouds.some(cloud => cloud.role === 'lateral_bridge'), false);
+  assert.equal(plan.memory.clouds.some(cloud => cloud.role === 'serendipity'), false);
+  assert.equal(plan.memory.serendipityTriggered, false);
   assert.equal(plan.memory.clouds[0].role, 'anchor');
   assert.equal(plan.memory.lateralDisabledReason, 'safety');
 });

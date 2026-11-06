@@ -311,10 +311,10 @@ const CLOUD_CONFIG = {
     nameLimit: 40,
     summaryLimit: 200,
     itemsPerCategory: 12,     // сколько записей категории попадёт в промпт на облако
-    // Выбор тем живёт в jev.js: один вопрос choice на все темы, порог 0.10
-    // и «≥40% от лучшей». Здесь остаются только пределы раскладки.
-    selectThreshold: 0.10,    // абсолютный пол вероятности «поднять облако»
-    maxSelected: 4,
+    // Выбор тем живёт в jev.js: Anchor от 0.08, соседи от остаточной массы,
+    // опциональный Lateral и Serendipity. Здесь остаются только пределы раскладки.
+    selectThreshold: 0.08,    // зеркало Anchor-порога из jev.js для внешней диагностики
+    maxSelected: 3,
     miscId: 'cloud_misc',
     miscName: 'Разное',
     // Фоновая стадия разбора («сон»): когда запускается и сколько стоит.
@@ -833,8 +833,9 @@ function buildCloudContext(cloudIds, selection = []) {
         };
     }).filter(Boolean);
 
-    const direct = blocks.filter(block => block.role !== 'lateral_bridge').map(block => block.text);
-    const lateral = blocks.filter(block => block.role === 'lateral_bridge').map(block => block.text);
+    const isLateralRole = role => role === 'lateral_bridge' || role === 'serendipity';
+    const direct = blocks.filter(block => !isLateralRole(block.role)).map(block => block.text);
+    const lateral = blocks.filter(block => isLateralRole(block.role)).map(block => block.text);
     if (!lateral.length) return direct.join('\n\n');
 
     const sections = [];

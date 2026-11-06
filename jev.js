@@ -269,13 +269,17 @@ function normalizeArchetype(answer) {
 // ответ — распределение по темам, из которого видно и «какая нужнее всего»,
 // и «какие ещё близкие». Один слот вместо N, и распределение вместо N
 // независимых бросков, которые надо калибровать по отдельности.
-const CLOUD_SELECT_THRESHOLD = 0.10;   // абсолютный пол: ниже — это шум, а не тема
-const CLOUD_RELATIVE_CUT = 0.4;        // тема берётся, если её вероятность ≥ 40% от лучшей
-const CLOUD_MAX_SELECTED = 4;
+const CLOUD_SELECT_THRESHOLD = 0.08;   // минимальная уверенность для прямого Anchor
+const CLOUD_RESIDUAL_RATIO = 0.28;     // доля соседа в остатке после Anchor и none
+const CLOUD_NEIGHBOR_MIN_PROBABILITY = 0.04;
+const CLOUD_MAX_SELECTED = 3;
 const CLOUD_NONE_OPTION = 'none';
 const CLOUD_NONE_STOP = 0.5;           // «ничего не нужно» так уверенно — память не поднимаем
 const LATERAL_NEED_THRESHOLD = 0.45;   // ниже — ассоциация будет искусственной
 const LATERAL_CLOUD_MIN_PROBABILITY = 0.15;
+const SERENDIPITY_CHANCE = 0.30;
+const SERENDIPITY_MIN_PROBABILITY = 0.025;
+const SERENDIPITY_MAX_PROBABILITY = 0.10;
 
 // Ключ варианта — позиция в списке: id облака может содержать что угодно,
 // а стабильность ключей нужна только внутри одного запроса.
@@ -347,7 +351,8 @@ function buildCloudQuestions(clouds) {
 /**
  * Из распределения по темам — список тем для поднятия.
  * Чистая функция: её и проверяют тесты, без сети.
- * Берём темы не ниже 40% от лучшей (и не ниже абсолютного пола), максимум 4.
+ * Anchor берём от 0.08. Соседей сравниваем с остаточной массой после Anchor и none:
+ * p ≥ max(0.04, (1 − p₁ − none) × 0.28), максимум 3 прямые темы.
  * Если модель уверенно говорит «ничего не нужно» — не берём ни одной.
  */
 function pickCloudsFromDistribution(list, probabilities, noneProbability) {
@@ -365,12 +370,13 @@ function pickCloudsFromDistribution(list, probabilities, noneProbability) {
     const none = Number.isFinite(Number(noneProbability)) ? Number(noneProbability) : 0;
     if (none >= CLOUD_NONE_STOP && none >= ranked[0].probability) return [];
 
-    const cut = Math.max(CLOUD_SELECT_THRESHOLD, ranked[0].probability * CLOUD_RELATIVE_CUT);
-    const picked = ranked.filter(item => item.probability >= cut).slice(0, CLOUD_MAX_SELECTED);
-
-    // Пусто при живых вероятностях — берём лучшую: память в этом приложении
-    // важнее строгости порога, иначе ход уйдёт в дорогое сжатие досье.
-    return picked.length ? picked : [ranked[0]];
+    if (ranked[0].probability < CLOUD_SELECT_THRESHOLD) return [];
+    const residualMass = Math.max(0.05, 1 - ranked[0].probability - none);
+    const neighborCut = Math.max(CLOUD_NEIGHBOR_MIN_PROBABILITY, residualMass * CLOUD_RESIDUAL_RATIO);
+    return [
+        ranked[0],
+        ...ranked.slice(1).filter(item => item.probability >= neighborCut)
+    ].slice(0, CLOUD_MAX_SELECTED);
 }
 
 // Латеральная тема — опциональная ассоциация, а не обязательное второе облако.
@@ -393,6 +399,40 @@ function pickLateralCloudFromDistribution(list, probabilities, noneProbability, 
     if (none >= CLOUD_NONE_STOP && none >= ranked[0].probability) return null;
     if (ranked[0].probability < LATERAL_CLOUD_MIN_PROBABILITY) return null;
     return { ...ranked[0], role: 'lateral_bridge' };
+}
+
+// Управляемая серендипность: только тёплый хвост уже рассчитанного JEV
+// распределения. Нулевые и непредусмотренные моделью темы сюда не попадают.
+function pickSerendipityCloudFromDistribution(list, probabilities, excludedIds, options = {}) {
+    if (options.enabled === false) return null;
+    const random = typeof options.random === 'function' ? options.random : Math.random;
+    const chance = Number.isFinite(Number(options.chance)) ? Number(options.chance) : SERENDIPITY_CHANCE;
+    if (random() >= chance) return null;
+
+    const excluded = new Set(Array.isArray(excludedIds) ? excludedIds : []);
+    const candidates = (Array.isArray(list) ? list : [])
+        .filter(cloud => cloud && !excluded.has(cloud.id))
+        .map(cloud => ({
+            id: cloud.id,
+            name: cloud.name,
+            probability: Number(probabilities && probabilities[cloud.id])
+        }))
+        .filter(item => Number.isFinite(item.probability) &&
+            item.probability >= SERENDIPITY_MIN_PROBABILITY &&
+            item.probability <= SERENDIPITY_MAX_PROBABILITY)
+        .map(item => ({ ...item, weight: Math.sqrt(item.probability) }));
+    if (!candidates.length) return null;
+
+    const total = candidates.reduce((sum, item) => sum + item.weight, 0);
+    let roll = random() * total;
+    for (const item of candidates) {
+        roll -= item.weight;
+        if (roll <= 0) {
+            return { id: item.id, name: item.name, probability: item.probability, role: 'serendipity' };
+        }
+    }
+    const last = candidates[candidates.length - 1];
+    return { id: last.id, name: last.name, probability: last.probability, role: 'serendipity' };
 }
 
 // ==================== ФЛАГИ И НАБЛЮДАЕМОСТЬ ====================
@@ -426,4 +466,6 @@ if (typeof window !== 'undefined') {
     window.setComplexityRoutingEnabled = setComplexityRoutingEnabled;
     window.pickRouteByComplexity = pickRouteByComplexity;
     window.pickCloudsFromDistribution = pickCloudsFromDistribution;
+    window.pickLateralCloudFromDistribution = pickLateralCloudFromDistribution;
+    window.pickSerendipityCloudFromDistribution = pickSerendipityCloudFromDistribution;
 }

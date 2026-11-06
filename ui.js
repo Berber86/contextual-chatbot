@@ -2673,7 +2673,7 @@ async function streamResponse(messages, onChunk, onComplete, options = {}) {
 // ==================== СОВЕТ ВОПРОСОВ ====================
 // Решения хода принимает council.js одним запросом: маршрут, форма ответа,
 // уместность вопроса, тяжесть состояния, приветствие и темы памяти. Второго
-// вызова jev в ходу нет, случайных функций тоже.
+// вызова jev в ходу нет; Serendipity использует уже полученное распределение.
 
 function isCouncilAvailable() {
     if (typeof resolveCouncil !== 'function') return false;
@@ -2695,7 +2695,10 @@ async function resolveTurnCouncil(userMessage, history) {
         ? Array.from(getCloudsForSelection())
         : [];
     const memoryEnabled = typeof isCloudMemoryEnabled === 'function' ? isCloudMemoryEnabled() : true;
-    const council = await resolveCouncil(userMessage, history, { clouds: memoryEnabled ? clouds : [] });
+    const council = await resolveCouncil(userMessage, history, {
+        clouds: memoryEnabled ? clouds : [],
+        insightMode: typeof insightMode === 'boolean' ? insightMode : false
+    });
     if (!council) return null;
 
     logCouncil(council);
@@ -2901,7 +2904,10 @@ function buildJevDebug(contextResult, contextBlock, turnPlan) {
         themes,
         threshold: jev ? jev.threshold : null,
         maxSelected: jev ? jev.maxSelected : null,
-        relativeCut: jev && Number.isFinite(Number(jev.relativeCut)) ? Number(jev.relativeCut) : null,
+        residualMass: jev && Number.isFinite(Number(jev.residualMass)) ? Number(jev.residualMass) : null,
+        neighborCut: jev && Number.isFinite(Number(jev.neighborCut)) ? Number(jev.neighborCut) : null,
+        residualRatio: jev && Number.isFinite(Number(jev.residualRatio)) ? Number(jev.residualRatio) : null,
+        serendipityTriggered: Boolean(jev && jev.serendipityTriggered),
         model: (jev && jev.model) || (turnPlan && turnPlan.model) || null,
         raw: jev ? jev.raw : null,
         questions: jev ? jev.questions : null,
@@ -2950,7 +2956,11 @@ function buildJevSpoiler(debug) {
 
     const thresholdLine = debug.threshold == null
         ? 'порог —'
-        : `порог ${debug.threshold}${debug.relativeCut ? ` · ≥${Math.round(debug.relativeCut * 100)}% от лучшей` : ''} · до ${debug.maxSelected} тем`;
+        : `Anchor ≥${debug.threshold}` +
+          (debug.neighborCut == null ? '' : ` · соседи ≥${debug.neighborCut.toFixed(3)}` +
+            ` (${Math.round((debug.residualRatio || 0) * 100)}% остатка ${debug.residualMass == null ? '—' : debug.residualMass.toFixed(3)})`) +
+          ` · до ${debug.maxSelected} прямых тем` +
+          (debug.serendipityTriggered ? ' · 🎲 Serendipity сработал' : '');
 
     const raw = debug.raw ? escapeHtml(JSON.stringify(debug.raw, null, 2)) : 'облака не выбирались';
     const questions = debug.questions ? escapeHtml(JSON.stringify(debug.questions, null, 2)) : 'вопросы не отправлялись';
@@ -3146,7 +3156,8 @@ async function prepareCloudContext(userMessage, history, timeInfo, council) {
             cloudContext: context,
             cloudIds: ids,
             cloudNames: names,
-            lateralCloudIds: selection.clouds.filter(cloud => cloud.role === 'lateral_bridge').map(cloud => cloud.id),
+            lateralCloudIds: selection.clouds.filter(cloud =>
+                cloud.role === 'lateral_bridge' || cloud.role === 'serendipity').map(cloud => cloud.id),
             source: 'clouds',
             coreContext,
             currentTime: timeInfo,

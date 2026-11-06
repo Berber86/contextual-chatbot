@@ -298,6 +298,12 @@ test('латеральное облако попадает в отдельную
   assert.match(text, /Не пересказывай их/);
   assert.ok(text.indexOf('Работает техлидом') < text.indexOf('🌊'));
   assert.ok(text.indexOf('Учил Бобика') > text.indexOf('🌊'));
+
+  const serendipity = run(context, `buildCloudContext([work.id, dog.id], [
+    { id: work.id, role: 'anchor' }, { id: dog.id, role: 'serendipity' }
+  ])`);
+  assert.ok(serendipity.indexOf('Учил Бобика') > serendipity.indexOf('🌊'),
+    'случайная тема тоже не смешивается с прямым контекстом');
 });
 
 test('список для выбора считает содержимое и не показывает пустые облака', () => {
@@ -371,13 +377,16 @@ test('выбор облаков: прямой и латеральный choice �
   });
   assert.ok(questions.clouds.criteria.none, 'вариант «ничего не нужно» на месте');
 
-  assert.equal(selection.clouds.length, 1, '0.14 меньше 40% от 0.62 — не поднимаем');
+  assert.equal(selection.clouds.length, 2, '0.14 проходит порог 0.053 от остаточной массы');
   assert.equal(selection.clouds[0].name, 'Работа');
-  assert.equal(selection.threshold, 0.1);
+  assert.equal(selection.clouds[1].name, 'Собака');
+  assert.equal(selection.threshold, 0.08);
+  assert.ok(Math.abs(selection.residualMass - 0.19) < 0.000001);
+  assert.ok(Math.abs(selection.neighborCut - 0.0532) < 0.000001);
   assert.equal(Object.keys(selection.probabilities).length, 3, 'вероятности есть у всех тем');
 });
 
-test('выбор облаков: не больше четырёх, самые вероятные первыми', async () => {
+test('выбор облаков: не больше трёх прямых, самые вероятные первыми', async () => {
   const { context } = cloudHarness({}, cloudChoiceAnswer({
     cloud_0: 0.35, cloud_1: 0.3, cloud_2: 0.25, cloud_3: 0.2, cloud_4: 0.1, none: 0.05,
   }));
@@ -387,7 +396,7 @@ test('выбор облаков: не больше четырёх, самые в
   assert.equal(clouds.length, 5);
 
   const selection = await councilMemory(context, 'тест', clouds);
-  assert.equal(selection.clouds.length, 4, 'пятое облако отсекается');
+  assert.equal(selection.clouds.length, 3, 'четвёртое и пятое прямые облака отсекаются');
   for (let index = 1; index < selection.clouds.length; index++) {
     assert.ok(selection.clouds[index - 1].probability >= selection.clouds[index].probability, 'по убыванию');
   }
@@ -415,7 +424,7 @@ test('«ничего не нужно» перебивает темы, а пло�
   assert.equal(none.length, 0, 'модель уверенно сказала «память не нужна»');
 
   const flat = run(context, `pickCloudsFromDistribution(${JSON.stringify(list)}, {a: 0.04, b: 0.04, c: 0.04}, 0.04)`);
-  assert.equal(flat.length, 1, 'шум не превращается в три темы — берём лучшую');
+  assert.equal(flat.length, 0, 'лидер ниже 0.08 — это шум, а не Anchor');
 
   const close = run(context, `pickCloudsFromDistribution(${JSON.stringify(list)}, {a: 0.5, b: 0.3, c: 0.1}, 0.1)`);
   assert.equal(close.map(item => item.id).join(','), 'a,b', 'близкая к лучшей тема тоже поднимается');
@@ -430,6 +439,32 @@ test('латеральный выбор пропускает primary и треб
   assert.equal(picked.role, 'lateral_bridge');
   assert.equal(run(context, `pickLateralCloudFromDistribution(${JSON.stringify(list)}, ${JSON.stringify(probabilities)}, 0.02, ['work'], 0.44)`), null);
   assert.equal(run(context, `pickLateralCloudFromDistribution(${JSON.stringify(list)}, ${JSON.stringify(probabilities)}, 0.9, ['work'], 0.7)`), null);
+});
+
+test('Serendipity выбирает только тёплый хвост с весами √p и не дублирует темы', () => {
+  const { context } = cloudHarness();
+  const list = [{ id: 'work', name: 'Работа' }, { id: 'dog', name: 'Собака' }, { id: 'wood', name: 'Столярка' }];
+  const probabilities = { work: 0.9, dog: 0.04, wood: 0.09 };
+  const picked = run(context, `pickSerendipityCloudFromDistribution(
+    ${JSON.stringify(list)}, ${JSON.stringify(probabilities)}, ['work'],
+    { enabled: true, random: (() => { const rolls = [0.29, 0.4]; return () => rolls.shift(); })() }
+  )`);
+  assert.equal(picked.id, 'dog', 'граница roll=0.4 подтверждает именно веса √p, не линейные p');
+  assert.equal(picked.role, 'serendipity');
+  const last = run(context, `pickSerendipityCloudFromDistribution(
+    ${JSON.stringify(list)}, ${JSON.stringify(probabilities)}, ['work'],
+    { enabled: true, random: (() => { const rolls = [0.1, 0.99]; return () => rolls.shift(); })() }
+  )`);
+  assert.equal(last.id, 'wood', 'хвост распределения тоже доступен');
+  assert.equal(run(context, `pickSerendipityCloudFromDistribution(
+    ${JSON.stringify(list)}, ${JSON.stringify(probabilities)}, [], { enabled: true, random: () => 0.3 }
+  )`), null, 'граница 30% не срабатывает');
+  assert.equal(run(context, `pickSerendipityCloudFromDistribution(
+    ${JSON.stringify(list)}, ${JSON.stringify(probabilities)}, [], { enabled: false, random: () => 0 }
+  )`), null, 'выключенный Insight Mode не тянет хвост');
+  assert.equal(run(context, `pickSerendipityCloudFromDistribution(
+    ${JSON.stringify(list)}, { work: 0, dog: 0.01, wood: 0.2 }, [], { enabled: true, random: () => 0 }
+  )`), null, 'нулевые, холодные и слишком горячие темы не участвуют');
 });
 
 test('выбор облаков: одна тема — не повод для запроса, ошибка — откат', async () => {
@@ -828,9 +863,10 @@ test('jev отдаёт сырой ответ, вопросы и порог дл�
   const clouds = Array.from(run(context, 'getCloudsForSelection()'));
 
   const selection = await councilMemory(context, 'Что по работе?', clouds);
-  assert.equal(selection.threshold, 0.1);
-  assert.equal(selection.maxSelected, 4);
-  assert.equal(selection.relativeCut, 0.4);
+  assert.equal(selection.threshold, 0.08);
+  assert.equal(selection.maxSelected, 3);
+  assert.equal(selection.residualRatio, 0.28);
+  assert.equal(selection.neighborCut, 0.28);
   assert.ok(selection.raw && typeof selection.raw === 'object', 'сырые answers сохранены');
   assert.ok(selection.questions && Object.keys(selection.questions).length === 3, 'вопросы двух контуров тоже сохранены');
 });
@@ -879,7 +915,7 @@ test('спойлер показывает вероятности, сырой о�
 
   const notNeeded = vm.runInContext(`buildJevSpoiler({
     source: 'clouds', notNeeded: true, picked: [], themes: [{ id: 'c1', name: 'Работа', probability: 0.15 }],
-    threshold: 0.1, relativeCut: 0.4, maxSelected: 4, model: 'jev-1.14', block: ''
+    threshold: 0.08, residualRatio: 0.28, maxSelected: 3, model: 'jev-1.14', block: ''
   })`, context);
   assert.match(notNeeded, /Память не нужна — jev так решил/, 'пустой выбор подписан как решение');
   assert.match(notNeeded, /память не поднималась/);
@@ -903,7 +939,7 @@ test('стадия 1 собирает Core, фокус и латеральное
     json: async () => ({
       model: 'jev-1.14',
       answers: {
-        clouds: { type: 'choice', probabilities: { cloud_0: 0.8, cloud_1: 0.1, cloud_2: 0.05, none: 0.05 } },
+        clouds: { type: 'choice', probabilities: { cloud_0: 0.8, cloud_1: 0.02, cloud_2: 0.01, none: 0.17 } },
         need_lateral: { type: 'noul', noul: 0.82 },
         lateral_cloud: { type: 'choice', probabilities: { cloud_0: 0.7, cloud_1: 0.2, cloud_2: 0.08, none: 0.02 } },
       },
