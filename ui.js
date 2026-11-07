@@ -79,7 +79,7 @@ window.toggleSmartMode = function () {
     const cb = document.getElementById('smartModeToggle');
     if (cb) setSmartMode(cb.checked);
     const st = document.getElementById('smartModeStatus');
-    if (st) st.textContent = (cb && cb.checked) ? 'включена платная модель' : 'бесплатная модель';
+    if (st) st.textContent = (cb && cb.checked) ? 'JEV выбирает модель ответа' : 'бесплатная модель';
 };
 // Куда обращаться к Hydra: на проде — серверный прокси (ключ в env), локально — прямой URL + ключ из localStorage
 function hydraRequestInfo() {
@@ -89,37 +89,16 @@ function hydraRequestInfo() {
     return { url: '/api/hydra', key: null };
 }
 
-// Memory provider is independent of chat mode once selected.
+// Память всегда обновляет OpenRouter, независимо от режима ответов и legacy-настроек.
 function getMemoryProvider() {
-    const saved = localStorage.getItem(STORAGE_KEYS.memoryProvider);
-    if (saved === 'hydra' || saved === 'openrouter') return saved;
-    // Preserve the previous behavior on first use, then persist the choice.
-    const provider = isSmartMode() || isFullHydraMode() ? 'hydra' : 'openrouter';
-    localStorage.setItem(STORAGE_KEYS.memoryProvider, provider);
-    return provider;
+    return 'openrouter';
 }
 
-function setMemoryProvider(provider) {
-    if (provider !== 'hydra' && provider !== 'openrouter') return;
-    localStorage.setItem(STORAGE_KEYS.memoryProvider, provider);
-}
-
-// ==================== ВЫБОР ПЛАТНОЙ МОДЕЛИ ====================
-// Переключатель в настройках между моделями провайдера Hydra.
-const CHAT_MODEL_OPTIONS = [
-    { id: 'hydra-gemini-3-pro', label: 'Gemini 3 Pro' },
-    { id: 'glm-5.2', label: 'GLM-5.2' }
-];
+// ==================== МОДЕЛЬ ОТВЕТА ПО УМОЛЧАНИЮ ====================
+// JEV выбирает маршрут; без его решения используется Hydra GLM-5.2.
 function getChatModel() {
-    const m = localStorage.getItem(STORAGE_KEYS.chatModel);
-    return (m && CHAT_MODEL_OPTIONS.some(o => o.id === m)) ? m : CONFIG.model_chat;
+    return CONFIG.model_chat;
 }
-window.selectChatModel = function (id) {
-    if (!CHAT_MODEL_OPTIONS.some(o => o.id === id)) return;
-    localStorage.setItem(STORAGE_KEYS.chatModel, id);
-    document.querySelectorAll('.model-switch .ms-opt').forEach(b => b.classList.toggle('active', b.dataset.model === id));
-    console.log('[Model] Выбрана платная модель:', id);
-};
 
 // Геттеры для получения текущей модели
 function getCurrentOpenRouterModel() {
@@ -1033,10 +1012,15 @@ function toggleAskMeMode() {
 }
 
 function updateAskMeModeUI() {
+    const available = isAskMeModeAvailable();
+    const container = document.getElementById('askMeContainer');
+    if (container) {
+        container.hidden = !available;
+        container.style.display = available ? '' : 'none';
+    }
+
     const toggle = document.getElementById('askMeToggle');
     if (!toggle) return;
-    
-    const available = isAskMeModeAvailable();
     toggle.classList.toggle('disabled', !available);
     toggle.classList.toggle('active', askMeMode && available);
     toggle.disabled = !available;
@@ -2586,10 +2570,10 @@ async function streamHydraSmart(messages, onChunk, onComplete, options = {}) {
     };
     if (info.key) headers['Authorization'] = 'Bearer ' + info.key;
 
-    // Маршрут по сложности может прислать свою модель; иначе — выбор пользователя.
+    // Маршрут по сложности присылает модель; без него — фиксированный резерв GLM-5.2.
     const routedModel = options.route && options.route.model ? options.route.model : null;
     const { signal, route, ...requestOptions } = options;
-    const model = routedModel || getChatModel();
+    const model = routedModel || CONFIG.model_chat;
     const requestBody = { model: model, messages: messages, stream: true, ...requestOptions };
     console.log('[Stream] Умный режим → Hydra (' + (info.url.startsWith('/api') ? 'прокси /api/hydra' : 'direct') + '), model: ' + model);
 
@@ -3874,15 +3858,10 @@ document.addEventListener('keydown', (e) => {
 
 // ==================== API KEY SETTINGS (для всех пользователей) ====================
 function initApiKeySettings() {
-    const memoryProvider = document.getElementById('memoryProvider');
-    if (memoryProvider) memoryProvider.value = getMemoryProvider();
     const cb = document.getElementById('smartModeToggle');
     if (cb) cb.checked = isSmartMode();
     const st = document.getElementById('smartModeStatus');
-    if (st) st.textContent = isSmartMode() ? 'включена платная модель' : 'бесплатная модель';
-    // активная платная модель в переключателе
-    const activeModel = getChatModel();
-    document.querySelectorAll('.model-switch .ms-opt').forEach(b => b.classList.toggle('active', b.dataset.model === activeModel));
+    if (st) st.textContent = isSmartMode() ? 'JEV выбирает модель ответа' : 'бесплатная модель';
     // состояние переключателя эмуляции личности
     updatePersonaModeUI();
 }

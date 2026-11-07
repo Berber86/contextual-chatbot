@@ -87,22 +87,6 @@
         .settings-check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
         .settings-check input { accent-color: #e94560; width: 16px; height: 16px; }
 
-        /* Переключатель платной модели */
-        .model-switch { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-        .model-switch .ms-label { font-size: 13px; color: var(--ui-muted, #9aa3b2); margin-right: 4px; }
-        .model-switch .ms-opt {
-            background: transparent;
-            border: 1px solid var(--ui-border, #2a2f40);
-            color: var(--ui-text, #e7e9ee);
-            border-radius: 20px;
-            padding: 6px 14px;
-            font-size: 13px;
-            cursor: pointer;
-            transition: .15s;
-        }
-        .model-switch .ms-opt:hover { border-color: #e94560; }
-        .model-switch .ms-opt.active { background: rgba(233,69,96,.15); border-color: #e94560; color: #ff8a9b; }
-
         /* Голосовое сообщение в чате: свёрнутый значок с раскрываемым текстом */
         .message.audio-msg .audio-bubble {
             display: inline-flex; align-items: center; gap: 8px;
@@ -206,19 +190,7 @@
                         <input type="checkbox" id="smartModeToggle" onchange="toggleSmartMode()">
                     </label>
                     <div class="settings-hint" id="smartModeStatus"></div>
-                    <label class="settings-item" for="memoryProvider">
-                        <span>Провайдер памяти</span>
-                        <select id="memoryProvider" onchange="setMemoryProvider(this.value)" aria-describedby="memoryProviderHint">
-                            <option value="hydra">Hydra</option>
-                            <option value="openrouter">OpenRouter</option>
-                        </select>
-                    </label>
-                    <div class="settings-hint" id="memoryProviderHint">Кто обновляет память: факты, черты, события, связи, стиль, гипотезы и пробелы. Не меняет модель ответов в чате.</div>
-                    <div class="model-switch">
-                        <span class="ms-label" data-i18n="settingsModel">Модель</span>
-                        <button type="button" class="ms-opt" data-model="hydra-gemini-3-pro" onclick="selectChatModel('hydra-gemini-3-pro')">Gemini 3 Pro</button>
-                        <button type="button" class="ms-opt" data-model="glm-5.2" onclick="selectChatModel('glm-5.2')">GLM-5.2</button>
-                    </div>
+                    <div class="settings-hint">Память обновляет OpenRouter. Модель ответа выбирает JEV; без его решения — Hydra GLM-5.2.</div>
                     <label class="settings-item" for="ttsVoice">
                         <span data-i18n="settingsTtsVoice">Голос озвучки</span>
                         <select id="ttsVoice" onchange="setTTSVoice(this.value)" aria-describedby="ttsVoiceHint">
@@ -305,7 +277,7 @@
             <form class="input-form" onsubmit="sendMessage(event)">
                 <textarea class="message-input" id="messageInput" data-i18n-placeholder="inputPlaceholder" placeholder="Напишите о чём угодно..." aria-label="Сообщение" rows="1" onkeydown="handleKeyDown(event)"></textarea>
                 <div class="composer-toolbar">
-                    <div class="ask-me-container">
+                    <div class="ask-me-container" id="askMeContainer" hidden>
                         <svg class="icon ask-icon" aria-hidden="true"><use href="#i-spark"></use></svg>
                         <span class="ask-me-label" id="askMeLabel" data-i18n="askMeShort">Спроси меня</span>
                         <button type="button" class="ask-me-toggle disabled" id="askMeToggle" onclick="toggleAskMeMode()" role="switch" aria-checked="false" aria-labelledby="askMeLabel" aria-describedby="askMeHint" disabled><span class="ask-me-slider" id="askMeSlider"></span></button>
