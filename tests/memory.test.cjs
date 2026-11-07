@@ -26,7 +26,7 @@ function harness({ local = false, smart = true, key = null } = {}) {
     },
   });
   vm.runInContext(fs.readFileSync('app.js', 'utf8'), context);
-  vm.runInContext(ui.slice(0, ui.indexOf('// ==================== ВЫБОР ПЛАТНОЙ МОДЕЛИ')), context);
+  vm.runInContext(ui.slice(0, ui.indexOf('// ==================== МОДЕЛЬ ОТВЕТА ПО УМОЛЧАНИЮ')), context);
   vm.runInContext(ui.slice(ui.indexOf('async function callAPIOpenRouter('), ui.indexOf('// ==================== SEND MESSAGE')), context);
   vm.runInContext(fs.readFileSync('analytics.js', 'utf8'), context);
   vm.runInContext(`setSmartMode(${smart})`, context);
@@ -36,7 +36,7 @@ function harness({ local = false, smart = true, key = null } = {}) {
   return { context, requests, errors, events };
 }
 
-test('public user without browser keys writes all four memory sections through Hydra proxy', async () => {
+test('public user in Smart Mode writes all four memory sections through OpenRouter proxy', async () => {
   const { context, requests, errors, events } = harness();
   const cases = [
     ['facts', 'facts', { text: 'Живёт в Амстердаме', evidence: ['Я живу в Амстердаме'] }],
@@ -57,7 +57,7 @@ test('public user without browser keys writes all four memory sections through H
   }
   assert.equal(prompts.filter(prompt => prompt.includes('=== ОБЛАКА СЕЙЧАС ===')).length <= 1, true, 'разбор облаков не частит');
   assert.equal(requests.length >= 4, true);
-  assert.ok(requests.every(r => r.url === '/api/hydra' && r.body.model === 'hydra-gemini'));
+  assert.ok(requests.every(r => r.url === '/api/chat' && r.body.model === 'test-free-model'));
   assert.ok(requests.every(r => !r.headers.Authorization));
   assert.equal(events.filter(e => e === 'memory-updated').length, 4);
   assert.deepEqual(errors, []);
@@ -107,24 +107,26 @@ test('OpenRouter priority contains only the requested Nemotron models', () => {
   ]);
 });
 
-for (const provider of ['hydra', 'openrouter']) {
-  test(`memory choice ${provider} overrides chat mode and legacy key`, async () => {
-    const { context, requests } = harness({ smart: provider === 'openrouter', key: 'test-key$$' });
-    context.setMemoryProvider(provider);
-    await context.callMemoryAPIWithRetry('test');
-    assert.equal(requests[0].url, provider === 'hydra' ? '/api/hydra' : '/api/chat');
-    vm.runInContext('setSmartMode(!isSmartMode())', context);
-    assert.equal(context.getMemoryProvider(), provider);
-    context.setMemoryProvider('invalid');
-    assert.equal(context.getMemoryProvider(), provider);
-  });
-}
+test('memory always uses OpenRouter and ignores legacy provider and chat mode', async () => {
+  const { context, requests } = harness({ smart: true, key: 'test-key$$' });
+  vm.runInContext(`localStorage.setItem(STORAGE_KEYS.memoryProvider, 'hydra')`, context);
+  await context.callMemoryAPIWithRetry('test');
+  assert.equal(requests[0].url, '/api/chat');
+  assert.equal(context.getMemoryProvider(), 'openrouter');
+  vm.runInContext('setSmartMode(false)', context);
+  await context.callMemoryAPIWithRetry('test again');
+  assert.equal(requests[1].url, '/api/chat');
+  assert.equal(context.getMemoryProvider(), 'openrouter');
+});
 
-test('memory provider default is persisted, independently of later chat changes', () => {
-  const { context } = harness({ smart: false });
-  assert.equal(context.getMemoryProvider(), 'openrouter');
-  vm.runInContext('setSmartMode(true)', context);
-  assert.equal(context.getMemoryProvider(), 'openrouter');
+test('legacy manual response model cannot replace the GLM-5.2 default', () => {
+  const { context } = harness();
+  vm.runInContext(`localStorage.setItem(STORAGE_KEYS.chatModel, 'hydra-gemini-3-pro')`, context);
+  vm.runInContext(ui.slice(
+    ui.indexOf('function getChatModel()'),
+    ui.indexOf('// Геттеры для получения текущей модели')
+  ), context);
+  assert.equal(context.getChatModel(), 'glm-5.2');
 });
 
 test('all memory extraction and periodic updates use the memory provider wrapper', () => {

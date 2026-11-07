@@ -220,7 +220,7 @@ test('стриминг берёт модель из маршрута, а не и
     console: { log() {}, warn() {}, error() {} },
     window: { location: { href: 'https://example.test/' } },
     hydraRequestInfo: () => ({ url: '/api/hydra', key: null }),
-    getChatModel: () => 'glm-5.2',
+    CONFIG: { model_chat: 'glm-5.2' },
     TextDecoder,
     TextEncoder,
     fetch: async (url, init) => {
@@ -248,7 +248,7 @@ test('стриминг берёт модель из маршрута, а не и
   assert.equal(bodies[0].route, undefined, 'маршрут не утекает в тело запроса');
 
   await run(context, `streamHydraSmart([{ role: 'user', content: 'x' }], () => {}, () => {}, {})`);
-  assert.equal(bodies[1].model, 'glm-5.2', 'без маршрута — прежний выбор пользователя');
+  assert.equal(bodies[1].model, 'glm-5.2', 'без маршрута — фиксированный резерв GLM-5.2');
 });
 
 test('лёгкий маршрут пробует бесплатный OpenRouter первым, платный — только как страховку', () => {
