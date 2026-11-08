@@ -34,6 +34,7 @@ const CONFIG = {
         "/api/chat",
     
     maxRetries: 3,
+    responseIdleTimeoutMs: 45000, // нет SSE-данных 45 с → другой провайдер/модель
     baseSystemPrompt: "You are a ai assistant. Be an attentive and caring conversationalist.",
     styleUpdateInterval: 10,
     hypothesesUpdateInterval: 16,
@@ -131,6 +132,47 @@ function isOverloadError(error) {
         errorStr.includes('busy') ||
         errorStr.includes('503') ||
         errorStr.includes('429');
+}
+
+function isRetryableModelError(error) {
+    if (isOverloadError(error)) return true;
+    const text = String(error && error.message || error || '').toLowerCase();
+    return Boolean(error && error.name === 'TimeoutError') ||
+        /http 5\d\d|failed to fetch|networkerror|network error|fetch failed|timeout|таймаут|нет данных/.test(text);
+}
+
+// Таймаут бездействия, а не на весь ответ: длинная генерация продолжается,
+// пока провайдер регулярно присылает SSE-куски. Внешняя отмена сохраняется.
+function createIdleRequest(externalSignal, provider) {
+    const controller = new AbortController();
+    const timeoutMs = CONFIG.responseIdleTimeoutMs || 45000;
+    let timer = null;
+    let timedOut = false;
+    const forwardAbort = () => controller.abort(externalSignal && externalSignal.reason);
+    if (externalSignal) {
+        if (externalSignal.aborted) forwardAbort();
+        else externalSignal.addEventListener('abort', forwardAbort, { once: true });
+    }
+    return {
+        signal: controller.signal,
+        arm() {
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(() => {
+                timedOut = true;
+                controller.abort();
+            }, timeoutMs);
+        },
+        normalize(error) {
+            if (!timedOut) return error;
+            const timeoutError = new Error(`${provider}: нет данных ${Math.round(timeoutMs / 1000)} с`);
+            timeoutError.name = 'TimeoutError';
+            return timeoutError;
+        },
+        dispose() {
+            if (timer) clearTimeout(timer);
+            if (externalSignal) externalSignal.removeEventListener('abort', forwardAbort);
+        }
+    };
 }
 
 // Одно приветствие на загрузку страницы. Пользователь может начать писать, не дожидаясь его.
@@ -2454,7 +2496,7 @@ async function streamResponseOpenRouter(messages, onChunk, onComplete, options =
             lastError = error;
             console.error(`[OpenRouter Stream] Model ${currentModel} failed:`, error.message);
             
-            if (isOverloadError(error)) {
+            if (isRetryableModelError(error)) {
                 if (!switchToNextModel()) {
                     break;
                 }
@@ -2477,85 +2519,66 @@ async function streamResponseOpenRouterSingle(messages, model, onChunk, onComple
         'HTTP-Referer': window.location.href,
         'X-Title': 'Memory Chatbot'
     };
-    
+
     let apiUrl;
-    
     if (isLocal) {
         apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
         const orKey = localStorage.getItem('my_openrouter_key');
-        if (orKey) {
-            headers['Authorization'] = `Bearer ${orKey}`;
-        }
+        if (orKey) headers['Authorization'] = `Bearer ${orKey}`;
     } else {
         apiUrl = CONFIG.openrouterApiUrl;
     }
-    
+
     const { signal, ...requestOptions } = options;
-    const requestBody = {
-        model: model,
-        messages: messages,
-        stream: true,
-        ...requestOptions
-    };
-    
+    const requestBody = { model, messages, stream: true, ...requestOptions };
+    const idle = createIdleRequest(signal, `OpenRouter ${model}`);
     console.log(`[OpenRouter Stream] Trying model: ${model}`);
-    
-    const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: headers,
-        body: JSON.stringify(requestBody),
-        signal
-    });
-    
-    if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
-    }
-    
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let fullText = '';
-    let buffer = '';
-    
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-        
-        for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed || trimmed === 'data: [DONE]') continue;
-            
-            if (trimmed.startsWith('data: ')) {
+
+    try {
+        idle.arm();
+        const response = await fetch(apiUrl, {
+            method: 'POST', headers, body: JSON.stringify(requestBody), signal: idle.signal
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`HTTP ${response.status}: ${errorText}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let fullText = '';
+        let buffer = '';
+        while (true) {
+            idle.arm();
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed || trimmed === 'data: [DONE]') continue;
+                if (!trimmed.startsWith('data: ')) continue;
                 try {
                     const json = JSON.parse(trimmed.slice(6));
-                    
-                    // Проверяем на ошибку в стриме
-                    if (json.error) {
-                        throw new Error(json.error.message || JSON.stringify(json.error));
-                    }
-                    
+                    if (json.error) throw new Error(json.error.message || JSON.stringify(json.error));
                     const content = json.choices?.[0]?.delta?.content;
                     if (content) {
                         fullText += content;
                         onChunk(fullText);
                     }
                 } catch (e) {
-                    // Если это ошибка парсинга JSON — игнорируем
-                    // Если это ошибка от API — пробрасываем
-                    if (e.message && !e.message.includes('JSON')) {
-                        throw e;
-                    }
+                    if (e.message && !e.message.includes('JSON')) throw e;
                 }
             }
         }
+        onComplete(fullText);
+        return fullText;
+    } catch (error) {
+        throw idle.normalize(error);
+    } finally {
+        idle.dispose();
     }
-    
-    onComplete(fullText);
-    return fullText;
 }
 
 // ==================== STREAMING RESPONSE (умный режим → Hydra через прокси, иначе OpenRouter) ====================
@@ -2574,39 +2597,35 @@ async function streamHydraSmart(messages, onChunk, onComplete, options = {}) {
     const routedModel = options.route && options.route.model ? options.route.model : null;
     const { signal, route, ...requestOptions } = options;
     const model = routedModel || CONFIG.model_chat;
-    const requestBody = { model: model, messages: messages, stream: true, ...requestOptions };
+    const requestBody = { model, messages, stream: true, ...requestOptions };
+    const idle = createIdleRequest(signal, `Hydra ${model}`);
     console.log('[Stream] Умный режим → Hydra (' + (info.url.startsWith('/api') ? 'прокси /api/hydra' : 'direct') + '), model: ' + model);
 
-    const response = await fetch(info.url, {
-        method: 'POST',
-        headers: headers,
-        body: JSON.stringify(requestBody),
-        signal
-    });
+    try {
+        idle.arm();
+        const response = await fetch(info.url, {
+            method: 'POST', headers, body: JSON.stringify(requestBody), signal: idle.signal
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error('HTTP ' + response.status + ': ' + errorText);
+        }
 
-    if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error('HTTP ' + response.status + ': ' + errorText);
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let fullText = '';
-    let buffer = '';
-
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed || trimmed === 'data: [DONE]') continue;
-
-            if (trimmed.startsWith('data: ')) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let fullText = '';
+        let buffer = '';
+        while (true) {
+            idle.arm();
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed || trimmed === 'data: [DONE]') continue;
+                if (!trimmed.startsWith('data: ')) continue;
                 try {
                     const json = JSON.parse(trimmed.slice(6));
                     if (json.error) throw new Error(json.error.message || JSON.stringify(json.error));
@@ -2620,38 +2639,64 @@ async function streamHydraSmart(messages, onChunk, onComplete, options = {}) {
                 }
             }
         }
+        onComplete(fullText);
+        return fullText;
+    } catch (error) {
+        throw idle.normalize(error);
+    } finally {
+        idle.dispose();
     }
-
-    onComplete(fullText);
-    return fullText;
 }
 
 async function streamResponse(messages, onChunk, onComplete, options = {}) {
     const route = options.route || null;
     const smart = isSmartMode() || isFullHydraMode();
+    const openRouter = { provider: 'openrouter', model: null, label: 'OpenRouter' };
+    const glm = { provider: 'hydra', model: CONFIG.model_chat, label: `Hydra ${CONFIG.model_chat}` };
+    const gemini = { provider: 'hydra', model: 'hydra-gemini-pro', label: 'Hydra Gemini Pro' };
 
-    // Лёгкий ход: сначала бесплатная цепочка OpenRouter, платный провайдер — только как страховка.
-    if (route && route.provider === 'openrouter') {
+    // Три разных варианта без повторов. Внутри OpenRouter остаётся его цепочка Nemotron.
+    let attempts;
+    if (!smart) {
+        attempts = [openRouter];
+    } else if (route && route.provider === 'openrouter') {
+        attempts = [openRouter, glm, gemini];
+    } else if (route && route.provider === 'hydra' && route.model === gemini.model) {
+        attempts = [gemini, glm, openRouter];
+    } else {
+        attempts = [glm, openRouter, gemini];
+    }
+
+    const failures = [];
+    for (let index = 0; index < attempts.length; index++) {
+        const attempt = attempts[index];
+        if (options.signal?.aborted) {
+            const abortError = new Error('Aborted');
+            abortError.name = 'AbortError';
+            throw abortError;
+        }
         try {
-            return await streamResponseOpenRouter(messages, onChunk, onComplete, options);
-        } catch (e) {
-            if (options.signal?.aborted || e.name === 'AbortError') throw e;
-            console.warn('[Stream] Лёгкий маршрут (OpenRouter) не сработал, откат на Hydra:', e.message);
-            if (smart) return await streamHydraSmart(messages, onChunk, onComplete, options);
-            throw e;
+            if (attempt.provider === 'openrouter') {
+                const { route: ignoredRoute, ...transportOptions } = options;
+                return await streamResponseOpenRouter(messages, onChunk, onComplete, transportOptions);
+            }
+            return await streamHydraSmart(messages, onChunk, onComplete, {
+                ...options,
+                route: { provider: 'hydra', model: attempt.model }
+            });
+        } catch (error) {
+            if (options.signal?.aborted || error.name === 'AbortError') throw error;
+            failures.push({ provider: attempt.provider, model: attempt.model, message: error.message });
+            const next = attempts[index + 1];
+            if (next) console.warn(`[Stream] ${attempt.label} не сработал, дальше ${next.label}:`, error.message);
         }
     }
 
-    if (smart) {
-        try {
-            return await streamHydraSmart(messages, onChunk, onComplete, options);
-        } catch (e) {
-            if (options.signal?.aborted || e.name === 'AbortError') throw e;
-            console.warn('[Stream] Умный режим (Hydra) недоступен, откат на OpenRouter:', e.message);
-        }
-    }
-    console.log('[Stream] Using OpenRouter with fallback chain');
-    return await streamResponseOpenRouter(messages, onChunk, onComplete, options);
+    const last = failures[failures.length - 1];
+    const error = new Error(`Все варианты ответа недоступны. Последняя ошибка: ${last ? last.message : 'неизвестно'}`);
+    error.name = 'AllModelsFailedError';
+    error.attempts = failures;
+    throw error;
 }
 
 // ==================== СОВЕТ ВОПРОСОВ ====================
@@ -3497,8 +3542,8 @@ async function callAPIOpenRouter(messages, useAnalysisModel = false, tools = nul
             lastError = error;
             console.error(`[OpenRouter] Model ${currentModel} failed:`, error.message);
             
-            // Если это ошибка перегрузки — пробуем следующую модель
-            if (isOverloadError(error)) {
+            // Временный сбой модели/сети — пробуем следующую, не отдавая общий отказ.
+            if (isRetryableModelError(error)) {
                 if (!switchToNextModel()) {
                     // Все модели исчерпаны
                     break;
@@ -3820,7 +3865,16 @@ async function sendMessage(event) {
         if (streamingMsg) streamingMsg.remove();
         
         console.error('[Chat] Error:', error);
-        appendMessage('system', t('chatConnectionError'), false);
+        const reason = String(error && error.message || error || 'неизвестная ошибка').slice(0, 240);
+        if (typeof window !== 'undefined') {
+            window.lastChatError = {
+                message: reason,
+                name: error && error.name || 'Error',
+                attempts: Array.isArray(error && error.attempts) ? error.attempts : [],
+                at: Date.now()
+            };
+        }
+        appendMessage('system', `${t('chatConnectionError')}\nПричина: ${reason}`, false);
         // Keep the failed message available for retry, without overwriting a new draft.
         if (!input.value.trim()) {
             input.value = message;

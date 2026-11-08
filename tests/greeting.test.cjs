@@ -172,7 +172,9 @@ test('an aborted smart-mode stream does not fall back to another provider', asyn
   let fallbackCalls = 0;
   const controller = new AbortController();
   const context = {
+    CONFIG: { model_chat: 'glm-5.2' },
     isSmartMode: () => true,
+    isFullHydraMode: () => false,
     streamHydraSmart: async () => { controller.abort(); throw Object.assign(new Error('aborted'), { name: 'AbortError' }); },
     streamResponseOpenRouter: async () => { fallbackCalls++; },
     console: { log() {}, warn() {} },
@@ -233,9 +235,10 @@ test('streaming providers receive an abort signal without serializing it into th
     let chunkSent = false;
     const context = {
       isLocal: false,
-      CONFIG: { openrouterApiUrl: '/api/chat' },
+      CONFIG: { openrouterApiUrl: '/api/chat', model_chat: 'test-model' },
       window: { location: { href: 'https://example.test/' } },
       hydraRequestInfo: () => ({ url: '/api/hydra', key: null }),
+      createIdleRequest: signal => ({ signal, arm() {}, normalize: error => error, dispose() {} }),
       getChatModel: () => 'test-model',
       TextDecoder,
       console: { log() {} },

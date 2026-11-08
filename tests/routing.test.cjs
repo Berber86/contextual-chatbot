@@ -221,6 +221,7 @@ test('стриминг берёт модель из маршрута, а не и
     window: { location: { href: 'https://example.test/' } },
     hydraRequestInfo: () => ({ url: '/api/hydra', key: null }),
     CONFIG: { model_chat: 'glm-5.2' },
+    createIdleRequest: signal => ({ signal, arm() {}, normalize: error => error, dispose() {} }),
     TextDecoder,
     TextEncoder,
     fetch: async (url, init) => {
