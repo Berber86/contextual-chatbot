@@ -172,7 +172,8 @@ test('failed sends restore the message without counting it or overwriting a new 
     assert.equal(counted, false);
     assert.equal(context.isProcessing, false);
     assert.equal(messages[1][0], 'system');
-    assert.equal(messages[1][1], 'chatConnectionError');
+    assert.match(messages[1][1], /chatConnectionError\nПричина: offline/);
+    assert.equal(context.window.lastChatError.message, 'offline');
     assert.equal(messages[1][2], false);
   }
 });
